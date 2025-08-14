@@ -22,26 +22,6 @@ export function Navigation() {
                 Registro
               </Button>
             </Link>
-            <Link href="/estadisticas">
-              <Button
-                variant={pathname === "/estadisticas" ? "default" : "ghost"}
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <BarChart3 className="w-4 h-4" />
-                Estadísticas
-              </Button>
-            </Link>
-            <Link href="/graficas">
-              <Button
-                variant={pathname === "/graficas" ? "default" : "ghost"}
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <FileText className="w-4 h-4" />
-                Gráficas
-              </Button>
-            </Link>
           </div>
         </div>
       </div>
