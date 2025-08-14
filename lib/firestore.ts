@@ -10,8 +10,8 @@ import type {
 } from "./types"
 
 // Collections
-const USERS_COLLECTION = "users"
-const ATTENDANCE_COLLECTION = "attendance"
+const USERS_COLLECTION = "user_profiles"
+const ATTENDANCE_COLLECTION = "attendance_records"
 
 // Convert Firestore timestamp to Date
 function timestampToDate(timestamp: any): Date {
@@ -25,31 +25,47 @@ function timestampToDate(timestamp: any): Date {
 export async function saveUserProfile(
   profile: Omit<UserProfile, "id" | "createdAt" | "lastAttendance">,
 ): Promise<string> {
-  const userProfile: Omit<UserProfile, "id"> = {
-    ...profile,
-    createdAt: new Date(),
-    lastAttendance: new Date(),
-  }
+  try {
+    const userProfile: Omit<UserProfile, "id"> = {
+      ...profile,
+      createdAt: new Date(),
+      lastAttendance: new Date(),
+    }
 
-  const docRef = await addDoc(collection(db, USERS_COLLECTION), userProfile)
-  return docRef.id
+    console.log("Attempting to save user profile to collection:", USERS_COLLECTION)
+    const docRef = await addDoc(collection(db, USERS_COLLECTION), userProfile)
+    console.log("User profile saved with ID:", docRef.id)
+    return docRef.id
+  } catch (error) {
+    console.error("Error in saveUserProfile:", error)
+    throw error
+  }
 }
 
 // Save attendance entry
 export async function saveAttendanceEntry(userId: string, grupoCultural: string): Promise<void> {
-  const attendanceEntry: Omit<AttendanceEntry, "id"> = {
-    userId,
-    grupoCultural,
-    timestamp: new Date(),
+  try {
+    const attendanceEntry: Omit<AttendanceEntry, "id"> = {
+      userId,
+      grupoCultural,
+      timestamp: new Date(),
+    }
+
+    console.log("Attempting to save attendance entry to collection:", ATTENDANCE_COLLECTION)
+    await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceEntry)
+    console.log("Attendance entry saved successfully")
+
+    // Update user's last attendance
+    console.log("Updating user's last attendance for user:", userId)
+    const userRef = doc(db, USERS_COLLECTION, userId)
+    await updateDoc(userRef, {
+      lastAttendance: new Date(),
+    })
+    console.log("User's last attendance updated successfully")
+  } catch (error) {
+    console.error("Error in saveAttendanceEntry:", error)
+    throw error
   }
-
-  await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceEntry)
-
-  // Update user's last attendance
-  const userRef = doc(db, USERS_COLLECTION, userId)
-  await updateDoc(userRef, {
-    lastAttendance: new Date(),
-  })
 }
 
 // Find similar users for recognition system

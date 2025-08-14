@@ -8,7 +8,7 @@ const firebaseConfig = {
   storageBucket: "cultuaraasistencia.firebasestorage.app",
   messagingSenderId: "431009261783",
   appId: "1:431009261783:web:5f1d305ece22d74873a892",
-  measurementId: "G-MF6JDY016S"
+  measurementId: "G-MF6JDY016S",
 }
 
 // Initialize Firebase
@@ -16,3 +16,4 @@ const app = initializeApp(firebaseConfig)
 
 // Initialize Firestore
 export const db = getFirestore(app)
+
