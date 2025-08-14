@@ -2,12 +2,13 @@ import { initializeApp } from "firebase/app"
 import { getFirestore } from "firebase/firestore"
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAtADGUjuS6ZRrsQZ78QNbpR95w9bxxGHw",
-  authDomain: "culturestock-a5ca9.firebaseapp.com",
-  projectId: "culturestock-a5ca9",
-  storageBucket: "culturestock-a5ca9.firebasestorage.app",
-  messagingSenderId: "746178900246",
-  appId: "1:746178900246:web:912c5ca6b4a381197aa037",
+  apiKey: "AIzaSyAKX6N6CI-tHg5xp_mIxRmXVxNbHcqFP9U",
+  authDomain: "cultuaraasistencia.firebaseapp.com",
+  projectId: "cultuaraasistencia",
+  storageBucket: "cultuaraasistencia.firebasestorage.app",
+  messagingSenderId: "431009261783",
+  appId: "1:431009261783:web:5f1d305ece22d74873a892",
+  measurementId: "G-MF6JDY016S"
 }
 
 // Initialize Firebase
