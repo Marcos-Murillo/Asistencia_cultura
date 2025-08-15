@@ -200,8 +200,8 @@ export default function RegistroAsistencia() {
       if (selectedUser) {
         // Use existing user
         userId = selectedUser.id
+        console.log("[v0] Using existing user:", userId)
       } else {
-        // Create new user profile
         const userProfile = {
           nombres: formData.nombres,
           correo: formData.correo,
@@ -213,16 +213,30 @@ export default function RegistroAsistencia() {
           telefono: formData.telefono,
           sede: formData.sede as any,
           estamento: formData.estamento as any,
-          codigoEstudiante: formData.codigoEstudiante || undefined,
-          facultad: formData.facultad || undefined,
-          programaAcademico: formData.programaAcademico || undefined,
+          // Only include student fields if user is a student and fields have values
+          ...(formData.estamento === "ESTUDIANTE" &&
+            formData.codigoEstudiante && {
+              codigoEstudiante: formData.codigoEstudiante,
+            }),
+          ...(formData.estamento === "ESTUDIANTE" &&
+            formData.facultad && {
+              facultad: formData.facultad,
+            }),
+          ...(formData.estamento === "ESTUDIANTE" &&
+            formData.programaAcademico && {
+              programaAcademico: formData.programaAcademico,
+            }),
         }
 
+        console.log("[v0] Creating new user profile:", userProfile)
         userId = await saveUserProfile(userProfile)
+        console.log("[v0] New user created with ID:", userId)
       }
 
       // Save attendance entry
+      console.log("[v0] Saving attendance entry for user:", userId, "group:", formData.grupoCultural)
       await saveAttendanceEntry(userId, formData.grupoCultural)
+      console.log("[v0] Attendance entry saved successfully")
 
       toast({
         title: "Registro exitoso",
@@ -250,11 +264,24 @@ export default function RegistroAsistencia() {
       setSimilarUsers([])
       setShowSuggestions(false)
       setCurrentStep(1)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving attendance:", error)
+
+      let errorMessage = "Hubo un problema al registrar tu asistencia."
+
+      if (error.code === "permission-denied") {
+        errorMessage = "Error de permisos. Verifica la configuración de Firebase."
+      } else if (error.code === "unavailable") {
+        errorMessage = "Servicio no disponible. Verifica tu conexión a internet."
+      } else if (error.code === "not-found") {
+        errorMessage = "Base de datos no encontrada. Verifica la configuración."
+      } else if (error.message) {
+        errorMessage = `Error: ${error.message}`
+      }
+
       toast({
-        title: "Error",
-        description: "Hubo un problema al registrar tu asistencia. Inténtalo de nuevo.",
+        title: "Error al registrar",
+        description: errorMessage,
         variant: "destructive",
       })
     }
@@ -318,13 +345,13 @@ export default function RegistroAsistencia() {
                     {similarUsers.map((similar) => (
                       <div
                         key={similar.user.id}
-                        className="flex items-center justify-between p-3 bg-white rounded-lg border cursor-pointer hover:bg-gray-50"
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-white rounded-lg border cursor-pointer hover:bg-gray-50 gap-3"
                         onClick={() => handleSelectUser(similar.user)}
                       >
-                        <div>
-                          <p className="font-medium text-gray-900">{similar.user.nombres}</p>
-                          <p className="text-sm text-gray-600">{similar.user.correo}</p>
-                          <div className="flex gap-1 mt-1">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{similar.user.nombres}</p>
+                          <p className="text-sm text-gray-600 truncate">{similar.user.correo}</p>
+                          <div className="flex flex-wrap gap-1 mt-2">
                             {similar.matchingFields.map((field) => (
                               <Badge key={field} variant="secondary" className="text-xs">
                                 {field}
@@ -332,7 +359,9 @@ export default function RegistroAsistencia() {
                             ))}
                           </div>
                         </div>
-                        <Button size="sm">Seleccionar</Button>
+                        <Button size="sm" className="w-full sm:w-auto shrink-0">
+                          Seleccionar
+                        </Button>
                       </div>
                     ))}
                     <Button
