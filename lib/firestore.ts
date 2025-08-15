@@ -21,6 +21,16 @@ function timestampToDate(timestamp: any): Date {
   return new Date(timestamp)
 }
 
+function filterUndefinedValues(obj: any): any {
+  const filtered: any = {}
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      filtered[key] = value
+    }
+  }
+  return filtered
+}
+
 // Save user profile
 export async function saveUserProfile(
   profile: Omit<UserProfile, "id" | "createdAt" | "lastAttendance">,
@@ -32,12 +42,15 @@ export async function saveUserProfile(
       lastAttendance: new Date(),
     }
 
-    console.log("Attempting to save user profile to collection:", USERS_COLLECTION)
-    const docRef = await addDoc(collection(db, USERS_COLLECTION), userProfile)
-    console.log("User profile saved with ID:", docRef.id)
+    const cleanProfile = filterUndefinedValues(userProfile)
+
+    console.log("[v0] Attempting to save user profile to collection:", USERS_COLLECTION)
+    console.log("[v0] Profile data:", cleanProfile)
+    const docRef = await addDoc(collection(db, USERS_COLLECTION), cleanProfile)
+    console.log("[v0] User profile saved with ID:", docRef.id)
     return docRef.id
   } catch (error) {
-    console.error("Error in saveUserProfile:", error)
+    console.error("[v0] Error in saveUserProfile:", error)
     throw error
   }
 }
@@ -51,19 +64,20 @@ export async function saveAttendanceEntry(userId: string, grupoCultural: string)
       timestamp: new Date(),
     }
 
-    console.log("Attempting to save attendance entry to collection:", ATTENDANCE_COLLECTION)
+    console.log("[v0] Attempting to save attendance entry to collection:", ATTENDANCE_COLLECTION)
+    console.log("[v0] Attendance data:", attendanceEntry)
     await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceEntry)
-    console.log("Attendance entry saved successfully")
+    console.log("[v0] Attendance entry saved successfully")
 
     // Update user's last attendance
-    console.log("Updating user's last attendance for user:", userId)
+    console.log("[v0] Updating user's last attendance for user:", userId)
     const userRef = doc(db, USERS_COLLECTION, userId)
     await updateDoc(userRef, {
       lastAttendance: new Date(),
     })
-    console.log("User's last attendance updated successfully")
+    console.log("[v0] User's last attendance updated successfully")
   } catch (error) {
-    console.error("Error in saveAttendanceEntry:", error)
+    console.error("[v0] Error in saveAttendanceEntry:", error)
     throw error
   }
 }
