@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { BarChart3, FileText, Home } from "lucide-react"
+import { BarChart3, FileText, Home, Users } from "lucide-react"
 
 export function Navigation() {
   const pathname = usePathname()
@@ -20,6 +20,36 @@ export function Navigation() {
               <Button variant={pathname === "/" ? "default" : "ghost"} size="sm" className="flex items-center gap-2">
                 <Home className="w-4 h-4" />
                 Registro
+              </Button>
+            </Link>
+            <Link href="/estadisticas">
+              <Button
+                variant={pathname === "/estadisticas" ? "default" : "ghost"}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <BarChart3 className="w-4 h-4" />
+                Estadísticas
+              </Button>
+            </Link>
+            <Link href="/graficas">
+              <Button
+                variant={pathname === "/graficas" ? "default" : "ghost"}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <FileText className="w-4 h-4" />
+                Gráficas
+              </Button>
+            </Link>
+            <Link href="/usuarios">
+              <Button
+                variant={pathname === "/usuarios" ? "default" : "ghost"}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <Users className="w-4 h-4" />
+                Usuarios
               </Button>
             </Link>
           </div>

@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, doc, getDoc, updateDoc } from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, where } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
   AttendanceRecord,
@@ -344,6 +344,59 @@ export async function getGroupTracking(): Promise<GroupTracking[]> {
   })
 
   return result.sort((a, b) => a.groupName.localeCompare(b.groupName))
+}
+
+// Delete user function
+export async function deleteUser(userId: string): Promise<void> {
+  try {
+    console.log("[v0] Starting user deletion process for user:", userId)
+
+    // First, delete all attendance records for this user
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    const attendanceQuery = query(attendanceRef, where("userId", "==", userId))
+    const attendanceSnapshot = await getDocs(attendanceQuery)
+
+    console.log("[v0] Found", attendanceSnapshot.size, "attendance records to delete")
+
+    // Delete all attendance records
+    const deletePromises = attendanceSnapshot.docs.map((doc) => deleteDoc(doc.ref))
+    await Promise.all(deletePromises)
+
+    console.log("[v0] All attendance records deleted")
+
+    // Then delete the user profile
+    const userRef = doc(db, USERS_COLLECTION, userId)
+    await deleteDoc(userRef)
+
+    console.log("[v0] User profile deleted successfully")
+  } catch (error) {
+    console.error("[v0] Error deleting user:", error)
+    throw error
+  }
+}
+
+// Get all users function
+export async function getAllUsers(): Promise<UserProfile[]> {
+  try {
+    const usersRef = collection(db, USERS_COLLECTION)
+    const snapshot = await getDocs(usersRef)
+
+    const users: UserProfile[] = []
+    snapshot.forEach((doc) => {
+      const userData = doc.data()
+      users.push({
+        id: doc.id,
+        ...userData,
+        createdAt: timestampToDate(userData.createdAt),
+        lastAttendance: timestampToDate(userData.lastAttendance),
+      } as UserProfile)
+    })
+
+    return users.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  } catch (error) {
+    console.error("[v0] Error getting all users:", error)
+    throw error
+  }
 }
 
 export function generateId(): string {
