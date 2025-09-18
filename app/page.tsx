@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { Navigation } from "@/components/navigation"
+import { NavigationUser } from "@/components/navigation-user"
 import { User, CheckCircle, AlertCircle } from "lucide-react"
 import {
   GENEROS,
@@ -637,7 +637,7 @@ export default function RegistroAsistencia() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Navigation />
+      <NavigationUser/>
       <div className="p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
