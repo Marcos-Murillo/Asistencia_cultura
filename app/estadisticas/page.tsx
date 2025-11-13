@@ -4,19 +4,23 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Users, GraduationCap, Building2, Calendar, User } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Users, GraduationCap, Building2, Calendar, User, FileText } from "lucide-react"
 import Link from "next/link"
 import { Navigation } from "@/components/navigation"
 import { GroupTrackingComponent } from "@/components/group-traking"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
 import { generateStats, getAttendanceRecords } from "@/lib/storage"
 import type { AttendanceStats, AttendanceRecord } from "@/lib/types"
+import { generatePDFReport } from "@/lib/pdf-generator"
 
 export default function EstadisticasPage() {
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([])
   const [filteredRecords, setFilteredRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasActiveFilters, setHasActiveFilters] = useState(false)
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -37,29 +41,49 @@ export default function EstadisticasPage() {
 
   const handleFiltersChange = (filters: FilterState) => {
     let filtered = allRecords
+    let isFiltering = false
 
     // Filtrar por nombre
     if (filters.nombre.trim()) {
       const searchTerm = filters.nombre.toLowerCase().trim()
       filtered = filtered.filter((record) => `${record.nombres}`.toLowerCase().includes(searchTerm))
+      isFiltering = true
     }
 
     // Filtrar por facultad
     if (filters.facultad && filters.facultad !== "defaultFacultad") {
       filtered = filtered.filter((record) => record.facultad === filters.facultad)
+      isFiltering = true
     }
 
     // Filtrar por programa
     if (filters.programa && filters.programa !== "defaultPrograma") {
       filtered = filtered.filter((record) => record.programaAcademico === filters.programa)
+      isFiltering = true
     }
 
     // Filtrar por grupo cultural
     if (filters.grupoCultural && filters.grupoCultural !== "defaultGrupoCultural") {
       filtered = filtered.filter((record) => record.grupoCultural === filters.grupoCultural)
+      isFiltering = true
     }
 
     setFilteredRecords(filtered)
+    setHasActiveFilters(isFiltering)
+  }
+
+  const handleGeneratePDF = async () => {
+    if (!stats) return
+
+    setIsGeneratingPDF(true)
+    try {
+      await generatePDFReport(stats)
+    } catch (error) {
+      console.error("[v0] Error generating PDF:", error)
+      alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
+    } finally {
+      setIsGeneratingPDF(false)
+    }
   }
 
   if (loading) {
@@ -98,107 +122,126 @@ export default function EstadisticasPage() {
       <div className="p-4">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Estadísticas de Asistencia</h1>
               <p className="text-gray-600 mt-1">Grupos Culturales - Universidad del Valle</p>
             </div>
-            <Link href="/">
-              <button className="flex items-center gap-2 bg-transparent border border-gray-300 rounded px-4 py-2 text-gray-600 hover:bg-gray-100">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="w-4 h-4"
-                >
-                  <path d="M19 12H5M12 19l-7-7m7 7l7-7"></path>
-                </svg>
-                Volver al Registro
-              </button>
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button
+                onClick={handleGeneratePDF}
+                disabled={isGeneratingPDF}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isGeneratingPDF ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Generando...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4" />
+                    Generar Reporte PDF
+                  </>
+                )}
+              </Button>
+              <Link href="/" className="w-full sm:w-auto">
+                <button className="w-full flex items-center justify-center gap-2 bg-transparent border border-gray-300 rounded px-4 py-2 text-gray-600 hover:bg-gray-100">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="w-4 h-4"
+                  >
+                    <path d="M19 12H5M12 19l-7-7m7 7l7-7"></path>
+                  </svg>
+                  Volver al Registro
+                </button>
+              </Link>
+            </div>
           </div>
 
           <AttendanceFilters onFiltersChange={handleFiltersChange} attendanceCount={filteredRecords.length} />
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Lista de Asistencias
-              </CardTitle>
-              <CardDescription>
-                {filteredRecords.length === allRecords.length
-                  ? `Mostrando todas las ${filteredRecords.length} asistencias registradas`
-                  : `Mostrando ${filteredRecords.length} de ${allRecords.length} asistencias`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {filteredRecords.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nombre Completo</TableHead>
-                        <TableHead>Género</TableHead>
-                        <TableHead>Estamento</TableHead>
-                        <TableHead>Facultad</TableHead>
-                        <TableHead>Programa</TableHead>
-                        <TableHead>Grupo Cultural</TableHead>
-                        <TableHead>Fecha</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRecords
-                        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                        .map((record) => (
-                          <TableRow key={record.id}>
-                            <TableCell className="font-medium">
-                              {record.nombres} 
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  record.genero === "MUJER"
-                                    ? "bg-pink-100 text-pink-800"
-                                    : record.genero === "HOMBRE"
-                                      ? "bg-blue-100 text-blue-800"
-                                      : "bg-purple-100 text-purple-800"
-                                }
-                              >
-                                {record.genero}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="secondary">{record.estamento}</Badge>
-                            </TableCell>
-                            <TableCell className="max-w-[200px] truncate">{record.facultad || "N/A"}</TableCell>
-                            <TableCell className="max-w-[250px] truncate">
-                              {record.programaAcademico || "N/A"}
-                            </TableCell>
-                            <TableCell className="max-w-[300px] truncate">{record.grupoCultural}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1 text-sm text-gray-600">
-                                <Calendar className="w-4 h-4" />
-                                {new Date(record.timestamp).toLocaleDateString("es-CO")}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No se encontraron registros con los filtros aplicados
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {hasActiveFilters && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="w-5 h-5" />
+                  Lista de Asistencias
+                </CardTitle>
+                <CardDescription>
+                  Mostrando {filteredRecords.length} de {allRecords.length} asistencias
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {filteredRecords.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nombre Completo</TableHead>
+                          <TableHead>Género</TableHead>
+                          <TableHead>Estamento</TableHead>
+                          <TableHead>Facultad</TableHead>
+                          <TableHead>Programa</TableHead>
+                          <TableHead>Grupo Cultural</TableHead>
+                          <TableHead>Fecha</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredRecords
+                          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                          .map((record) => (
+                            <TableRow key={record.id}>
+                              <TableCell className="font-medium">
+                                {record.nombres}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    record.genero === "MUJER"
+                                      ? "bg-pink-100 text-pink-800"
+                                      : record.genero === "HOMBRE"
+                                        ? "bg-blue-100 text-blue-800"
+                                        : "bg-purple-100 text-purple-800"
+                                  }
+                                >
+                                  {record.genero}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="secondary">{record.estamento}</Badge>
+                              </TableCell>
+                              <TableCell className="max-w-[200px] truncate">{record.facultad || "N/A"}</TableCell>
+                              <TableCell className="max-w-[250px] truncate">
+                                {record.programaAcademico || "N/A"}
+                              </TableCell>
+                              <TableCell className="max-w-[300px] truncate">{record.grupoCultural}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 text-sm text-gray-600">
+                                  <Calendar className="w-4 h-4" />
+                                  {new Date(record.timestamp).toLocaleDateString("es-CO")}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No se encontraron registros con los filtros aplicados
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
