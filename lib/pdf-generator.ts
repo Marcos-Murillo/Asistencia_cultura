@@ -1,8 +1,13 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import type { AttendanceStats, EventStats } from "./types"
+import type { AttendanceStats, EventStats, AttendanceRecord, EventAttendanceEntry, UserProfile } from "./types"
 
-export async function generatePDFReport(stats: AttendanceStats, eventStats?: EventStats) {
+export async function generatePDFReport(
+  stats: AttendanceStats,
+  attendanceRecords: AttendanceRecord[],
+  eventRecords: { entry: EventAttendanceEntry; user: UserProfile }[],
+  eventStats?: EventStats,
+) {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -33,10 +38,24 @@ export async function generatePDFReport(stats: AttendanceStats, eventStats?: Eve
   const totalEventos = eventStats?.totalParticipants || 0
   const totalGeneral = totalGruposCulturales + totalEventos
 
+  const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
+    .size
+
+  const uniqueUsersInEvents = new Set(
+    eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
+  ).size
+
+  // Combinar usuarios de grupos y eventos
+  const allUniqueUsers = new Set([
+    ...attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`),
+    ...eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
+  ]).size
+
   const summaryData = [
+    ["Total de usuarios", allUniqueUsers.toString()],
     ["Participaciones en Grupos Culturales", totalGruposCulturales.toString()],
     ["Participaciones en Eventos", totalEventos.toString()],
-    ["TOTAL GENERAL", totalGeneral.toString()],
+    ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
 
   autoTable(doc, {
@@ -51,6 +70,47 @@ export async function generatePDFReport(stats: AttendanceStats, eventStats?: Eve
   })
 
   currentY = (doc as any).lastAutoTable.finalY + 20
+
+  doc.setFontSize(14)
+  doc.setFont("helvetica", "bold")
+  doc.text("USUARIOS ÚNICOS POR GRUPO CULTURAL", 14, currentY)
+  currentY += 7
+
+  const usersByGroup: Record<string, Set<string>> = {}
+
+  attendanceRecords.forEach((record) => {
+    if (!usersByGroup[record.grupoCultural]) {
+      usersByGroup[record.grupoCultural] = new Set()
+    }
+    usersByGroup[record.grupoCultural].add(`${record.nombres}|${record.numeroDocumento}`)
+  })
+
+  const uniqueUsersByGroup = Object.entries(usersByGroup)
+    .map(([group, users]) => {
+      const uniqueCount = users.size
+      const totalParticipations = stats.byCulturalGroup[group] || 0
+      return [group, uniqueCount, totalParticipations]
+    })
+    .sort((a, b) => (b[2] as number) - (a[2] as number))
+    .map(([group, uniqueCount, totalParticipations]) => [group, uniqueCount.toString(), totalParticipations.toString()])
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [["Grupo Cultural", "Usuarios Únicos", "Total Participaciones"]],
+    body: uniqueUsersByGroup,
+    theme: "grid",
+    headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
+    margin: { left: 14, right: 14 },
+    styles: { fontSize: 8 },
+  })
+
+  currentY = (doc as any).lastAutoTable.finalY + 20
+
+  // Verificar si necesita nueva página
+  if (currentY > pageHeight - 60) {
+    doc.addPage()
+    currentY = 20
+  }
 
   // Agregar separador visual
   doc.setDrawColor(200, 200, 200)
@@ -251,6 +311,8 @@ export async function generatePDFReport(stats: AttendanceStats, eventStats?: Eve
     doc.text(`${facultyName}: ${data.total}`, 120, currentY + 4)
     currentY += 9
   })
+
+  currentY += 15
 
   // Nueva página para programas
   doc.addPage()

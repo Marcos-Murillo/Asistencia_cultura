@@ -1,344 +1,279 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useEffect, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Search, Users, Trash2, Calendar, Mail, Phone, User, AlertTriangle, CheckCircle } from "lucide-react"
 import { Navigation } from "@/components/navigation"
-import { createEvent, getAllEvents, deleteEvent, toggleEventActive } from "@/lib/firestore"
-import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3 } from "lucide-react"
-import Link from "next/link"
+import DeleteUserDialog from "@/components/delete-user-dialog"
+import { getAllUsers, deleteUser } from "@/lib/firestore"
+import type { UserProfile } from "@/lib/types"
 
-export default function EventosPage() {
-  const [events, setEvents] = useState<Event[]>([])
+export default function UsuariosPage() {
+  const [users, setUsers] = useState<UserProfile[]>([])
+  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
-  const [formData, setFormData] = useState({
-    nombre: "",
-    hora: "",
-    lugar: "",
-    fechaApertura: "",
-    fechaVencimiento: "",
-  })
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState("")
-  const [success, setSuccess] = useState("")
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
-  useEffect(() => {
-    loadEvents()
-  }, [])
-
-  async function loadEvents() {
+  const loadUsers = async () => {
     try {
-      setLoading(true)
-      const eventsData = await getAllEvents()
-      setEvents(eventsData)
+      console.log("[v0] Loading users from Firestore...")
+      const usersList = await getAllUsers()
+      console.log("[v0] Loaded users:", usersList.length)
+      setUsers(usersList)
+      setFilteredUsers(usersList)
+      setError(null)
     } catch (error) {
-      console.error("Error cargando eventos:", error)
+      console.error("[v0] Error loading users:", error)
+      setError("Error al cargar los usuarios. Verifica la conexión a Firebase.")
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError("")
-    setSuccess("")
-    setIsSubmitting(true)
+  useEffect(() => {
+    loadUsers()
+  }, [])
 
-    try {
-      // Validar fechas
-      const fechaApertura = new Date(formData.fechaApertura)
-      const fechaVencimiento = new Date(formData.fechaVencimiento)
-
-      if (fechaVencimiento <= fechaApertura) {
-        setError("La fecha de vencimiento debe ser posterior a la fecha de apertura")
-        setIsSubmitting(false)
-        return
-      }
-
-      await createEvent({
-        nombre: formData.nombre,
-        hora: formData.hora,
-        lugar: formData.lugar,
-        fechaApertura,
-        fechaVencimiento,
-      })
-
-      setSuccess("Evento creado exitosamente")
-      setFormData({
-        nombre: "",
-        hora: "",
-        lugar: "",
-        fechaApertura: "",
-        fechaVencimiento: "",
-      })
-      setDialogOpen(false)
-      await loadEvents()
-    } catch (error) {
-      console.error("Error creando evento:", error)
-      setError("Hubo un problema al crear el evento. Por favor intenta nuevamente.")
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  async function handleDelete(eventId: string) {
-    if (
-      !confirm(
-        "¿Estás seguro de que deseas eliminar este evento? También se eliminarán todos los registros de asistencia asociados.",
+  useEffect(() => {
+    if (searchTerm.trim() === "") {
+      setFilteredUsers(users)
+    } else {
+      const filtered = users.filter(
+        (user) =>
+          `${user.nombres}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.correo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.numeroDocumento.includes(searchTerm),
       )
-    ) {
-      return
+      setFilteredUsers(filtered)
     }
+  }, [searchTerm, users])
 
+  const getInitials = (nombres: string,) => {
+    const firstInitial = nombres.charAt(0).toUpperCase()
+    return `${firstInitial}`
+  }
+
+  const handleDeleteUser = (user: UserProfile) => {
+    setUserToDelete(user)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteUser = async (userId: string) => {
     try {
-      await deleteEvent(eventId)
-      setSuccess("Evento eliminado exitosamente")
-      await loadEvents()
+      await deleteUser(userId)
+      setSuccess("Usuario eliminado exitosamente")
+      await loadUsers() // Reload users after deletion
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000)
     } catch (error) {
-      console.error("Error eliminando evento:", error)
-      setError("Hubo un problema al eliminar el evento")
+      console.error("Error deleting user:", error)
+      throw error // Re-throw to be handled by the dialog
     }
   }
 
-  async function handleToggleActive(eventId: string, currentState: boolean) {
-    try {
-      await toggleEventActive(eventId, !currentState)
-      setSuccess(`Evento ${!currentState ? "activado" : "desactivado"} exitosamente`)
-      await loadEvents()
-    } catch (error) {
-      console.error("Error cambiando estado del evento:", error)
-      setError("Hubo un problema al cambiar el estado del evento")
-    }
-  }
-
-  function isEventActive(event: Event): boolean {
-    const now = new Date()
-    return event.activo && new Date(event.fechaApertura) <= now && new Date(event.fechaVencimiento) >= now
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <Navigation />
+        <div className="p-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-lg text-gray-600">Cargando usuarios...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       <Navigation />
-
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900">Gestión de Eventos</h1>
-            <p className="text-gray-600 mt-2">Crea y administra eventos especiales</p>
+      <div className="p-4">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Gestión de Usuarios</h1>
+              <p className="text-gray-600 mt-1">Administrar perfiles de usuarios registrados</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-sm">
+                <Users className="w-4 h-4 mr-1" />
+                {filteredUsers.length} usuarios
+              </Badge>
+            </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Link href="/eventos/estadisticas">
-              <Button variant="outline" size="lg" className="gap-2 w-full sm:w-auto bg-transparent">
-                <BarChart3 className="h-5 w-5" />
-                Ver Estadísticas
-              </Button>
-            </Link>
+          {error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="lg" className="gap-2 w-full sm:w-auto">
-                  <Plus className="h-5 w-5" />
-                  Crear Evento
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle>Crear Nuevo Evento</DialogTitle>
-                  <DialogDescription>
-                    Complete la información del evento. Los asistentes podrán registrarse entre las fechas
-                    especificadas.
-                  </DialogDescription>
-                </DialogHeader>
+          {success && (
+            <Alert className="border-green-200 bg-green-50">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">{success}</AlertDescription>
+            </Alert>
+          )}
 
-                <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="nombre">Nombre del Evento *</Label>
-                    <Input
-                      id="nombre"
-                      value={formData.nombre}
-                      onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                      placeholder="Ej: Concierto de Fin de Año"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="hora">Hora *</Label>
-                      <Input
-                        id="hora"
-                        type="time"
-                        value={formData.hora}
-                        onChange={(e) => setFormData({ ...formData, hora: e.target.value })}
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="lugar">Lugar *</Label>
-                      <Input
-                        id="lugar"
-                        value={formData.lugar}
-                        onChange={(e) => setFormData({ ...formData, lugar: e.target.value })}
-                        placeholder="Ej: Auditorio Central"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="fechaApertura">Fecha de Apertura *</Label>
-                      <Input
-                        id="fechaApertura"
-                        type="datetime-local"
-                        value={formData.fechaApertura}
-                        onChange={(e) => setFormData({ ...formData, fechaApertura: e.target.value })}
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="fechaVencimiento">Fecha de Vencimiento *</Label>
-                      <Input
-                        id="fechaVencimiento"
-                        type="datetime-local"
-                        value={formData.fechaVencimiento}
-                        onChange={(e) => setFormData({ ...formData, fechaVencimiento: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  {error && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  <div className="flex justify-end gap-3 pt-4">
-                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting}>
-                      {isSubmitting ? "Creando..." : "Crear Evento"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
-
-        {success && (
-          <Alert className="mb-6 bg-green-50 border-green-200">
-            <AlertDescription className="text-green-800">{success}</AlertDescription>
-          </Alert>
-        )}
-
-        {error && !dialogOpen && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {loading ? (
+          {/* Search */}
           <Card>
-            <CardContent className="py-12">
-              <div className="text-center text-gray-500">Cargando eventos...</div>
-            </CardContent>
-          </Card>
-        ) : events.length === 0 ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center">
-                <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No hay eventos creados aún</p>
-                <p className="text-sm text-gray-400 mt-2">Crea tu primer evento usando el botón de arriba</p>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="w-5 h-5" />
+                Buscar Usuarios
+              </CardTitle>
+              <CardDescription>Busca por nombre, correo electrónico o número de documento</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Escribe el nombre, correo o documento del usuario..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
               </div>
             </CardContent>
           </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((event) => {
-              const active = isEventActive(event)
-              return (
-                <Card key={event.id} className={active ? "border-green-500 border-2" : ""}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start gap-2">
-                      <CardTitle className="text-xl">{event.nombre}</CardTitle>
-                      <Badge variant={active ? "default" : "secondary"} className={active ? "bg-green-500" : ""}>
-                        {active ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Clock className="h-4 w-4" />
-                        <span>{event.hora}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <MapPin className="h-4 w-4" />
-                        <span>{event.lugar}</span>
-                      </div>
-                      <div className="flex items-start gap-2 text-gray-600">
-                        <Calendar className="h-4 w-4 mt-0.5" />
-                        <div className="flex flex-col">
-                          <span className="text-xs text-gray-500">Apertura:</span>
-                          <span>{new Date(event.fechaApertura).toLocaleString("es-CO")}</span>
-                          <span className="text-xs text-gray-500 mt-1">Vencimiento:</span>
-                          <span>{new Date(event.fechaVencimiento).toLocaleString("es-CO")}</span>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="flex gap-2 pt-4 border-t">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggleActive(event.id, event.activo)}
-                        className="flex-1"
-                      >
-                        {event.activo ? (
-                          <>
-                            <PowerOff className="h-4 w-4 mr-1" />
-                            Desactivar
-                          </>
-                        ) : (
-                          <>
-                            <Power className="h-4 w-4 mr-1" />
-                            Activar
-                          </>
-                        )}
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(event.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-        )}
+          {/* Users List */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Lista de Usuarios
+              </CardTitle>
+              <CardDescription>
+                {filteredUsers.length === users.length
+                  ? `Mostrando todos los ${filteredUsers.length} usuarios registrados`
+                  : `Mostrando ${filteredUsers.length} de ${users.length} usuarios`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {filteredUsers.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Usuario</TableHead>
+                        <TableHead>Contacto</TableHead>
+                        <TableHead>Documento</TableHead>
+                        <TableHead>Estamento</TableHead>
+                        <TableHead>Facultad</TableHead>
+                        <TableHead>Programa</TableHead>
+                        <TableHead>Última Asistencia</TableHead>
+                        <TableHead className="text-center">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredUsers.map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-10 w-10">
+                                <AvatarFallback className="bg-blue-100 text-blue-700">
+                                  {getInitials(user.nombres)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="font-medium">
+                                  {user.nombres} 
+                                </div>
+                                <div className="flex items-center gap-1 text-sm text-gray-500">
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      user.genero === "MUJER"
+                                        ? "bg-pink-100 text-pink-800"
+                                        : user.genero === "HOMBRE"
+                                          ? "bg-blue-100 text-blue-800"
+                                          : "bg-purple-100 text-purple-800"
+                                    }
+                                  >
+                                    {user.genero}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1 text-sm">
+                                <Mail className="w-3 h-3 text-gray-400" />
+                                <span className="truncate max-w-[200px]">{user.correo}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-sm text-gray-600">
+                                <Phone className="w-3 h-3 text-gray-400" />
+                                {user.telefono}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className="font-medium">{user.numeroDocumento}</div>
+                              <div className="text-gray-500">{user.tipoDocumento}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{user.estamento}</Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate">{user.facultad || "N/A"}</TableCell>
+                          <TableCell className="max-w-[250px] truncate">{user.programaAcademico || "N/A"}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 text-sm text-gray-600">
+                              <Calendar className="w-4 h-4" />
+                              {new Date(user.lastAttendance).toLocaleDateString("es-CO")}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteUser(user)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  {searchTerm
+                    ? "No se encontraron usuarios con ese criterio de búsqueda"
+                    : "No hay usuarios registrados"}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Delete User Dialog */}
+          <DeleteUserDialog
+            user={userToDelete}
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+            onConfirm={confirmDeleteUser}
+          />
+        </div>
       </div>
     </div>
   )

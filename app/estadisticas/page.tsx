@@ -11,8 +11,9 @@ import { Navigation } from "@/components/navigation"
 import { GroupTrackingComponent } from "@/components/group-traking"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
 import { generateStats, getAttendanceRecords } from "@/lib/storage"
-import { getEventStats } from "@/lib/firestore"
-import type { AttendanceStats, AttendanceRecord, EventStats } from "@/lib/types"
+import { getEventAttendanceRecords } from "@/lib/event-storage"
+import { generateEventStats } from "@/lib/event-stats"
+import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile } from "@/lib/types"
 import { generatePDFReport } from "@/lib/pdf-generator"
 
 export default function EstadisticasPage() {
@@ -23,21 +24,27 @@ export default function EstadisticasPage() {
   const [loading, setLoading] = useState(true)
   const [hasActiveFilters, setHasActiveFilters] = useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
+  const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile }[]>([])
 
   useEffect(() => {
     const loadData = async () => {
+      setLoading(true)
       try {
-        const [generatedStats, records, evStats] = await Promise.all([
-          generateStats(),
-          getAttendanceRecords(),
-          getEventStats(),
-        ])
-        setStats(generatedStats)
+        const records = await getAttendanceRecords()
+        const eventRecordsData = await getEventAttendanceRecords()
+
+        setAllAttendanceRecords(records)
+        setAllEventRecords(eventRecordsData)
         setAllRecords(records)
-        setFilteredRecords(records)
-        setEventStats(evStats)
+
+        const calculatedStats = await generateStats()
+        setStats(calculatedStats)
+
+        const calculatedEventStats = generateEventStats(eventRecordsData)
+        setEventStats(calculatedEventStats)
       } catch (error) {
-        console.error("Error loading data:", error)
+        console.error("[v0] Error loading data:", error)
       } finally {
         setLoading(false)
       }
@@ -50,32 +57,39 @@ export default function EstadisticasPage() {
     let filtered = allRecords
     let isFiltering = false
 
-    // Filtrar por nombre
+    const uniqueUsers = new Set<string>()
+    const uniqueRecords: AttendanceRecord[] = []
+
     if (filters.nombre.trim()) {
       const searchTerm = filters.nombre.toLowerCase().trim()
-      filtered = filtered.filter((record) => `${record.nombres}`.toLowerCase().includes(searchTerm))
+      filtered = filtered.filter((record) => record.nombres.toLowerCase().includes(searchTerm))
       isFiltering = true
     }
 
-    // Filtrar por facultad
     if (filters.facultad && filters.facultad !== "defaultFacultad") {
       filtered = filtered.filter((record) => record.facultad === filters.facultad)
       isFiltering = true
     }
 
-    // Filtrar por programa
     if (filters.programa && filters.programa !== "defaultPrograma") {
       filtered = filtered.filter((record) => record.programaAcademico === filters.programa)
       isFiltering = true
     }
 
-    // Filtrar por grupo cultural
     if (filters.grupoCultural && filters.grupoCultural !== "defaultGrupoCultural") {
       filtered = filtered.filter((record) => record.grupoCultural === filters.grupoCultural)
       isFiltering = true
     }
 
-    setFilteredRecords(filtered)
+    filtered.forEach((record) => {
+      const userId = `${record.numeroDocumento}-${record.grupoCultural}`
+      if (!uniqueUsers.has(userId)) {
+        uniqueUsers.add(userId)
+        uniqueRecords.push(record)
+      }
+    })
+
+    setFilteredRecords(uniqueRecords)
     setHasActiveFilters(isFiltering)
   }
 
@@ -84,7 +98,7 @@ export default function EstadisticasPage() {
 
     setIsGeneratingPDF(true)
     try {
-      await generatePDFReport(stats, eventStats || undefined)
+      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, eventStats || undefined)
     } catch (error) {
       console.error("[v0] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
@@ -128,7 +142,6 @@ export default function EstadisticasPage() {
       <Navigation />
       <div className="p-4">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Estadísticas de Asistencia</h1>
@@ -250,7 +263,6 @@ export default function EstadisticasPage() {
             </Card>
           )}
 
-          {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
               <CardContent className="p-6">
@@ -301,7 +313,6 @@ export default function EstadisticasPage() {
             </Card>
           </div>
 
-          {/* Programs Table */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -360,7 +371,6 @@ export default function EstadisticasPage() {
             </CardContent>
           </Card>
 
-          {/* Faculties Table */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -419,7 +429,6 @@ export default function EstadisticasPage() {
             </CardContent>
           </Card>
 
-          {/* Cultural Groups Summary */}
           <Card>
             <CardHeader>
               <CardTitle>Resumen por Grupo Cultural</CardTitle>
@@ -446,7 +455,6 @@ export default function EstadisticasPage() {
             </CardContent>
           </Card>
 
-          {/* Group Tracking Component */}
           <GroupTrackingComponent />
         </div>
       </div>
