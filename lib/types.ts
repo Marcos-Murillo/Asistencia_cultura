@@ -79,6 +79,7 @@ export interface FormData {
   facultad?: string
   programaAcademico?: string
   grupoCultural: string
+  eventoId?: string
 }
 
 export interface UserProfile {
@@ -128,6 +129,52 @@ export interface GroupTracking {
     totalCount: number
     lastAttendance: Date
   }[]
+}
+
+export interface Event {
+  id: string
+  nombre: string
+  hora: string
+  lugar: string
+  fechaApertura: Date
+  fechaVencimiento: Date
+  createdAt: Date
+  activo: boolean
+}
+
+export interface EventAttendanceEntry {
+  id: string
+  userId: string
+  eventId: string
+  timestamp: Date
+}
+
+export interface EventStats {
+  totalParticipants: number
+  byGender: {
+    mujer: number
+    hombre: number
+    otro: number
+  }
+  byProgram: Record<
+    string,
+    {
+      mujer: number
+      hombre: number
+      otro: number
+      total: number
+    }
+  >
+  byFaculty: Record<
+    string,
+    {
+      mujer: number
+      hombre: number
+      otro: number
+      total: number
+    }
+  >
+  byEvent: Record<string, number>
 }
 
 export interface SimilarUser {

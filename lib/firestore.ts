@@ -7,11 +7,16 @@ import type {
   AttendanceStats,
   SimilarUser,
   GroupTracking,
+  Event,
+  EventAttendanceEntry,
+  EventStats,
 } from "./types"
 
 // Collections
 const USERS_COLLECTION = "user_profiles"
 const ATTENDANCE_COLLECTION = "attendance_records"
+const EVENTS_COLLECTION = "events"
+const EVENT_ATTENDANCE_COLLECTION = "event_attendance_records"
 
 // Convert Firestore timestamp to Date
 function timestampToDate(timestamp: any): Date {
@@ -395,6 +400,214 @@ export async function getAllUsers(): Promise<UserProfile[]> {
     return users.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   } catch (error) {
     console.error("[v0] Error getting all users:", error)
+    throw error
+  }
+}
+
+// Crear evento
+export async function createEvent(eventData: Omit<Event, "id" | "createdAt" | "activo">): Promise<string> {
+  try {
+    const event: Omit<Event, "id"> = {
+      ...eventData,
+      createdAt: new Date(),
+      activo: true,
+    }
+
+    console.log("[v0] Creating event:", event)
+    const docRef = await addDoc(collection(db, EVENTS_COLLECTION), event)
+    console.log("[v0] Event created with ID:", docRef.id)
+    return docRef.id
+  } catch (error) {
+    console.error("[v0] Error creating event:", error)
+    throw error
+  }
+}
+
+// Obtener todos los eventos
+export async function getAllEvents(): Promise<Event[]> {
+  try {
+    const eventsRef = collection(db, EVENTS_COLLECTION)
+    const snapshot = await getDocs(eventsRef)
+
+    const events: Event[] = []
+    snapshot.forEach((doc) => {
+      const eventData = doc.data()
+      events.push({
+        id: doc.id,
+        ...eventData,
+        fechaApertura: timestampToDate(eventData.fechaApertura),
+        fechaVencimiento: timestampToDate(eventData.fechaVencimiento),
+        createdAt: timestampToDate(eventData.createdAt),
+      } as Event)
+    })
+
+    return events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  } catch (error) {
+    console.error("[v0] Error getting events:", error)
+    throw error
+  }
+}
+
+// Obtener eventos activos
+export async function getActiveEvents(): Promise<Event[]> {
+  try {
+    const allEvents = await getAllEvents()
+    const now = new Date()
+
+    return allEvents.filter(
+      (event) => event.activo && new Date(event.fechaApertura) <= now && new Date(event.fechaVencimiento) >= now,
+    )
+  } catch (error) {
+    console.error("[v0] Error getting active events:", error)
+    throw error
+  }
+}
+
+// Guardar asistencia a evento
+export async function saveEventAttendance(userId: string, eventId: string): Promise<void> {
+  try {
+    const eventAttendance: Omit<EventAttendanceEntry, "id"> = {
+      userId,
+      eventId,
+      timestamp: new Date(),
+    }
+
+    console.log("[v0] Saving event attendance:", eventAttendance)
+    await addDoc(collection(db, EVENT_ATTENDANCE_COLLECTION), eventAttendance)
+    console.log("[v0] Event attendance saved successfully")
+
+    // Actualizar última asistencia del usuario
+    const userRef = doc(db, USERS_COLLECTION, userId)
+    await updateDoc(userRef, {
+      lastAttendance: new Date(),
+    })
+  } catch (error) {
+    console.error("[v0] Error saving event attendance:", error)
+    throw error
+  }
+}
+
+// Obtener estadísticas de eventos
+export async function getEventStats(): Promise<EventStats> {
+  try {
+    const usersRef = collection(db, USERS_COLLECTION)
+    const eventAttendanceRef = collection(db, EVENT_ATTENDANCE_COLLECTION)
+    const eventsRef = collection(db, EVENTS_COLLECTION)
+
+    const [usersSnapshot, eventAttendanceSnapshot, eventsSnapshot] = await Promise.all([
+      getDocs(usersRef),
+      getDocs(eventAttendanceRef),
+      getDocs(eventsRef),
+    ])
+
+    const users = new Map<string, UserProfile>()
+    usersSnapshot.forEach((doc) => {
+      const userData = doc.data()
+      users.set(doc.id, {
+        id: doc.id,
+        ...userData,
+        createdAt: timestampToDate(userData.createdAt),
+        lastAttendance: timestampToDate(userData.lastAttendance),
+      } as UserProfile)
+    })
+
+    const events = new Map<string, Event>()
+    eventsSnapshot.forEach((doc) => {
+      const eventData = doc.data()
+      events.set(doc.id, {
+        id: doc.id,
+        ...eventData,
+        fechaApertura: timestampToDate(eventData.fechaApertura),
+        fechaVencimiento: timestampToDate(eventData.fechaVencimiento),
+        createdAt: timestampToDate(eventData.createdAt),
+      } as Event)
+    })
+
+    const stats: EventStats = {
+      totalParticipants: 0,
+      byGender: { mujer: 0, hombre: 0, otro: 0 },
+      byProgram: {},
+      byFaculty: {},
+      byEvent: {},
+    }
+
+    eventAttendanceSnapshot.forEach((doc) => {
+      const attendanceData = doc.data()
+      const user = users.get(attendanceData.userId)
+      const event = events.get(attendanceData.eventId)
+
+      if (user && event) {
+        stats.totalParticipants++
+
+        const gender = user.genero.toLowerCase() as "mujer" | "hombre" | "otro"
+        stats.byGender[gender]++
+
+        if (user.programaAcademico) {
+          if (!stats.byProgram[user.programaAcademico]) {
+            stats.byProgram[user.programaAcademico] = { mujer: 0, hombre: 0, otro: 0, total: 0 }
+          }
+          stats.byProgram[user.programaAcademico][gender]++
+          stats.byProgram[user.programaAcademico].total++
+        }
+
+        if (user.facultad) {
+          if (!stats.byFaculty[user.facultad]) {
+            stats.byFaculty[user.facultad] = { mujer: 0, hombre: 0, otro: 0, total: 0 }
+          }
+          stats.byFaculty[user.facultad][gender]++
+          stats.byFaculty[user.facultad].total++
+        }
+
+        if (!stats.byEvent[event.nombre]) {
+          stats.byEvent[event.nombre] = 0
+        }
+        stats.byEvent[event.nombre]++
+      }
+    })
+
+    return stats
+  } catch (error) {
+    console.error("[v0] Error getting event stats:", error)
+    throw error
+  }
+}
+
+// Eliminar evento
+export async function deleteEvent(eventId: string): Promise<void> {
+  try {
+    console.log("[v0] Starting event deletion process for event:", eventId)
+
+    // Primero eliminar todas las asistencias a este evento
+    const eventAttendanceRef = collection(db, EVENT_ATTENDANCE_COLLECTION)
+    const eventAttendanceQuery = query(eventAttendanceRef, where("eventId", "==", eventId))
+    const eventAttendanceSnapshot = await getDocs(eventAttendanceQuery)
+
+    console.log("[v0] Found", eventAttendanceSnapshot.size, "event attendance records to delete")
+
+    const deletePromises = eventAttendanceSnapshot.docs.map((doc) => deleteDoc(doc.ref))
+    await Promise.all(deletePromises)
+
+    console.log("[v0] All event attendance records deleted")
+
+    // Luego eliminar el evento
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId)
+    await deleteDoc(eventRef)
+
+    console.log("[v0] Event deleted successfully")
+  } catch (error) {
+    console.error("[v0] Error deleting event:", error)
+    throw error
+  }
+}
+
+// Alternar estado activo de evento
+export async function toggleEventActive(eventId: string, activo: boolean): Promise<void> {
+  try {
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId)
+    await updateDoc(eventRef, { activo })
+    console.log("[v0] Event active status updated:", activo)
+  } catch (error) {
+    console.error("[v0] Error toggling event active:", error)
     throw error
   }
 }

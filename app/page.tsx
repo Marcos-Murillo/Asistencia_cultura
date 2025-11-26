@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { NavigationUser } from "@/components/navigation-user"
+import { Navigation } from "@/components/navigation"
 import { User, CheckCircle, AlertCircle } from "lucide-react"
 import {
   GENEROS,
@@ -22,8 +22,15 @@ import {
   PROGRAMAS_POR_FACULTAD,
   GRUPOS_CULTURALES,
 } from "@/lib/data"
-import { findSimilarUsers, saveUserProfile, saveAttendanceEntry } from "@/lib/firestore"
-import type { FormData, SimilarUser, UserProfile } from "@/lib/types"
+import {
+  saveUserProfile,
+  saveAttendanceEntry,
+  findSimilarUsers,
+  // Importar funciones de eventos
+  getActiveEvents,
+  saveEventAttendance,
+} from "@/lib/firestore"
+import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
 export default function RegistroAsistencia() {
   const { toast } = useToast()
@@ -42,15 +49,26 @@ export default function RegistroAsistencia() {
     facultad: "",
     programaAcademico: "",
     grupoCultural: "",
+    // Agregar campo para evento
+    eventoId: "",
   })
 
-  const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [isCheckingSimilarity, setIsCheckingSimilarity] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
-
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
+  const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
+  // Agregar estado para eventos activos
+  const [activeEvents, setActiveEvents] = useState<Event[]>([])
   const [currentStep, setCurrentStep] = useState(1)
   const totalSteps = selectedUser ? 1 : formData.estamento === "ESTUDIANTE" ? 4 : 3
+
+  // Cargar eventos activos al montar el componente
+  useEffect(() => {
+    loadActiveEvents()
+  }, [])
 
   useEffect(() => {
     const checkSimilarity = async () => {
@@ -122,13 +140,14 @@ export default function RegistroAsistencia() {
       facultad: user.facultad || "",
       programaAcademico: user.programaAcademico || "",
       grupoCultural: "",
+      eventoId: "",
     })
     setShowSuggestions(false)
     setCurrentStep(1) // Go directly to cultural group selection
 
     toast({
       title: "Usuario reconocido",
-      description: `¡Hola ${user.nombres}! Selecciona el grupo cultural al que asististe.`,
+      description: `¡Hola ${user.nombres}! Selecciona el grupo cultural o el evento al que asististe.`,
     })
   }
 
@@ -139,7 +158,7 @@ export default function RegistroAsistencia() {
 
   const validateStep = (step: number): boolean => {
     if (selectedUser) {
-      return !!formData.grupoCultural
+      return !!formData.grupoCultural || !!formData.eventoId
     }
 
     switch (step) {
@@ -162,7 +181,7 @@ export default function RegistroAsistencia() {
         }
         return true
       case 4:
-        return !!formData.grupoCultural
+        return !!formData.grupoCultural || !!formData.eventoId
       default:
         return false
     }
@@ -184,23 +203,30 @@ export default function RegistroAsistencia() {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
   }
 
-  const handleSubmit = async () => {
-    if (!validateStep(currentStep)) {
-      toast({
-        title: "Campos requeridos",
-        description: "Por favor completa todos los campos antes de enviar.",
-        variant: "destructive",
-      })
+  async function loadActiveEvents() {
+    try {
+      const events = await getActiveEvents()
+      setActiveEvents(events)
+    } catch (error) {
+      console.error("Error cargando eventos activos:", error)
+    }
+  }
+
+  async function handleSubmit() {
+    // Validar que al menos uno esté seleccionado (grupo cultural o evento)
+    if (!formData.grupoCultural && !formData.eventoId) {
+      setError("Debes seleccionar al menos un grupo cultural o un evento")
       return
     }
+
+    setIsSubmitting(true)
+    setError("")
 
     try {
       let userId: string
 
       if (selectedUser) {
-        // Use existing user
         userId = selectedUser.id
-        console.log("[v0] Using existing user:", userId)
       } else {
         const userProfile = {
           nombres: formData.nombres,
@@ -233,57 +259,50 @@ export default function RegistroAsistencia() {
         console.log("[v0] New user created with ID:", userId)
       }
 
-      // Save attendance entry
-      console.log("[v0] Saving attendance entry for user:", userId, "group:", formData.grupoCultural)
-      await saveAttendanceEntry(userId, formData.grupoCultural)
-      console.log("[v0] Attendance entry saved successfully")
-
-      toast({
-        title: "Registro exitoso",
-        description: "Tu asistencia ha sido registrada correctamente.",
-      })
-
-      // Reset form
-      setFormData({
-        nombres: "",
-        correo: "",
-        genero: "",
-        etnia: "",
-        tipoDocumento: "",
-        numeroDocumento: "",
-        edad: "",
-        telefono: "",
-        sede: "",
-        estamento: "",
-        codigoEstudiante: "",
-        facultad: "",
-        programaAcademico: "",
-        grupoCultural: "",
-      })
-      setSelectedUser(null)
-      setSimilarUsers([])
-      setShowSuggestions(false)
-      setCurrentStep(1)
-    } catch (error: any) {
-      console.error("Error saving attendance:", error)
-
-      let errorMessage = "Hubo un problema al registrar tu asistencia."
-
-      if (error.code === "permission-denied") {
-        errorMessage = "Error de permisos. Verifica la configuración de Firebase."
-      } else if (error.code === "unavailable") {
-        errorMessage = "Servicio no disponible. Verifica tu conexión a internet."
-      } else if (error.code === "not-found") {
-        errorMessage = "Base de datos no encontrada. Verifica la configuración."
-      } else if (error.message) {
-        errorMessage = `Error: ${error.message}`
+      // Guardar asistencia a grupo cultural si fue seleccionado
+      if (formData.grupoCultural) {
+        console.log("[v0] Saving attendance entry for user:", userId, "group:", formData.grupoCultural)
+        await saveAttendanceEntry(userId, formData.grupoCultural)
+        console.log("[v0] Attendance entry saved successfully")
       }
 
-      toast({
-        title: "Error al registrar",
-        description: errorMessage,
-        variant: "destructive",
-      })
+      // Guardar asistencia a evento si fue seleccionado
+      if (formData.eventoId) {
+        console.log("[v0] Saving event attendance for user:", userId, "event:", formData.eventoId)
+        await saveEventAttendance(userId, formData.eventoId)
+        console.log("[v0] Event attendance saved successfully")
+      }
+
+      setSuccess(true)
+      // Reset form after 3 seconds
+      setTimeout(() => {
+        setFormData({
+          nombres: "",
+          correo: "",
+          genero: "",
+          etnia: "",
+          tipoDocumento: "",
+          numeroDocumento: "",
+          edad: "",
+          telefono: "",
+          sede: "",
+          estamento: "",
+          codigoEstudiante: "",
+          facultad: "",
+          programaAcademico: "",
+          grupoCultural: "",
+          eventoId: "",
+        })
+        setCurrentStep(1)
+        setSuccess(false)
+        setSelectedUser(null)
+        setSimilarUsers([])
+      }, 3000)
+    } catch (error) {
+      console.error("Error saving attendance:", error)
+      setError("Hubo un problema al registrar la asistencia. Por favor intenta nuevamente.")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -302,21 +321,7 @@ export default function RegistroAsistencia() {
             </AlertDescription>
           </Alert>
 
-          <div className="space-y-2">
-            <Label htmlFor="grupoCultural">Grupo Cultural al que Asististe *</Label>
-            <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona el grupo cultural" />
-              </SelectTrigger>
-              <SelectContent>
-                {GRUPOS_CULTURALES.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {renderCulturalGroupStep()}
 
           <Button
             variant="outline"
@@ -585,7 +590,7 @@ export default function RegistroAsistencia() {
             </div>
           )
         }
-        // If not student, go directly to cultural group selection
+        // Si no es estudiante, go directly to cultural group selection
         return renderCulturalGroupStep()
 
       case 4:
@@ -597,14 +602,16 @@ export default function RegistroAsistencia() {
   }
 
   const renderCulturalGroupStep = () => (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Grupos Culturales */}
       <div className="space-y-2">
-        <Label htmlFor="grupoCultural">Grupo Cultural al que Asististe *</Label>
+        <Label htmlFor="grupoCultural">Grupo Cultural (Opcional)</Label>
         <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
           <SelectTrigger>
             <SelectValue placeholder="Selecciona el grupo cultural" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="ninguno">Ninguno</SelectItem>
             {GRUPOS_CULTURALES.map((grupo) => (
               <SelectItem key={grupo} value={grupo}>
                 {grupo}
@@ -613,12 +620,37 @@ export default function RegistroAsistencia() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Eventos Disponibles */}
+      {activeEvents.length > 0 && (
+        <div className="space-y-2">
+          <Label htmlFor="eventoId">Eventos Disponibles (Opcional)</Label>
+          <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona un evento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ninguno">Ninguno</SelectItem>
+              {activeEvents.map((evento) => (
+                <SelectItem key={evento.id} value={evento.id}>
+                  {evento.nombre} - {evento.hora} ({evento.lugar})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Mensaje informativo */}
+      <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
+        Debes seleccionar al menos un grupo cultural o un evento para continuar.
+      </div>
     </div>
   )
 
   const getStepTitle = () => {
     if (selectedUser) {
-      return "Seleccionar Grupo Cultural"
+      return "Seleccionar Actividad"
     }
 
     switch (currentStep) {
@@ -627,9 +659,9 @@ export default function RegistroAsistencia() {
       case 2:
         return "Información Institucional"
       case 3:
-        return formData.estamento === "ESTUDIANTE" ? "Información Académica" : "Grupo Cultural"
+        return formData.estamento === "ESTUDIANTE" ? "Información Académica" : "Seleccionar Actividad"
       case 4:
-        return "Grupo Cultural"
+        return "Seleccionar Actividad"
       default:
         return ""
     }
@@ -637,7 +669,7 @@ export default function RegistroAsistencia() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <NavigationUser/>
+      <Navigation />
       <div className="p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
@@ -690,6 +722,21 @@ export default function RegistroAsistencia() {
           </Card>
         </div>
       </div>
+      {error && (
+        <Alert variant="destructive" className="fixed bottom-4 left-1/2 transform -translate-x-1/2">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert
+          variant="default"
+          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-green-50 border-green-200"
+        >
+          <AlertDescription className="text-green-800">
+            Tu asistencia ha sido registrada correctamente.
+          </AlertDescription>
+        </Alert>
+      )}
       <Toaster />
     </div>
   )

@@ -11,11 +11,13 @@ import { Navigation } from "@/components/navigation"
 import { GroupTrackingComponent } from "@/components/group-traking"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
 import { generateStats, getAttendanceRecords } from "@/lib/storage"
-import type { AttendanceStats, AttendanceRecord } from "@/lib/types"
+import { getEventStats } from "@/lib/firestore"
+import type { AttendanceStats, AttendanceRecord, EventStats } from "@/lib/types"
 import { generatePDFReport } from "@/lib/pdf-generator"
 
 export default function EstadisticasPage() {
   const [stats, setStats] = useState<AttendanceStats | null>(null)
+  const [eventStats, setEventStats] = useState<EventStats | null>(null)
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([])
   const [filteredRecords, setFilteredRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,10 +27,15 @@ export default function EstadisticasPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [generatedStats, records] = await Promise.all([generateStats(), getAttendanceRecords()])
+        const [generatedStats, records, evStats] = await Promise.all([
+          generateStats(),
+          getAttendanceRecords(),
+          getEventStats(),
+        ])
         setStats(generatedStats)
         setAllRecords(records)
         setFilteredRecords(records)
+        setEventStats(evStats)
       } catch (error) {
         console.error("Error loading data:", error)
       } finally {
@@ -77,7 +84,7 @@ export default function EstadisticasPage() {
 
     setIsGeneratingPDF(true)
     try {
-      await generatePDFReport(stats)
+      await generatePDFReport(stats, eventStats || undefined)
     } catch (error) {
       console.error("[v0] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
@@ -199,7 +206,7 @@ export default function EstadisticasPage() {
                           .map((record) => (
                             <TableRow key={record.id}>
                               <TableCell className="font-medium">
-                                {record.nombres}
+                                {record.nombres} 
                               </TableCell>
                               <TableCell>
                                 <Badge
