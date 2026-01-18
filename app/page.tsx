@@ -29,8 +29,11 @@ import {
   // Importar funciones de eventos
   getActiveEvents,
   saveEventAttendance,
+  // Importar funciones de inscripción a grupos
+  getUserEnrollments,
+  enrollUserToGroup,
 } from "@/lib/firestore"
-import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
+import type { FormData, SimilarUser, UserProfile, Event, GroupEnrollment } from "@/lib/types"
 
 export default function RegistroAsistencia() {
   const { toast } = useToast()
@@ -49,7 +52,6 @@ export default function RegistroAsistencia() {
     facultad: "",
     programaAcademico: "",
     grupoCultural: "",
-    // Agregar campo para evento
     eventoId: "",
   })
 
@@ -63,7 +65,14 @@ export default function RegistroAsistencia() {
   // Agregar estado para eventos activos
   const [activeEvents, setActiveEvents] = useState<Event[]>([])
   const [currentStep, setCurrentStep] = useState(1)
-  const totalSteps = selectedUser ? 1 : formData.estamento === "ESTUDIANTE" ? 4 : 3
+  // Estados para inscripción a grupos
+  const [userEnrollments, setUserEnrollments] = useState<GroupEnrollment[]>([])
+  const [showEnrollmentForm, setShowEnrollmentForm] = useState(false)
+  const [selectedGroupToEnroll, setSelectedGroupToEnroll] = useState("")
+  const [isEnrolling, setIsEnrolling] = useState(false)
+
+  const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
+  const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
 
   // Cargar eventos activos al montar el componente
   useEffect(() => {
@@ -112,18 +121,21 @@ export default function RegistroAsistencia() {
         newData.programaAcademico = ""
       }
 
-      // Reset student fields when estamento changes
-      if (field === "estamento" && value !== "ESTUDIANTE") {
+      if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO") {
         newData.codigoEstudiante = ""
         newData.facultad = ""
         newData.programaAcademico = ""
+      }
+
+      if (field === "estamento" && value === "EGRESADO") {
+        newData.codigoEstudiante = ""
       }
 
       return newData
     })
   }
 
-  const handleSelectUser = (user: UserProfile) => {
+  const handleSelectUser = async (user: UserProfile) => {
     setSelectedUser(user)
     setFormData({
       nombres: user.nombres,
@@ -144,6 +156,9 @@ export default function RegistroAsistencia() {
     })
     setShowSuggestions(false)
     setCurrentStep(1) // Go directly to cultural group selection
+
+    // Cargar inscripciones del usuario
+    await loadUserEnrollments(user.id)
 
     toast({
       title: "Usuario reconocido",
@@ -179,6 +194,9 @@ export default function RegistroAsistencia() {
         if (formData.estamento === "ESTUDIANTE") {
           return !!(formData.codigoEstudiante && formData.facultad && formData.programaAcademico)
         }
+        if (formData.estamento === "EGRESADO") {
+          return !!(formData.facultad && formData.programaAcademico)
+        }
         return true
       case 4:
         return !!formData.grupoCultural || !!formData.eventoId
@@ -212,6 +230,42 @@ export default function RegistroAsistencia() {
     }
   }
 
+  // Cargar inscripciones del usuario cuando se selecciona uno
+  async function loadUserEnrollments(userId: string) {
+    try {
+      const enrollments = await getUserEnrollments(userId)
+      setUserEnrollments(enrollments)
+    } catch (error) {
+      console.error("Error cargando inscripciones:", error)
+      setUserEnrollments([])
+    }
+  }
+
+  // Inscribir usuario a un grupo
+  async function handleEnrollToGroup() {
+    if (!selectedGroupToEnroll || !selectedUser) return
+
+    setIsEnrolling(true)
+    try {
+      await enrollUserToGroup(selectedUser.id, selectedGroupToEnroll)
+      await loadUserEnrollments(selectedUser.id)
+      setShowEnrollmentForm(false)
+      setSelectedGroupToEnroll("")
+      toast({
+        title: "Inscripción exitosa",
+        description: `Te has inscrito al grupo ${selectedGroupToEnroll}`,
+      })
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo completar la inscripción",
+        variant: "destructive",
+      })
+    } finally {
+      setIsEnrolling(false)
+    }
+  }
+
   async function handleSubmit() {
     // Validar que al menos uno esté seleccionado (grupo cultural o evento)
     if (!formData.grupoCultural && !formData.eventoId) {
@@ -239,16 +293,15 @@ export default function RegistroAsistencia() {
           telefono: formData.telefono,
           sede: formData.sede as any,
           estamento: formData.estamento as any,
-          // Only include student fields if user is a student and fields have values
           ...(formData.estamento === "ESTUDIANTE" &&
             formData.codigoEstudiante && {
               codigoEstudiante: formData.codigoEstudiante,
             }),
-          ...(formData.estamento === "ESTUDIANTE" &&
+          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
             formData.facultad && {
               facultad: formData.facultad,
             }),
-          ...(formData.estamento === "ESTUDIANTE" &&
+          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
             formData.programaAcademico && {
               programaAcademico: formData.programaAcademico,
             }),
@@ -538,21 +591,26 @@ export default function RegistroAsistencia() {
         )
 
       case 3:
-        if (formData.estamento === "ESTUDIANTE") {
+        if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="codigoEstudiante">Código del Estudiante *</Label>
-                <Input
-                  id="codigoEstudiante"
-                  value={formData.codigoEstudiante}
-                  onChange={(e) => handleInputChange("codigoEstudiante", e.target.value)}
-                  placeholder="Código estudiantil"
-                />
-              </div>
+              {/* Solo mostrar código estudiante para ESTUDIANTE */}
+              {formData.estamento === "ESTUDIANTE" && (
+                <div className="space-y-2">
+                  <Label htmlFor="codigoEstudiante">Código del Estudiante *</Label>
+                  <Input
+                    id="codigoEstudiante"
+                    value={formData.codigoEstudiante}
+                    onChange={(e) => handleInputChange("codigoEstudiante", e.target.value)}
+                    placeholder="Código estudiantil"
+                  />
+                </div>
+              )}
 
               <div className="space-y-2">
-                <Label htmlFor="facultad">Facultad a la que Pertenece *</Label>
+                <Label htmlFor="facultad">
+                  {formData.estamento === "EGRESADO" ? "Facultad de la que Egresó *" : "Facultad a la que Pertenece *"}
+                </Label>
                 <Select value={formData.facultad} onValueChange={(value) => handleInputChange("facultad", value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona tu facultad" />
@@ -569,7 +627,9 @@ export default function RegistroAsistencia() {
 
               {formData.facultad && (
                 <div className="space-y-2">
-                  <Label htmlFor="programaAcademico">Programa Académico *</Label>
+                  <Label htmlFor="programaAcademico">
+                    {formData.estamento === "EGRESADO" ? "Programa del que Egresó *" : "Programa Académico *"}
+                  </Label>
                   <Select
                     value={formData.programaAcademico}
                     onValueChange={(value) => handleInputChange("programaAcademico", value)}
@@ -590,7 +650,7 @@ export default function RegistroAsistencia() {
             </div>
           )
         }
-        // Si no es estudiante, go directly to cultural group selection
+        // Si no es estudiante ni egresado, ir directamente a selección de grupo cultural
         return renderCulturalGroupStep()
 
       case 4:
@@ -601,52 +661,173 @@ export default function RegistroAsistencia() {
     }
   }
 
-  const renderCulturalGroupStep = () => (
-    <div className="space-y-6">
-      {/* Grupos Culturales */}
-      <div className="space-y-2">
-        <Label htmlFor="grupoCultural">Grupo Cultural (Opcional)</Label>
-        <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
-          <SelectTrigger>
-            <SelectValue placeholder="Selecciona el grupo cultural" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ninguno">Ninguno</SelectItem>
-            {GRUPOS_CULTURALES.map((grupo) => (
-              <SelectItem key={grupo} value={grupo}>
-                {grupo}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+  const renderCulturalGroupStep = () => {
+    // Si es un usuario reconocido, verificar inscripciones
+    const isRecognizedUser = !!selectedUser
+    const hasEnrollments = userEnrollments.length > 0
+    const enrolledGroups = userEnrollments.map(e => e.grupoCultural)
 
-      {/* Eventos Disponibles */}
-      {activeEvents.length > 0 && (
+    // Si es usuario reconocido y no tiene inscripciones, mostrar formulario de inscripción
+    if (isRecognizedUser && !hasEnrollments && !showEnrollmentForm) {
+      return (
+        <div className="space-y-6">
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              <strong>Debes inscribirte en un grupo para confirmar tu asistencia.</strong>
+              <p className="text-sm mt-1">Una vez inscrito, podrás registrar tu asistencia de forma más rápida.</p>
+            </AlertDescription>
+          </Alert>
+
+          <Button 
+            onClick={() => setShowEnrollmentForm(true)} 
+            className="w-full bg-blue-600 hover:bg-blue-700"
+          >
+            Inscribirme en un Grupo
+          </Button>
+
+          {/* Eventos Disponibles - Siempre disponibles */}
+          {activeEvents.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="eventoId">Eventos Disponibles (Opcional)</Label>
+              <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un evento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ninguno">Ninguno</SelectItem>
+                  {activeEvents.map((evento) => (
+                    <SelectItem key={evento.id} value={evento.id}>
+                      {evento.nombre} - {evento.hora} ({evento.lugar})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Formulario de inscripción a grupo
+    if (isRecognizedUser && showEnrollmentForm) {
+      const availableGroups = GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g))
+      
+      return (
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="groupEnrollment">Selecciona el Grupo Cultural al que deseas inscribirte</Label>
+            <Select value={selectedGroupToEnroll} onValueChange={setSelectedGroupToEnroll}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un grupo cultural" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableGroups.map((grupo) => (
+                  <SelectItem key={grupo} value={grupo}>
+                    {grupo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowEnrollmentForm(false)
+                setSelectedGroupToEnroll("")
+              }}
+              className="flex-1 bg-transparent"
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleEnrollToGroup} 
+              disabled={!selectedGroupToEnroll || isEnrolling}
+              className="flex-1 bg-green-600 hover:bg-green-700"
+            >
+              {isEnrolling ? "Inscribiendo..." : "Confirmar Inscripción"}
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    // Vista normal (nuevo usuario o usuario con inscripciones)
+    return (
+      <div className="space-y-6">
+        {/* Grupos Culturales */}
         <div className="space-y-2">
-          <Label htmlFor="eventoId">Eventos Disponibles (Opcional)</Label>
-          <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
+          <Label htmlFor="grupoCultural">
+            {isRecognizedUser ? "Mis Grupos Inscritos" : "Grupo Cultural (Opcional)"}
+          </Label>
+          <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
             <SelectTrigger>
-              <SelectValue placeholder="Selecciona un evento" />
+              <SelectValue placeholder="Selecciona el grupo cultural" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ninguno">Ninguno</SelectItem>
-              {activeEvents.map((evento) => (
-                <SelectItem key={evento.id} value={evento.id}>
-                  {evento.nombre} - {evento.hora} ({evento.lugar})
-                </SelectItem>
-              ))}
+              {isRecognizedUser ? (
+                // Mostrar solo grupos en los que está inscrito
+                enrolledGroups.map((grupo) => (
+                  <SelectItem key={grupo} value={grupo}>
+                    {grupo}
+                  </SelectItem>
+                ))
+              ) : (
+                // Mostrar todos los grupos para nuevos usuarios
+                GRUPOS_CULTURALES.map((grupo) => (
+                  <SelectItem key={grupo} value={grupo}>
+                    {grupo}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
         </div>
-      )}
 
-      {/* Mensaje informativo */}
-      <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
-        Debes seleccionar al menos un grupo cultural o un evento para continuar.
+        {/* Botón para inscribirse a más grupos si es usuario reconocido */}
+        {isRecognizedUser && enrolledGroups.length < GRUPOS_CULTURALES.length && (
+          <Button 
+            variant="outline" 
+            onClick={() => setShowEnrollmentForm(true)}
+            className="w-full bg-transparent"
+          >
+            Inscribirme en otro grupo
+          </Button>
+        )}
+
+        {/* Eventos Disponibles */}
+        {activeEvents.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="eventoId">Eventos Disponibles (Opcional)</Label>
+            <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un evento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ninguno">Ninguno</SelectItem>
+                {activeEvents.map((evento) => (
+                  <SelectItem key={evento.id} value={evento.id}>
+                    {evento.nombre} - {evento.hora} ({evento.lugar})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Mensaje informativo */}
+        <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
+          {isRecognizedUser 
+            ? "Selecciona el grupo al que asististe hoy o un evento disponible."
+            : "Debes seleccionar al menos un grupo cultural o un evento para continuar."
+          }
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const getStepTitle = () => {
     if (selectedUser) {
@@ -659,7 +840,9 @@ export default function RegistroAsistencia() {
       case 2:
         return "Información Institucional"
       case 3:
-        return formData.estamento === "ESTUDIANTE" ? "Información Académica" : "Seleccionar Actividad"
+        return formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
+          ? "Información Académica"
+          : "Seleccionar Actividad"
       case 4:
         return "Seleccionar Actividad"
       default:

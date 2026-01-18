@@ -65,6 +65,16 @@ export function Navigation() {
                     Usuarios
                   </Button>
                 </Link>
+                <Link href="/grupos">
+                  <Button
+                    variant={pathname === "/grupos" ? "default" : "ghost"}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Users className="w-4 h-4" />
+                    Grupos
+                  </Button>
+                </Link>
               </>
             )}
           </div>

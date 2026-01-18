@@ -10,6 +10,8 @@ import type {
   Event,
   EventAttendanceEntry,
   EventStats,
+  GroupEnrollment,
+  GroupWithEnrollments,
 } from "./types"
 
 // Collections
@@ -17,6 +19,7 @@ const USERS_COLLECTION = "user_profiles"
 const ATTENDANCE_COLLECTION = "attendance_records"
 const EVENTS_COLLECTION = "events"
 const EVENT_ATTENDANCE_COLLECTION = "event_attendance_records"
+const GROUP_ENROLLMENTS_COLLECTION = "group_enrollments"
 
 // Convert Firestore timestamp to Date
 function timestampToDate(timestamp: any): Date {
@@ -614,4 +617,153 @@ export async function toggleEventActive(eventId: string, activo: boolean): Promi
 
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2)
+}
+
+// ==================== FUNCIONES DE INSCRIPCIÓN A GRUPOS ====================
+
+// Inscribir usuario a un grupo cultural
+export async function enrollUserToGroup(userId: string, grupoCultural: string): Promise<string> {
+  try {
+    // Verificar si ya está inscrito
+    const existingEnrollment = await getUserEnrollments(userId)
+    if (existingEnrollment.some(e => e.grupoCultural === grupoCultural)) {
+      throw new Error("El usuario ya está inscrito en este grupo")
+    }
+
+    const enrollment: Omit<GroupEnrollment, "id"> = {
+      userId,
+      grupoCultural,
+      fechaInscripcion: new Date(),
+    }
+
+    console.log("[v0] Enrolling user to group:", enrollment)
+    const docRef = await addDoc(collection(db, GROUP_ENROLLMENTS_COLLECTION), enrollment)
+    console.log("[v0] User enrolled with ID:", docRef.id)
+    return docRef.id
+  } catch (error) {
+    console.error("[v0] Error enrolling user to group:", error)
+    throw error
+  }
+}
+
+// Obtener inscripciones de un usuario
+export async function getUserEnrollments(userId: string): Promise<GroupEnrollment[]> {
+  try {
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentQuery = query(enrollmentsRef, where("userId", "==", userId))
+    const snapshot = await getDocs(enrollmentQuery)
+
+    const enrollments: GroupEnrollment[] = []
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      enrollments.push({
+        id: doc.id,
+        userId: data.userId,
+        grupoCultural: data.grupoCultural,
+        fechaInscripcion: timestampToDate(data.fechaInscripcion),
+      })
+    })
+
+    return enrollments
+  } catch (error) {
+    console.error("[v0] Error getting user enrollments:", error)
+    throw error
+  }
+}
+
+// Obtener todos los grupos con cantidad de inscritos
+export async function getAllGroupsWithEnrollments(): Promise<GroupWithEnrollments[]> {
+  try {
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const snapshot = await getDocs(enrollmentsRef)
+
+    const groupCounts = new Map<string, number>()
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      const current = groupCounts.get(data.grupoCultural) || 0
+      groupCounts.set(data.grupoCultural, current + 1)
+    })
+
+    const groups: GroupWithEnrollments[] = Array.from(groupCounts.entries()).map(([nombre, totalInscritos]) => ({
+      nombre,
+      totalInscritos,
+    }))
+
+    return groups.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  } catch (error) {
+    console.error("[v0] Error getting groups with enrollments:", error)
+    throw error
+  }
+}
+
+// Obtener usuarios inscritos en un grupo específico
+export async function getGroupEnrolledUsers(grupoCultural: string): Promise<(UserProfile & { fechaInscripcion: Date })[]> {
+  try {
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentQuery = query(enrollmentsRef, where("grupoCultural", "==", grupoCultural))
+    const enrollmentsSnapshot = await getDocs(enrollmentQuery)
+
+    const usersRef = collection(db, USERS_COLLECTION)
+    const usersSnapshot = await getDocs(usersRef)
+
+    const users = new Map<string, UserProfile>()
+    usersSnapshot.forEach((doc) => {
+      const userData = doc.data()
+      users.set(doc.id, {
+        id: doc.id,
+        ...userData,
+        createdAt: timestampToDate(userData.createdAt),
+        lastAttendance: timestampToDate(userData.lastAttendance),
+      } as UserProfile)
+    })
+
+    const enrolledUsers: (UserProfile & { fechaInscripcion: Date })[] = []
+    enrollmentsSnapshot.forEach((doc) => {
+      const data = doc.data()
+      const user = users.get(data.userId)
+      if (user) {
+        enrolledUsers.push({
+          ...user,
+          fechaInscripcion: timestampToDate(data.fechaInscripcion),
+        })
+      }
+    })
+
+    return enrolledUsers.sort((a, b) => a.nombres.localeCompare(b.nombres))
+  } catch (error) {
+    console.error("[v0] Error getting group enrolled users:", error)
+    throw error
+  }
+}
+
+// Eliminar inscripción de usuario a grupo
+export async function removeUserFromGroup(userId: string, grupoCultural: string): Promise<void> {
+  try {
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentQuery = query(
+      enrollmentsRef, 
+      where("userId", "==", userId),
+      where("grupoCultural", "==", grupoCultural)
+    )
+    const snapshot = await getDocs(enrollmentQuery)
+
+    const deletePromises = snapshot.docs.map((doc) => deleteDoc(doc.ref))
+    await Promise.all(deletePromises)
+
+    console.log("[v0] User removed from group successfully")
+  } catch (error) {
+    console.error("[v0] Error removing user from group:", error)
+    throw error
+  }
+}
+
+// Verificar si usuario está inscrito en algún grupo
+export async function isUserEnrolledInAnyGroup(userId: string): Promise<boolean> {
+  try {
+    const enrollments = await getUserEnrollments(userId)
+    return enrollments.length > 0
+  } catch (error) {
+    console.error("[v0] Error checking user enrollment:", error)
+    return false
+  }
 }

@@ -182,3 +182,16 @@ export interface SimilarUser {
   similarity: number
   matchingFields: string[]
 }
+
+// Inscripción a grupos culturales
+export interface GroupEnrollment {
+  id: string
+  userId: string
+  grupoCultural: string
+  fechaInscripcion: Date
+}
+
+export interface GroupWithEnrollments {
+  nombre: string
+  totalInscritos: number
+}
