@@ -466,6 +466,70 @@ export async function getActiveEvents(): Promise<Event[]> {
   }
 }
 
+// Obtener evento por ID
+export async function getEventById(eventId: string): Promise<Event | null> {
+  try {
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId)
+    const eventDoc = await getDoc(eventRef)
+
+    if (!eventDoc.exists()) {
+      return null
+    }
+
+    const eventData = eventDoc.data()
+    return {
+      id: eventDoc.id,
+      ...eventData,
+      fechaApertura: timestampToDate(eventData.fechaApertura),
+      fechaVencimiento: timestampToDate(eventData.fechaVencimiento),
+      createdAt: timestampToDate(eventData.createdAt),
+    } as Event
+  } catch (error) {
+    console.error("[v0] Error getting event by ID:", error)
+    throw error
+  }
+}
+
+// Obtener asistentes de un evento
+export async function getEventAttendees(eventId: string): Promise<(UserProfile & { fechaAsistencia: Date })[]> {
+  try {
+    const eventAttendanceRef = collection(db, EVENT_ATTENDANCE_COLLECTION)
+    const attendanceQuery = query(eventAttendanceRef, where("eventId", "==", eventId))
+    const attendanceSnapshot = await getDocs(attendanceQuery)
+
+    const usersRef = collection(db, USERS_COLLECTION)
+    const usersSnapshot = await getDocs(usersRef)
+
+    const users = new Map<string, UserProfile>()
+    usersSnapshot.forEach((doc) => {
+      const userData = doc.data()
+      users.set(doc.id, {
+        id: doc.id,
+        ...userData,
+        createdAt: timestampToDate(userData.createdAt),
+        lastAttendance: timestampToDate(userData.lastAttendance),
+      } as UserProfile)
+    })
+
+    const attendees: (UserProfile & { fechaAsistencia: Date })[] = []
+    attendanceSnapshot.forEach((doc) => {
+      const data = doc.data()
+      const user = users.get(data.userId)
+      if (user) {
+        attendees.push({
+          ...user,
+          fechaAsistencia: timestampToDate(data.timestamp),
+        })
+      }
+    })
+
+    return attendees.sort((a, b) => new Date(b.fechaAsistencia).getTime() - new Date(a.fechaAsistencia).getTime())
+  } catch (error) {
+    console.error("[v0] Error getting event attendees:", error)
+    throw error
+  }
+}
+
 // Guardar asistencia a evento
 export async function saveEventAttendance(userId: string, eventId: string): Promise<void> {
   try {

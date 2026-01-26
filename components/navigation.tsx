@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { BarChart3, FileText, Home, Users, Calendar } from "lucide-react"
+import { BarChart3, FileText, Home, Users, Calendar, UsersRound } from "lucide-react"
 
 export function Navigation() {
   const pathname = usePathname()
@@ -45,9 +45,19 @@ export function Navigation() {
                     Gráficas
                   </Button>
                 </Link>
+                <Link href="/grupos">
+                  <Button
+                    variant={pathname.startsWith("/grupos") ? "default" : "ghost"}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <UsersRound className="w-4 h-4" />
+                    Grupos
+                  </Button>
+                </Link>
                 <Link href="/eventos">
                   <Button
-                    variant={pathname === "/eventos" || pathname === "/eventos/estadisticas" ? "default" : "ghost"}
+                    variant={pathname.startsWith("/eventos") ? "default" : "ghost"}
                     size="sm"
                     className="flex items-center gap-2"
                   >
@@ -63,16 +73,6 @@ export function Navigation() {
                   >
                     <Users className="w-4 h-4" />
                     Usuarios
-                  </Button>
-                </Link>
-                <Link href="/grupos">
-                  <Button
-                    variant={pathname === "/grupos" ? "default" : "ghost"}
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    <Users className="w-4 h-4" />
-                    Grupos
                   </Button>
                 </Link>
               </>

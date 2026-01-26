@@ -375,17 +375,6 @@ export default function RegistroAsistencia() {
           </Alert>
 
           {renderCulturalGroupStep()}
-
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSelectedUser(null)
-              setCurrentStep(1)
-            }}
-            className="w-full"
-          >
-            Registrar como nuevo usuario
-          </Button>
         </div>
       )
     }
@@ -689,7 +678,7 @@ export default function RegistroAsistencia() {
           {/* Eventos Disponibles - Siempre disponibles */}
           {activeEvents.length > 0 && (
             <div className="space-y-2">
-              <Label htmlFor="eventoId">Eventos Disponibles (Opcional)</Label>
+              <Label className="text-red-500" htmlFor="eventoId">CONVOCATORIAS DISPONIBLE (Opcional)</Label>
               <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona un evento" />

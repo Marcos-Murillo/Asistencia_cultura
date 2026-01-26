@@ -20,7 +20,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Navigation } from "@/components/navigation"
 import { createEvent, getAllEvents, deleteEvent, toggleEventActive } from "@/lib/firestore"
 import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3 } from "lucide-react"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users } from "lucide-react"
 import Link from "next/link"
 
 export default function EventosPage() {
@@ -310,28 +310,36 @@ export default function EventosPage() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2 pt-4 border-t">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggleActive(event.id, event.activo)}
-                        className="flex-1"
-                      >
-                        {event.activo ? (
-                          <>
-                            <PowerOff className="h-4 w-4 mr-1" />
-                            Desactivar
-                          </>
-                        ) : (
-                          <>
-                            <Power className="h-4 w-4 mr-1" />
-                            Activar
-                          </>
-                        )}
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(event.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <div className="flex flex-col gap-2 pt-4 border-t">
+                      <Link href={`/eventos/${event.id}/asistentes`}>
+                        <Button variant="outline" size="sm" className="w-full bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                          <Users className="h-4 w-4 mr-2" />
+                          Ver Asistentes
+                        </Button>
+                      </Link>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleToggleActive(event.id, event.activo)}
+                          className="flex-1 bg-transparent"
+                        >
+                          {event.activo ? (
+                            <>
+                              <PowerOff className="h-4 w-4 mr-1" />
+                              Desactivar
+                            </>
+                          ) : (
+                            <>
+                              <Power className="h-4 w-4 mr-1" />
+                              Activar
+                            </>
+                          )}
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => handleDelete(event.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

@@ -191,6 +191,14 @@ export interface GroupEnrollment {
   fechaInscripcion: Date
 }
 
+export interface EventEnrollment {
+  id: string
+  userId: string
+  eventId: string
+  fechaInscripcion: Date
+}
+
+
 export interface GroupWithEnrollments {
   nombre: string
   totalInscritos: number
