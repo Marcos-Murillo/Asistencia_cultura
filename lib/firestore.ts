@@ -533,6 +533,19 @@ export async function getEventAttendees(eventId: string): Promise<(UserProfile &
 // Guardar asistencia a evento
 export async function saveEventAttendance(userId: string, eventId: string): Promise<void> {
   try {
+    // Verificar si el usuario ya está inscrito en este evento
+    const eventAttendanceRef = collection(db, EVENT_ATTENDANCE_COLLECTION)
+    const existingAttendanceQuery = query(
+      eventAttendanceRef,
+      where("userId", "==", userId),
+      where("eventId", "==", eventId)
+    )
+    const existingAttendanceSnapshot = await getDocs(existingAttendanceQuery)
+
+    if (!existingAttendanceSnapshot.empty) {
+      throw new Error("Ya estás inscrito en este evento")
+    }
+
     const eventAttendance: Omit<EventAttendanceEntry, "id"> = {
       userId,
       eventId,
@@ -676,6 +689,26 @@ export async function toggleEventActive(eventId: string, activo: boolean): Promi
   } catch (error) {
     console.error("[v0] Error toggling event active:", error)
     throw error
+  }
+}
+
+// Obtener eventos en los que un usuario está inscrito
+export async function getUserEventEnrollments(userId: string): Promise<string[]> {
+  try {
+    const eventAttendanceRef = collection(db, EVENT_ATTENDANCE_COLLECTION)
+    const userEventsQuery = query(eventAttendanceRef, where("userId", "==", userId))
+    const snapshot = await getDocs(userEventsQuery)
+
+    const eventIds: string[] = []
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      eventIds.push(data.eventId)
+    })
+
+    return eventIds
+  } catch (error) {
+    console.error("[v0] Error getting user event enrollments:", error)
+    return []
   }
 }
 

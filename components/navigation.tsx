@@ -3,11 +3,12 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { BarChart3, FileText, Home, Users, Calendar, UsersRound } from "lucide-react"
+import { BarChart3, FileText, Home, Users, Calendar, UsersRound, Megaphone } from "lucide-react"
 
 export function Navigation() {
   const pathname = usePathname()
   const isRegistrationPage = pathname === "/"
+  const isConvocatoriasPage = pathname === "/convocatorias"
 
   return (
     <nav className="bg-white shadow-sm border-b">
@@ -17,12 +18,18 @@ export function Navigation() {
             <h1 className="text-xl font-bold text-gray-900">Sistema Cultural UV</h1>
           </div>
           <div className="flex items-center space-x-2">
-            {!isRegistrationPage && (
+            {!isRegistrationPage && !isConvocatoriasPage && (
               <>
                 <Link href="/">
                   <Button variant="ghost" size="sm" className="flex items-center gap-2">
                     <Home className="w-4 h-4" />
-                    Registro
+                    Asistencia
+                  </Button>
+                </Link>
+                <Link href="/convocatorias">
+                  <Button variant="ghost" size="sm" className="flex items-center gap-2">
+                    <Megaphone className="w-4 h-4" />
+                    Convocatorias
                   </Button>
                 </Link>
                 <Link href="/estadisticas">
@@ -76,6 +83,30 @@ export function Navigation() {
                   </Button>
                 </Link>
               </>
+            )}
+            {(isRegistrationPage || isConvocatoriasPage) && (
+              <div className="flex items-center gap-2">
+                <Link href="/">
+                  <Button 
+                    variant={isRegistrationPage ? "default" : "ghost"} 
+                    size="sm" 
+                    className="flex items-center gap-2"
+                  >
+                    <Home className="w-4 h-4" />
+                    Asistencia a Grupos
+                  </Button>
+                </Link>
+                <Link href="/convocatorias">
+                  <Button 
+                    variant={isConvocatoriasPage ? "default" : "ghost"} 
+                    size="sm" 
+                    className="flex items-center gap-2"
+                  >
+                    <Megaphone className="w-4 h-4" />
+                    Inscripción a Eventos
+                  </Button>
+                </Link>
+              </div>
             )}
           </div>
         </div>

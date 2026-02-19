@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { Navigation } from "@/components/navigation"
-import { User, CheckCircle, AlertCircle } from "lucide-react"
+import { User, CheckCircle, AlertCircle, Calendar } from "lucide-react"
 import {
   GENEROS,
   ETNIAS,
@@ -20,18 +20,17 @@ import {
   ESTAMENTOS,
   FACULTADES,
   PROGRAMAS_POR_FACULTAD,
-  GRUPOS_CULTURALES,
 } from "@/lib/data"
 import {
   saveUserProfile,
-  saveAttendanceEntry,
   findSimilarUsers,
-  getUserEnrollments,
-  enrollUserToGroup,
+  getActiveEvents,
+  saveEventAttendance,
+  getUserEventEnrollments,
 } from "@/lib/firestore"
-import type { FormData, SimilarUser, UserProfile, GroupEnrollment } from "@/lib/types"
+import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
-export default function RegistroAsistencia() {
+export default function ConvocatoriasPage() {
   const { toast } = useToast()
   const [formData, setFormData] = useState<FormData>({
     nombres: "",
@@ -58,14 +57,16 @@ export default function RegistroAsistencia() {
   const [success, setSuccess] = useState(false)
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
+  const [activeEvents, setActiveEvents] = useState<Event[]>([])
   const [currentStep, setCurrentStep] = useState(1)
-  const [userEnrollments, setUserEnrollments] = useState<GroupEnrollment[]>([])
-  const [showEnrollmentForm, setShowEnrollmentForm] = useState(false)
-  const [selectedGroupToEnroll, setSelectedGroupToEnroll] = useState("")
-  const [isEnrolling, setIsEnrolling] = useState(false)
+  const [userEventEnrollments, setUserEventEnrollments] = useState<string[]>([])
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
+
+  useEffect(() => {
+    loadActiveEvents()
+  }, [])
 
   useEffect(() => {
     const checkSimilarity = async () => {
@@ -104,7 +105,6 @@ export default function RegistroAsistencia() {
     setFormData((prev) => {
       const newData = { ...prev, [field]: value }
 
-      // Reset dependent fields when faculty changes
       if (field === "facultad") {
         newData.programaAcademico = ""
       }
@@ -143,14 +143,15 @@ export default function RegistroAsistencia() {
       eventoId: "",
     })
     setShowSuggestions(false)
-    setCurrentStep(1) // Go directly to cultural group selection
+    setCurrentStep(1)
 
-    // Cargar inscripciones del usuario
-    await loadUserEnrollments(user.id)
+    // Cargar eventos en los que ya está inscrito
+    const enrolledEvents = await getUserEventEnrollments(user.id)
+    setUserEventEnrollments(enrolledEvents)
 
     toast({
       title: "Usuario reconocido",
-      description: `¡Hola ${user.nombres}! Selecciona el grupo cultural al que asististe.`,
+      description: `¡Hola ${user.nombres}! Selecciona el evento al que deseas inscribirte.`,
     })
   }
 
@@ -161,7 +162,7 @@ export default function RegistroAsistencia() {
 
   const validateStep = (step: number): boolean => {
     if (selectedUser) {
-      return !!formData.grupoCultural
+      return !!formData.eventoId
     }
 
     switch (step) {
@@ -187,7 +188,7 @@ export default function RegistroAsistencia() {
         }
         return true
       case 4:
-        return !!formData.grupoCultural
+        return !!formData.eventoId
       default:
         return false
     }
@@ -209,45 +210,18 @@ export default function RegistroAsistencia() {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
   }
 
-  // Cargar inscripciones del usuario cuando se selecciona uno
-  async function loadUserEnrollments(userId: string) {
+  async function loadActiveEvents() {
     try {
-      const enrollments = await getUserEnrollments(userId)
-      setUserEnrollments(enrollments)
+      const events = await getActiveEvents()
+      setActiveEvents(events)
     } catch (error) {
-      console.error("Error cargando inscripciones:", error)
-      setUserEnrollments([])
-    }
-  }
-
-  // Inscribir usuario a un grupo
-  async function handleEnrollToGroup() {
-    if (!selectedGroupToEnroll || !selectedUser) return
-
-    setIsEnrolling(true)
-    try {
-      await enrollUserToGroup(selectedUser.id, selectedGroupToEnroll)
-      await loadUserEnrollments(selectedUser.id)
-      setShowEnrollmentForm(false)
-      setSelectedGroupToEnroll("")
-      toast({
-        title: "Inscripción exitosa",
-        description: `Te has inscrito al grupo ${selectedGroupToEnroll}`,
-      })
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "No se pudo completar la inscripción",
-        variant: "destructive",
-      })
-    } finally {
-      setIsEnrolling(false)
+      console.error("Error cargando eventos activos:", error)
     }
   }
 
   async function handleSubmit() {
-    if (!formData.grupoCultural) {
-      setError("Debes seleccionar un grupo cultural")
+    if (!formData.eventoId) {
+      setError("Debes seleccionar un evento")
       return
     }
 
@@ -285,14 +259,14 @@ export default function RegistroAsistencia() {
             }),
         }
 
-        console.log("[v0] Creating new user profile:", userProfile)
+        console.log("[Convocatorias] Creating new user profile:", userProfile)
         userId = await saveUserProfile(userProfile)
-        console.log("[v0] New user created with ID:", userId)
+        console.log("[Convocatorias] New user created with ID:", userId)
       }
 
-      console.log("[v0] Saving attendance entry for user:", userId, "group:", formData.grupoCultural)
-      await saveAttendanceEntry(userId, formData.grupoCultural)
-      console.log("[v0] Attendance entry saved successfully")
+      console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
+      await saveEventAttendance(userId, formData.eventoId)
+      console.log("[Convocatorias] Event attendance saved successfully")
 
       setSuccess(true)
       setTimeout(() => {
@@ -317,10 +291,11 @@ export default function RegistroAsistencia() {
         setSuccess(false)
         setSelectedUser(null)
         setSimilarUsers([])
+        setUserEventEnrollments([])
       }, 3000)
-    } catch (error) {
-      console.error("Error saving attendance:", error)
-      setError("Hubo un problema al registrar la asistencia. Por favor intenta nuevamente.")
+    } catch (error: any) {
+      console.error("Error saving event attendance:", error)
+      setError(error.message || "Hubo un problema al registrar la inscripción. Por favor intenta nuevamente.")
     } finally {
       setIsSubmitting(false)
     }
@@ -341,7 +316,7 @@ export default function RegistroAsistencia() {
             </AlertDescription>
           </Alert>
 
-          {renderCulturalGroupStep()}
+          {renderEventSelection()}
         </div>
       )
     }
@@ -550,7 +525,6 @@ export default function RegistroAsistencia() {
         if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              {/* Solo mostrar código estudiante para ESTUDIANTE */}
               {formData.estamento === "ESTUDIANTE" && (
                 <div className="space-y-2">
                   <Label htmlFor="codigoEstudiante">Código del Estudiante *</Label>
@@ -606,138 +580,99 @@ export default function RegistroAsistencia() {
             </div>
           )
         }
-        // Si no es estudiante ni egresado, ir directamente a selección de grupo cultural
-        return renderCulturalGroupStep()
+        return renderEventSelection()
 
       case 4:
-        return renderCulturalGroupStep()
+        return renderEventSelection()
 
       default:
         return null
     }
   }
 
-  const renderCulturalGroupStep = () => {
-    const isRecognizedUser = !!selectedUser
-    const hasEnrollments = userEnrollments.length > 0
-    const enrolledGroups = userEnrollments.map(e => e.grupoCultural)
-
-    if (isRecognizedUser && !hasEnrollments && !showEnrollmentForm) {
+  const renderEventSelection = () => {
+    if (activeEvents.length === 0) {
       return (
-        <div className="space-y-6">
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              <strong>Debes inscribirte en un grupo para confirmar tu asistencia.</strong>
-              <p className="text-sm mt-1">Una vez inscrito, podrás registrar tu asistencia de forma más rápida.</p>
-            </AlertDescription>
-          </Alert>
-
-          <Button 
-            onClick={() => setShowEnrollmentForm(true)} 
-            className="w-full bg-blue-600 hover:bg-blue-700"
-          >
-            Inscribirme en un Grupo
-          </Button>
-        </div>
+        <Alert className="border-amber-200 bg-amber-50">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800">
+            <strong>No hay eventos disponibles en este momento.</strong>
+            <p className="text-sm mt-1">Por favor vuelve más tarde para ver las convocatorias activas.</p>
+          </AlertDescription>
+        </Alert>
       )
     }
 
-    if (isRecognizedUser && showEnrollmentForm) {
-      const availableGroups = GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g))
-      
-      return (
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="groupEnrollment">Selecciona el Grupo Cultural al que deseas inscribirte</Label>
-            <Select value={selectedGroupToEnroll} onValueChange={setSelectedGroupToEnroll}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un grupo cultural" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableGroups.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowEnrollmentForm(false)
-                setSelectedGroupToEnroll("")
-              }}
-              className="flex-1 bg-transparent"
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleEnrollToGroup} 
-              disabled={!selectedGroupToEnroll || isEnrolling}
-              className="flex-1 bg-green-600 hover:bg-green-700"
-            >
-              {isEnrolling ? "Inscribiendo..." : "Confirmar Inscripción"}
-            </Button>
-          </div>
-        </div>
-      )
-    }
+    const availableEvents = activeEvents.filter(e => !userEventEnrollments.includes(e.id))
+    const enrolledEvents = activeEvents.filter(e => userEventEnrollments.includes(e.id))
 
     return (
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="grupoCultural">
-            {isRecognizedUser ? "Mis Grupos Inscritos" : "Grupo Cultural *"}
-          </Label>
-          <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecciona el grupo cultural" />
-            </SelectTrigger>
-            <SelectContent>
-              {isRecognizedUser ? (
-                enrolledGroups.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))
-              ) : (
-                GRUPOS_CULTURALES.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {isRecognizedUser && enrolledGroups.length < GRUPOS_CULTURALES.length && (
-          <Button 
-            variant="outline" 
-            onClick={() => setShowEnrollmentForm(true)}
-            className="w-full bg-transparent"
-          >
-            Inscribirme en otro grupo
-          </Button>
+      <div className="space-y-4">
+        {enrolledEvents.length > 0 && (
+          <Alert className="border-green-200 bg-green-50">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">
+              <strong>Ya estás inscrito en:</strong>
+              <ul className="mt-2 space-y-1 text-sm">
+                {enrolledEvents.map((evento) => (
+                  <li key={evento.id}>• {evento.nombre}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
         )}
 
-        <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
-          {isRecognizedUser 
-            ? "Selecciona el grupo al que asististe hoy."
-            : "Selecciona el grupo cultural al que asististe."
-          }
-        </div>
+        {availableEvents.length === 0 && enrolledEvents.length > 0 ? (
+          <Alert className="border-blue-200 bg-blue-50">
+            <AlertCircle className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-800">
+              <strong>Ya estás inscrito en todos los eventos disponibles.</strong>
+              <p className="text-sm mt-1">No hay más eventos disponibles para inscripción en este momento.</p>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="eventoId">Selecciona el Evento *</Label>
+              <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un evento" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableEvents.map((evento) => (
+                    <SelectItem key={evento.id} value={evento.id}>
+                      {evento.nombre} - {evento.hora} ({evento.lugar})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {formData.eventoId && (
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-3">
+                  <Calendar className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium">Información del Evento</p>
+                    <p className="mt-1">
+                      {activeEvents.find((e) => e.id === formData.eventoId)?.nombre}
+                    </p>
+                    <p className="text-xs mt-1 text-blue-600">
+                      Asegúrate de seleccionar el evento correcto antes de confirmar tu inscripción.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     )
   }
 
   const getStepTitle = () => {
     if (selectedUser) {
-      return "Seleccionar Grupo Cultural"
+      return "Seleccionar Evento"
     }
 
     switch (currentStep) {
@@ -748,84 +683,106 @@ export default function RegistroAsistencia() {
       case 3:
         return formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
           ? "Información Académica"
-          : "Seleccionar Grupo Cultural"
+          : "Seleccionar Evento"
       case 4:
-        return "Seleccionar Grupo Cultural"
+        return "Seleccionar Evento"
       default:
         return ""
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100">
       <Navigation />
       <div className="p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl font-bold text-gray-900">Sistema de Registro de Asistencia</CardTitle>
-              <CardDescription className="text-lg">Grupos Culturales - Universidad del Valle</CardDescription>
+              <CardTitle className="text-2xl font-bold text-gray-900">Inscripción a Convocatorias</CardTitle>
+              <CardDescription className="text-lg">Eventos Culturales - Universidad del Valle</CardDescription>
               {!selectedUser && (
                 <>
                   <div className="flex justify-center mt-4">
-                    <div className="flex space-x-2">
-                      {Array.from({ length: totalSteps }, (_, i) => (
-                        <div
-                          key={i}
-                          className={`w-3 h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
-                        />
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 3, 4].slice(0, totalSteps).map((step) => (
+                        <div key={step} className="flex items-center">
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                              step === currentStep
+                                ? "bg-purple-600 text-white"
+                                : step < currentStep
+                                  ? "bg-green-500 text-white"
+                                  : "bg-gray-200 text-gray-600"
+                            }`}
+                          >
+                            {step < currentStep ? "✓" : step}
+                          </div>
+                          {step < totalSteps && <div className="w-8 h-0.5 bg-gray-300" />}
+                        </div>
                       ))}
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 mt-2">
-                    Paso {currentStep} de {totalSteps}: {getStepTitle()}
-                  </p>
+                  <p className="text-sm text-gray-600 mt-2">{getStepTitle()}</p>
                 </>
               )}
-              {selectedUser && <p className="text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
             </CardHeader>
+
             <CardContent className="space-y-6">
-              {renderStep()}
+              {success ? (
+                <Alert className="border-green-200 bg-green-50">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-800">
+                    <strong>¡Inscripción exitosa!</strong>
+                    <br />
+                    Tu inscripción al evento ha sido registrada correctamente.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  {error && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-800">{error}</AlertDescription>
+                    </Alert>
+                  )}
 
-              <div className="flex justify-between pt-6">
-                <Button
-                  variant="outline"
-                  onClick={handlePrevious}
-                  disabled={currentStep === 1 || !!selectedUser}
-                  className="px-6 bg-transparent"
-                >
-                  Anterior
-                </Button>
+                  {renderStep()}
 
-                {currentStep === totalSteps || selectedUser ? (
-                  <Button onClick={handleSubmit} className="px-6 bg-green-600 hover:bg-green-700">
-                    Registrar Asistencia
-                  </Button>
-                ) : (
-                  <Button onClick={handleNext} className="px-6">
-                    Siguiente
-                  </Button>
-                )}
-              </div>
+                  <div className="flex gap-3 pt-4">
+                    {!selectedUser && currentStep > 1 && (
+                      <Button variant="outline" onClick={handlePrevious} className="flex-1">
+                        Anterior
+                      </Button>
+                    )}
+
+                    {(selectedUser || currentStep === totalSteps) ? (
+                      <Button
+                        onClick={handleSubmit}
+                        disabled={
+                          isSubmitting || 
+                          !validateStep(currentStep) || 
+                          (!!selectedUser && activeEvents.filter(e => !userEventEnrollments.includes(e.id)).length === 0)
+                        }
+                        className="flex-1 bg-purple-600 hover:bg-purple-700"
+                      >
+                        {isSubmitting ? "Registrando..." : "Confirmar Inscripción"}
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleNext}
+                        disabled={!validateStep(currentStep)}
+                        className="flex-1 bg-purple-600 hover:bg-purple-700"
+                      >
+                        Siguiente
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
-      {error && (
-        <Alert variant="destructive" className="fixed bottom-4 left-1/2 transform -translate-x-1/2">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {success && (
-        <Alert
-          variant="default"
-          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-green-50 border-green-200"
-        >
-          <AlertDescription className="text-green-800">
-            Tu asistencia ha sido registrada correctamente.
-          </AlertDescription>
-        </Alert>
-      )}
       <Toaster />
     </div>
   )
