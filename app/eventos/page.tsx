@@ -20,11 +20,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Navigation } from "@/components/navigation"
 import { createEvent, getAllEvents, deleteEvent, toggleEventActive } from "@/lib/firestore"
 import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users } from "lucide-react"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search } from "lucide-react"
 import Link from "next/link"
 
 export default function EventosPage() {
   const [events, setEvents] = useState<Event[]>([])
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     nombre: "",
@@ -42,11 +44,24 @@ export default function EventosPage() {
     loadEvents()
   }, [])
 
+  useEffect(() => {
+    if (searchTerm.trim() === "") {
+      setFilteredEvents(events)
+    } else {
+      const filtered = events.filter((event) =>
+        event.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        event.lugar.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      setFilteredEvents(filtered)
+    }
+  }, [searchTerm, events])
+
   async function loadEvents() {
     try {
       setLoading(true)
       const eventsData = await getAllEvents()
       setEvents(eventsData)
+      setFilteredEvents(eventsData)
     } catch (error) {
       console.error("Error cargando eventos:", error)
     } finally {
@@ -259,25 +274,44 @@ export default function EventosPage() {
           </Alert>
         )}
 
+        {/* Filtro de búsqueda */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar eventos por nombre o lugar..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {loading ? (
           <Card>
             <CardContent className="py-12">
               <div className="text-center text-gray-500">Cargando eventos...</div>
             </CardContent>
           </Card>
-        ) : events.length === 0 ? (
+        ) : filteredEvents.length === 0 ? (
           <Card>
             <CardContent className="py-12">
               <div className="text-center">
                 <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No hay eventos creados aún</p>
-                <p className="text-sm text-gray-400 mt-2">Crea tu primer evento usando el botón de arriba</p>
+                <p className="text-gray-500">
+                  {searchTerm ? "No se encontraron eventos con ese criterio" : "No hay eventos creados aún"}
+                </p>
+                <p className="text-sm text-gray-400 mt-2">
+                  {searchTerm ? "Intenta con otro término de búsqueda" : "Crea tu primer evento usando el botón de arriba"}
+                </p>
               </div>
             </CardContent>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((event) => {
+            {filteredEvents.map((event) => {
               const active = isEventActive(event)
               return (
                 <Card key={event.id} className={active ? "border-green-500 border-2" : ""}>

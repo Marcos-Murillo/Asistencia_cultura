@@ -5,10 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Users, GraduationCap, Building2, Calendar, User, FileText } from "lucide-react"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
 import { Navigation } from "@/components/navigation"
-import { GroupTrackingComponent } from "@/components/group-traking"
+import { GroupTrackingTable } from "@/components/group-tracking-table"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
 import { generateStats, getAttendanceRecords } from "@/lib/storage"
 import { getEventAttendanceRecords } from "@/lib/event-storage"
@@ -26,6 +27,8 @@ export default function EstadisticasPage() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile }[]>([])
+  const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
+  const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -313,149 +316,149 @@ export default function EstadisticasPage() {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <GraduationCap className="w-5 h-5" />
-                Asistencias por Programa Académico
-              </CardTitle>
-              <CardDescription>Distribución de participantes por programa académico y género</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {Object.keys(stats.byProgram).length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[300px]">Programa Académico</TableHead>
-                        <TableHead className="text-center">Mujer</TableHead>
-                        <TableHead className="text-center">Hombre</TableHead>
-                        <TableHead className="text-center">Otro</TableHead>
-                        <TableHead className="text-center font-semibold">Total</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.entries(stats.byProgram)
-                        .sort(([, a], [, b]) => b.total - a.total)
-                        .map(([programa, data]) => (
-                          <TableRow key={programa}>
-                            <TableCell className="font-medium">{programa}</TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-                                {data.mujer}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                                {data.hombre}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                {data.otro}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="default" className="bg-gray-800 text-white">
-                                {data.total}
-                              </Badge>
-                            </TableCell>
+          <Collapsible open={isProgramTableOpen} onOpenChange={setIsProgramTableOpen}>
+            <Card>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="cursor-pointer hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5" />
+                        Asistencias por Programa Académico
+                      </CardTitle>
+                      <CardDescription>Distribución de participantes por programa académico y género</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="sm">
+                      {isProgramTableOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent>
+                  {Object.keys(stats.byProgram).length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="min-w-[300px]">Programa Académico</TableHead>
+                            <TableHead className="text-center">Mujer</TableHead>
+                            <TableHead className="text-center">Hombre</TableHead>
+                            <TableHead className="text-center">Otro</TableHead>
+                            <TableHead className="text-center font-semibold">Total</TableHead>
                           </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No hay datos de programas académicos disponibles</div>
-              )}
-            </CardContent>
-          </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.entries(stats.byProgram)
+                            .sort(([, a], [, b]) => b.total - a.total)
+                            .map(([programa, data]) => (
+                              <TableRow key={programa}>
+                                <TableCell className="font-medium">{programa}</TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-pink-100 text-pink-800">
+                                    {data.mujer}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                    {data.hombre}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
+                                    {data.otro}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="default" className="bg-gray-800 text-white">
+                                    {data.total}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">No hay datos de programas académicos disponibles</div>
+                  )}
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="w-5 h-5" />
-                Asistencias por Facultad
-              </CardTitle>
-              <CardDescription>Distribución de participantes por facultad y género</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {Object.keys(stats.byFaculty).length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="min-w-[300px]">Facultad</TableHead>
-                        <TableHead className="text-center">Mujer</TableHead>
-                        <TableHead className="text-center">Hombre</TableHead>
-                        <TableHead className="text-center">Otro</TableHead>
-                        <TableHead className="text-center font-semibold">Total</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.entries(stats.byFaculty)
-                        .sort(([, a], [, b]) => b.total - a.total)
-                        .map(([facultad, data]) => (
-                          <TableRow key={facultad}>
-                            <TableCell className="font-medium">{facultad}</TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-                                {data.mujer}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                                {data.hombre}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                {data.otro}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="default" className="bg-gray-800 text-white">
-                                {data.total}
-                              </Badge>
-                            </TableCell>
+          <Collapsible open={isFacultyTableOpen} onOpenChange={setIsFacultyTableOpen}>
+            <Card>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="cursor-pointer hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building2 className="w-5 h-5" />
+                        Asistencias por Facultad
+                      </CardTitle>
+                      <CardDescription>Distribución de participantes por facultad y género</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="sm">
+                      {isFacultyTableOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent>
+                  {Object.keys(stats.byFaculty).length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="min-w-[300px]">Facultad</TableHead>
+                            <TableHead className="text-center">Mujer</TableHead>
+                            <TableHead className="text-center">Hombre</TableHead>
+                            <TableHead className="text-center">Otro</TableHead>
+                            <TableHead className="text-center font-semibold">Total</TableHead>
                           </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No hay datos de facultades disponibles</div>
-              )}
-            </CardContent>
-          </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.entries(stats.byFaculty)
+                            .sort(([, a], [, b]) => b.total - a.total)
+                            .map(([facultad, data]) => (
+                              <TableRow key={facultad}>
+                                <TableCell className="font-medium">{facultad}</TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-pink-100 text-pink-800">
+                                    {data.mujer}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                    {data.hombre}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
+                                    {data.otro}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="default" className="bg-gray-800 text-white">
+                                    {data.total}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">No hay datos de facultades disponibles</div>
+                  )}
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Resumen por Grupo Cultural</CardTitle>
-              <CardDescription>Número total de asistentes por grupo cultural</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {Object.keys(stats.byCulturalGroup).length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Object.entries(stats.byCulturalGroup)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([grupo, count]) => (
-                      <div key={grupo} className="p-4 bg-white rounded-lg border">
-                        <h4 className="font-medium text-sm text-gray-900 mb-2 line-clamp-2">{grupo}</h4>
-                        <div className="flex items-center justify-between">
-                          <span className="text-2xl font-bold text-blue-600">{count}</span>
-                          <Badge variant="outline">participantes</Badge>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No hay datos de grupos culturales disponibles</div>
-              )}
-            </CardContent>
-          </Card>
-
-          <GroupTrackingComponent />
+          <GroupTrackingTable />
         </div>
       </div>
     </div>

@@ -28,6 +28,7 @@ import { FACULTADES_PROGRAMAS } from "@/lib/data"
 import type { Event, UserProfile } from "@/lib/types"
 import { ArrowLeft, Download, Search, Users, Calendar, MapPin, Clock } from "lucide-react"
 import Link from "next/link"
+import * as XLSX from "xlsx"
 
 interface EventAttendee extends UserProfile {
   fechaAsistencia: Date
@@ -112,44 +113,27 @@ export default function EventoAsistentesPage() {
 
   // Descargar Excel
   function downloadExcel() {
-    const headers = [
-      "Nombres",
-      "Documento",
-      "Correo",
-      "Teléfono",
-      "Género",
-      "Edad",
-      "Estamento",
-      "Facultad",
-      "Programa",
-      "Fecha de Asistencia"
-    ]
+    const data = filteredAttendees.map(a => ({
+      "Nombres": a.nombres,
+      "Documento": a.numeroDocumento,
+      "Correo": a.correo,
+      "Teléfono": a.telefono,
+      "Género": a.genero,
+      "Edad": a.edad,
+      "Estamento": a.estamento,
+      "Facultad": a.facultad || "N/A",
+      "Programa": a.programaAcademico || "N/A",
+      "Fecha de Asistencia": new Date(a.fechaAsistencia).toLocaleString("es-CO")
+    }))
 
-    const rows = filteredAttendees.map(a => [
-      a.nombres,
-      a.numeroDocumento,
-      a.correo,
-      a.telefono,
-      a.genero,
-      a.edad,
-      a.estamento,
-      a.facultad || "N/A",
-      a.programaAcademico || "N/A",
-      new Date(a.fechaAsistencia).toLocaleString("es-CO")
-    ])
+    const worksheet = XLSX.utils.json_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Asistentes")
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n")
-
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `asistentes_${event?.nombre.replace(/\s+/g, "_") || "evento"}_${new Date().toISOString().split("T")[0]}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    XLSX.writeFile(
+      workbook,
+      `asistentes_${event?.nombre.replace(/\s+/g, "_") || "evento"}_${new Date().toISOString().split("T")[0]}.xlsx`
+    )
   }
 
   if (loading) {

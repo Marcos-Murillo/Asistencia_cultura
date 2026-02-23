@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Navigation } from "@/components/navigation"
+import * as XLSX from "xlsx"
 import { 
   Users, 
   Search, 
@@ -91,33 +92,26 @@ export default function GrupoDetallePage() {
 
   // Descargar Excel
   const handleDownloadExcel = () => {
-    // Crear CSV
-    const headers = ["Nombres", "Correo", "Documento", "Teléfono", "Género", "Facultad", "Programa", "Estamento", "Fecha Inscripción"]
-    const rows = filteredUsers.map(user => [
-      user.nombres,
-      user.correo,
-      user.numeroDocumento,
-      user.telefono,
-      user.genero,
-      user.facultad || "N/A",
-      user.programaAcademico || "N/A",
-      user.estamento,
-      user.fechaInscripcion.toLocaleDateString()
-    ])
+    // Preparar datos para Excel
+    const data = filteredUsers.map(user => ({
+      "Nombres": user.nombres,
+      "Correo": user.correo,
+      "Documento": user.numeroDocumento,
+      "Teléfono": user.telefono,
+      "Género": user.genero,
+      "Facultad": user.facultad || "N/A",
+      "Programa": user.programaAcademico || "N/A",
+      "Estamento": user.estamento,
+      "Fecha Inscripción": user.fechaInscripcion.toLocaleDateString()
+    }))
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n")
+    // Crear libro de trabajo
+    const worksheet = XLSX.utils.json_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inscritos")
 
-    // Descargar
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `inscritos_${groupName.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    // Descargar archivo
+    XLSX.writeFile(workbook, `inscritos_${groupName.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}.xlsx`)
   }
 
   if (loading) {

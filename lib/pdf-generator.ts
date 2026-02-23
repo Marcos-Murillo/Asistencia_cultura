@@ -5,7 +5,7 @@ import type { AttendanceStats, EventStats, AttendanceRecord, EventAttendanceEntr
 export async function generatePDFReport(
   stats: AttendanceStats,
   attendanceRecords: AttendanceRecord[],
-  eventRecords: { entry: EventAttendanceEntry; user: UserProfile }[],
+  eventRecords: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   eventStats?: EventStats,
 ) {
   const doc = new jsPDF()

@@ -1,7 +1,7 @@
 import type { EventStats, UserProfile, EventAttendanceEntry } from "./types"
 
 // Generar estadísticas de eventos desde los registros
-export function generateEventStats(eventRecords: { entry: EventAttendanceEntry; user: UserProfile }[]): EventStats {
+export function generateEventStats(eventRecords: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]): EventStats {
   const stats: EventStats = {
     totalParticipants: eventRecords.length,
     byGender: { mujer: 0, hombre: 0, otro: 0 },
@@ -10,7 +10,7 @@ export function generateEventStats(eventRecords: { entry: EventAttendanceEntry; 
     byEvent: {},
   }
 
-  eventRecords.forEach(({ user }) => {
+  eventRecords.forEach(({ user, eventName }) => {
     const gender = user.genero.toLowerCase() as "mujer" | "hombre" | "otro"
     stats.byGender[gender]++
 
@@ -28,6 +28,14 @@ export function generateEventStats(eventRecords: { entry: EventAttendanceEntry; 
       }
       stats.byFaculty[user.facultad][gender]++
       stats.byFaculty[user.facultad].total++
+    }
+
+    // Contar participaciones por evento
+    if (eventName) {
+      if (!stats.byEvent[eventName]) {
+        stats.byEvent[eventName] = 0
+      }
+      stats.byEvent[eventName]++
     }
   })
 
