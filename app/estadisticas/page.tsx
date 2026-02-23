@@ -26,7 +26,7 @@ export default function EstadisticasPage() {
   const [hasActiveFilters, setHasActiveFilters] = useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
-  const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile }[]>([])
+  const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
   const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
 
