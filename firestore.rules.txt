@@ -1,0 +1,60 @@
+// REGLAS DE FIRESTORE - Agregar estas reglas a tu Firebase Console
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Reglas existentes para user_profiles
+    match /user_profiles/{userId} {
+      allow read, write: if true;
+    }
+    
+    // Reglas existentes para attendance_records
+    match /attendance_records/{recordId} {
+      allow read, write: if true;
+    }
+    
+    // Reglas existentes para group_enrollments
+    match /group_enrollments/{enrollmentId} {
+      allow read, write: if true;
+    }
+    
+    // Reglas existentes para events
+    match /events/{eventId} {
+      allow read, write: if true;
+    }
+    
+    // Reglas existentes para event_attendance_records
+    match /event_attendance_records/{recordId} {
+      allow read, write: if true;
+    }
+    
+    // NUEVAS REGLAS - Agregar estas colecciones
+    
+    // Usuarios administradores
+    match /admin_users/{adminId} {
+      allow read, write: if true;
+    }
+    
+    // Encargados de grupos (directores/monitores)
+    match /group_managers/{managerId} {
+      allow read, write: if true;
+    }
+    
+    // Asignaciones de categorías (semillero, proceso, representativo)
+    match /group_category_assignments/{assignmentId} {
+      allow read, write: if true;
+    }
+  }
+}
+
+// INSTRUCCIONES PARA APLICAR:
+// 1. Ve a Firebase Console (https://console.firebase.google.com)
+// 2. Selecciona tu proyecto
+// 3. Ve a Firestore Database
+// 4. Click en la pestaña "Reglas" (Rules)
+// 5. Copia y pega estas reglas
+// 6. Click en "Publicar" (Publish)
+
+// NOTA: Estas reglas permiten acceso completo (allow read, write: if true)
+// Para producción, considera agregar validaciones de autenticación más estrictas

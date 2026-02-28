@@ -109,6 +109,7 @@ export interface UserProfile {
   codigoEstudiante?: string
   facultad?: string
   programaAcademico?: string
+  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
   createdAt: Date
   lastAttendance: Date
 }
@@ -202,4 +203,34 @@ export interface EventEnrollment {
 export interface GroupWithEnrollments {
   nombre: string
   totalInscritos: number
+}
+
+// Tipos para sistema de autenticación y roles
+export interface AdminUser {
+  id: string
+  numeroDocumento: string
+  correo: string
+  nombres: string
+  createdAt: Date
+  createdBy: string
+}
+
+export interface GroupManager {
+  id: string
+  userId: string
+  grupoCultural: string
+  assignedAt: Date
+  assignedBy: string
+}
+
+export type UserRole = "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
+
+export type GroupCategory = "SEMILLERO" | "PROCESO" | "REPRESENTATIVO"
+
+export interface GroupCategoryAssignment {
+  id: string
+  userId: string
+  grupoCultural: string
+  category: GroupCategory
+  assignedAt: Date
 }

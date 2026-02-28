@@ -16,6 +16,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -26,7 +33,8 @@ import { Navigation } from "@/components/navigation"
 import DeleteUserDialog from "@/components/delete-user-dialog"
 import { getAllUsers, deleteUser, getUserEnrollments, getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
-import type { UserProfile, GroupEnrollment, AttendanceRecord } from "@/lib/types"
+import { updateUserRole } from "@/lib/auth"
+import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole } from "@/lib/types"
 import { 
   Users, 
   Search, 
@@ -35,12 +43,12 @@ import {
   MoreVertical, 
   Eye, 
   Trash2,
+  UserCog,
   ChevronLeft,
   ChevronRight,
   Calendar,
   Mail,
   Phone,
-  MapPin,
   GraduationCap,
   Building2,
   User as UserIcon,
@@ -67,6 +75,10 @@ export default function UsuariosPage() {
   const [userEvents, setUserEvents] = useState<string[]>([])
   const [userAttendances, setUserAttendances] = useState<AttendanceRecord[]>([])
   const [currentPage, setCurrentPage] = useState(1)
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
+  const [userToAssignRole, setUserToAssignRole] = useState<UserProfile | null>(null)
+  const [selectedRole, setSelectedRole] = useState<UserRole>("ESTUDIANTE")
+  const [isAssigningRole, setIsAssigningRole] = useState(false)
 
   const loadUsers = async () => {
     try {
@@ -159,6 +171,31 @@ export default function UsuariosPage() {
       setUserAttendances(allAttendances.filter(a => a.numeroDocumento === user.numeroDocumento))
     } catch (error) {
       console.error("Error loading user details:", error)
+    }
+  }
+
+  const handleAssignRole = (user: UserProfile) => {
+    setUserToAssignRole(user)
+    setSelectedRole(user.rol || "ESTUDIANTE")
+    setRoleDialogOpen(true)
+  }
+
+  const confirmAssignRole = async () => {
+    if (!userToAssignRole) return
+
+    setIsAssigningRole(true)
+    try {
+      await updateUserRole(userToAssignRole.id, selectedRole)
+      setSuccess(`Rol actualizado a ${selectedRole} exitosamente`)
+      await loadUsers()
+      setRoleDialogOpen(false)
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error) {
+      console.error("Error assigning role:", error)
+      setError("Error al asignar el rol")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsAssigningRole(false)
     }
   }
 
@@ -351,6 +388,10 @@ export default function UsuariosPage() {
                                   <DropdownMenuItem onClick={() => handleViewUser(user)}>
                                     <Eye className="h-4 w-4 mr-2" />
                                     Ver Usuario
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleAssignRole(user)}>
+                                    <UserCog className="h-4 w-4 mr-2" />
+                                    Asignar Rol
                                   </DropdownMenuItem>
                                   <DropdownMenuItem 
                                     onClick={() => handleDeleteUser(user)}
@@ -617,6 +658,58 @@ export default function UsuariosPage() {
             onOpenChange={setDeleteDialogOpen}
             onConfirm={confirmDeleteUser}
           />
+
+          {/* Assign Role Dialog */}
+          <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Asignar Rol de Usuario</DialogTitle>
+                <DialogDescription>
+                  Selecciona el rol para {userToAssignRole?.nombres}
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Rol</label>
+                  <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as UserRole)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ESTUDIANTE">Estudiante</SelectItem>
+                      <SelectItem value="DIRECTOR">Director</SelectItem>
+                      <SelectItem value="MONITOR">Monitor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Nota:</strong> Los roles de Director y Monitor permiten gestionar grupos culturales.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setRoleDialogOpen(false)}
+                  disabled={isAssigningRole}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmAssignRole}
+                  disabled={isAssigningRole}
+                  className="flex-1"
+                >
+                  {isAssigningRole ? "Asignando..." : "Asignar Rol"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>
