@@ -721,9 +721,14 @@ export function generateId(): string {
 // Inscribir usuario a un grupo cultural
 export async function enrollUserToGroup(userId: string, grupoCultural: string): Promise<string> {
   try {
+    console.log("[v0] Starting enrollment process for user:", userId, "to group:", grupoCultural)
+    
     // Verificar si ya está inscrito
     const existingEnrollment = await getUserEnrollments(userId)
+    console.log("[v0] Existing enrollments:", existingEnrollment)
+    
     if (existingEnrollment.some(e => e.grupoCultural === grupoCultural)) {
+      console.log("[v0] User already enrolled in this group")
       throw new Error("El usuario ya está inscrito en este grupo")
     }
 
@@ -733,12 +738,21 @@ export async function enrollUserToGroup(userId: string, grupoCultural: string): 
       fechaInscripcion: new Date(),
     }
 
-    console.log("[v0] Enrolling user to group:", enrollment)
+    console.log("[v0] Enrolling user to group with data:", enrollment)
+    console.log("[v0] Target collection:", GROUP_ENROLLMENTS_COLLECTION)
+    
     const docRef = await addDoc(collection(db, GROUP_ENROLLMENTS_COLLECTION), enrollment)
-    console.log("[v0] User enrolled with ID:", docRef.id)
+    console.log("[v0] User enrolled successfully with ID:", docRef.id)
     return docRef.id
-  } catch (error) {
+  } catch (error: any) {
     console.error("[v0] Error enrolling user to group:", error)
+    console.error("[v0] Error code:", error.code)
+    console.error("[v0] Error message:", error.message)
+    
+    if (error.code === "permission-denied") {
+      throw new Error("Error de permisos en Firestore. Verifica que las reglas permitan escritura en 'group_enrollments'")
+    }
+    
     throw error
   }
 }

@@ -32,6 +32,8 @@ export default function LoginPage() {
       if (verifySuperAdmin(superUsuario, superPassword)) {
         sessionStorage.setItem("userType", "superadmin")
         sessionStorage.setItem("userId", superUsuario)
+        sessionStorage.setItem("isSuperAdmin", "true")
+        sessionStorage.setItem("isAdmin", "true")
         router.push("/estadisticas")
       } else {
         setError("Credenciales incorrectas")
@@ -54,6 +56,8 @@ export default function LoginPage() {
         sessionStorage.setItem("userType", "admin")
         sessionStorage.setItem("userId", admin.id)
         sessionStorage.setItem("userName", admin.nombres)
+        sessionStorage.setItem("isAdmin", "true")
+        sessionStorage.setItem("isSuperAdmin", "false")
         router.push("/estadisticas")
       } else {
         setError("No se encontró un administrador con estas credenciales")

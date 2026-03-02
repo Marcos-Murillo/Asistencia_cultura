@@ -256,6 +256,7 @@ export default function RegistroAsistencia() {
 
       if (selectedUser) {
         userId = selectedUser.id
+        console.log("[v0] Using existing user ID:", userId)
       } else {
         const userProfile = {
           nombres: formData.nombres,
@@ -293,6 +294,11 @@ export default function RegistroAsistencia() {
       console.log("[v0] User enrolled successfully")
 
       setSuccess(true)
+      toast({
+        title: "¡Inscripción exitosa!",
+        description: `Te has inscrito al grupo ${formData.grupoCultural} correctamente.`,
+      })
+
       setTimeout(() => {
         setFormData({
           nombres: "",
@@ -315,10 +321,28 @@ export default function RegistroAsistencia() {
         setSuccess(false)
         setSelectedUser(null)
         setSimilarUsers([])
+        setUserEnrollments([])
       }, 3000)
-    } catch (error) {
-      console.error("Error saving enrollment:", error)
-      setError("Hubo un problema al inscribirte. Por favor intenta nuevamente.")
+    } catch (error: any) {
+      console.error("[v0] Error saving enrollment:", error)
+      console.error("[v0] Error details:", error.message, error.code)
+      
+      let errorMessage = "Hubo un problema al inscribirte. Por favor intenta nuevamente."
+      
+      if (error.message) {
+        errorMessage = error.message
+      } else if (error.code === "permission-denied") {
+        errorMessage = "Error de permisos. Verifica la configuración de Firestore."
+      } else if (error.code === "unavailable") {
+        errorMessage = "No se pudo conectar con el servidor. Verifica tu conexión."
+      }
+      
+      setError(errorMessage)
+      toast({
+        title: "Error en la inscripción",
+        description: errorMessage,
+        variant: "destructive",
+      })
     }
   }
 
@@ -618,6 +642,7 @@ export default function RegistroAsistencia() {
     const hasEnrollments = userEnrollments.length > 0
     const enrolledGroups = userEnrollments.map(e => e.grupoCultural)
 
+    // Si es usuario reconocido y no tiene inscripciones
     if (isRecognizedUser && !hasEnrollments && !showEnrollmentForm) {
       return (
         <div className="space-y-6">
@@ -639,6 +664,7 @@ export default function RegistroAsistencia() {
       )
     }
 
+    // Si está mostrando el formulario de inscripción
     if (isRecognizedUser && showEnrollmentForm) {
       const availableGroups = GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g))
       
@@ -683,11 +709,12 @@ export default function RegistroAsistencia() {
       )
     }
 
+    // Si es usuario reconocido con inscripciones o usuario nuevo
     return (
       <div className="space-y-6">
         <div className="space-y-2">
           <Label htmlFor="grupoCultural">
-            {isRecognizedUser ? "Mis Grupos Inscritos" : "Grupo Cultural *"}
+            {isRecognizedUser && hasEnrollments ? "Selecciona el grupo al que deseas inscribirte" : "Grupo Cultural *"}
           </Label>
           <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
             <SelectTrigger>
@@ -695,12 +722,14 @@ export default function RegistroAsistencia() {
             </SelectTrigger>
             <SelectContent>
               {isRecognizedUser ? (
-                enrolledGroups.map((grupo) => (
+                // Para usuarios reconocidos, mostrar solo grupos disponibles (no inscritos)
+                GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g)).map((grupo) => (
                   <SelectItem key={grupo} value={grupo}>
                     {grupo}
                   </SelectItem>
                 ))
               ) : (
+                // Para usuarios nuevos, mostrar todos los grupos
                 GRUPOS_CULTURALES.map((grupo) => (
                   <SelectItem key={grupo} value={grupo}>
                     {grupo}
@@ -711,19 +740,17 @@ export default function RegistroAsistencia() {
           </Select>
         </div>
 
-        {isRecognizedUser && enrolledGroups.length < GRUPOS_CULTURALES.length && (
-          <Button 
-            variant="outline" 
-            onClick={() => setShowEnrollmentForm(true)}
-            className="w-full bg-transparent"
-          >
-            Inscribirme en otro grupo
-          </Button>
+        {isRecognizedUser && hasEnrollments && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-800">
+              <strong>Grupos inscritos:</strong> {enrolledGroups.join(", ")}
+            </p>
+          </div>
         )}
 
         <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
           {isRecognizedUser 
-            ? "Selecciona el grupo al que deseas inscribirte o al que ya estás inscrito."
+            ? "Selecciona un nuevo grupo al que deseas inscribirte."
             : "Selecciona el grupo cultural al que deseas inscribirte."
           }
         </div>
@@ -795,15 +822,19 @@ export default function RegistroAsistencia() {
                   Anterior
                 </Button>
 
-                {currentStep === totalSteps || selectedUser ? (
-                  <Button onClick={handleSubmit} className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2">
+                {(currentStep === totalSteps && !selectedUser) || (selectedUser && !showEnrollmentForm && formData.grupoCultural) ? (
+                  <Button 
+                    onClick={handleSubmit} 
+                    disabled={!formData.grupoCultural}
+                    className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2"
+                  >
                     Inscribirme al Grupo
                   </Button>
-                ) : (
+                ) : !selectedUser ? (
                   <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
                     Siguiente
                   </Button>
-                )}
+                ) : null}
               </div>
             </CardContent>
           </Card>

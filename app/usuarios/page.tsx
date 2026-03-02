@@ -33,8 +33,11 @@ import { Navigation } from "@/components/navigation"
 import DeleteUserDialog from "@/components/delete-user-dialog"
 import { getAllUsers, deleteUser, getUserEnrollments, getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
-import { updateUserRole } from "@/lib/auth"
-import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole } from "@/lib/types"
+import { updateUserRole, assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/auth"
+import { GRUPOS_CULTURALES } from "@/lib/data"
+import { db } from "@/lib/firebase"
+import { collection, query, where, getDocs } from "firebase/firestore"
+import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
 import { 
   Users, 
   Search, 
@@ -44,6 +47,7 @@ import {
   Eye, 
   Trash2,
   UserCog,
+  UsersRound,
   ChevronLeft,
   ChevronRight,
   Calendar,
@@ -79,6 +83,13 @@ export default function UsuariosPage() {
   const [userToAssignRole, setUserToAssignRole] = useState<UserProfile | null>(null)
   const [selectedRole, setSelectedRole] = useState<UserRole>("ESTUDIANTE")
   const [isAssigningRole, setIsAssigningRole] = useState(false)
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [userToAssignGroup, setUserToAssignGroup] = useState<UserProfile | null>(null)
+  const [selectedGroup, setSelectedGroup] = useState("")
+  const [isAssigningGroup, setIsAssigningGroup] = useState(false)
+  const [userAssignedGroup, setUserAssignedGroup] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
   const loadUsers = async () => {
     try {
@@ -97,6 +108,12 @@ export default function UsuariosPage() {
   }
 
   useEffect(() => {
+    // Verificar si es admin o super admin
+    const adminStatus = sessionStorage.getItem("isAdmin") === "true"
+    const superAdminStatus = sessionStorage.getItem("isSuperAdmin") === "true"
+    setIsAdmin(adminStatus)
+    setIsSuperAdmin(superAdminStatus)
+    
     loadUsers()
   }, [])
 
@@ -175,6 +192,11 @@ export default function UsuariosPage() {
   }
 
   const handleAssignRole = (user: UserProfile) => {
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden asignar roles")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
     setUserToAssignRole(user)
     setSelectedRole(user.rol || "ESTUDIANTE")
     setRoleDialogOpen(true)
@@ -199,6 +221,82 @@ export default function UsuariosPage() {
     }
   }
 
+  const handleAssignGroup = async (user: UserProfile) => {
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden asignar encargados")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    
+    setUserToAssignGroup(user)
+    setGroupDialogOpen(true)
+    
+    // Verificar si el usuario ya tiene un grupo asignado
+    try {
+      const managersRef = collection(db, "group_managers")
+      const q = query(managersRef, where("userId", "==", user.id))
+      const snapshot = await getDocs(q)
+      
+      if (!snapshot.empty) {
+        const managerData = snapshot.docs[0].data()
+        setUserAssignedGroup(managerData.grupoCultural)
+      } else {
+        setUserAssignedGroup(null)
+      }
+    } catch (error) {
+      console.error("Error checking user group:", error)
+      setUserAssignedGroup(null)
+    }
+  }
+
+  const confirmAssignGroup = async () => {
+    if (!userToAssignGroup || !selectedGroup) return
+
+    setIsAssigningGroup(true)
+    try {
+      const assignedBy = sessionStorage.getItem("userId") || "admin"
+      await assignGroupManager(userToAssignGroup.id, selectedGroup, assignedBy)
+      setSuccess(`${userToAssignGroup.nombres} asignado como encargado de ${selectedGroup}`)
+      await loadUsers()
+      setGroupDialogOpen(false)
+      setSelectedGroup("")
+      setUserAssignedGroup(null)
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error: any) {
+      console.error("Error assigning group:", error)
+      setError(error.message || "Error al asignar como encargado")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsAssigningGroup(false)
+    }
+  }
+
+  const handleRemoveGroup = async () => {
+    if (!userToAssignGroup) return
+
+    setIsAssigningGroup(true)
+    try {
+      const managersRef = collection(db, "group_managers")
+      const q = query(managersRef, where("userId", "==", userToAssignGroup.id))
+      const snapshot = await getDocs(q)
+      
+      if (!snapshot.empty) {
+        await removeGroupManager(snapshot.docs[0].id)
+        setSuccess(`${userToAssignGroup.nombres} removido como encargado`)
+        await loadUsers()
+        setGroupDialogOpen(false)
+        setUserAssignedGroup(null)
+        setTimeout(() => setSuccess(null), 3000)
+      }
+    } catch (error) {
+      console.error("Error removing group:", error)
+      setError("Error al remover como encargado")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsAssigningGroup(false)
+    }
+  }
+
   // Obtener opciones únicas para los filtros
   const facultades: ComboboxOption[] = Array.from(new Set(users.map(u => u.facultad).filter(Boolean)))
     .map(f => ({ value: f!, label: f! }))
@@ -207,6 +305,12 @@ export default function UsuariosPage() {
   const programas: ComboboxOption[] = Array.from(new Set(users.map(u => u.programaAcademico).filter(Boolean)))
     .map(p => ({ value: p!, label: p! }))
     .sort((a, b) => a.label.localeCompare(b.label))
+
+  // Opciones para el selector de grupos
+  const gruposOptions: ComboboxOption[] = GRUPOS_CULTURALES.map((grupo) => ({
+    value: grupo,
+    label: grupo,
+  }))
 
   // Paginación
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE)
@@ -389,17 +493,29 @@ export default function UsuariosPage() {
                                     <Eye className="h-4 w-4 mr-2" />
                                     Ver Usuario
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleAssignRole(user)}>
-                                    <UserCog className="h-4 w-4 mr-2" />
-                                    Asignar Rol
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem 
-                                    onClick={() => handleDeleteUser(user)}
-                                    className="text-red-600"
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Eliminar
-                                  </DropdownMenuItem>
+                                  {(isAdmin || isSuperAdmin) && (
+                                    <>
+                                      <DropdownMenuItem onClick={() => handleAssignRole(user)}>
+                                        <UserCog className="h-4 w-4 mr-2" />
+                                        Asignar Rol
+                                      </DropdownMenuItem>
+                                      {(user.rol === "DIRECTOR" || user.rol === "MONITOR") && (
+                                        <DropdownMenuItem onClick={() => handleAssignGroup(user)}>
+                                          <UsersRound className="h-4 w-4 mr-2" />
+                                          Asignar como Encargado
+                                        </DropdownMenuItem>
+                                      )}
+                                    </>
+                                  )}
+                                  {(isAdmin || isSuperAdmin) && (
+                                    <DropdownMenuItem 
+                                      onClick={() => handleDeleteUser(user)}
+                                      className="text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Eliminar
+                                    </DropdownMenuItem>
+                                  )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
@@ -661,10 +777,10 @@ export default function UsuariosPage() {
 
           {/* Assign Role Dialog */}
           <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-            <DialogContent>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle>Asignar Rol de Usuario</DialogTitle>
-                <DialogDescription>
+                <DialogTitle className="text-lg md:text-xl">Asignar Rol de Usuario</DialogTitle>
+                <DialogDescription className="text-sm">
                   Selecciona el rol para {userToAssignRole?.nombres}
                 </DialogDescription>
               </DialogHeader>
@@ -673,7 +789,7 @@ export default function UsuariosPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Rol</label>
                   <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as UserRole)}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-10 md:h-11">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -685,27 +801,99 @@ export default function UsuariosPage() {
                 </div>
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm text-blue-800">
+                  <p className="text-xs md:text-sm text-blue-800">
                     <strong>Nota:</strong> Los roles de Director y Monitor permiten gestionar grupos culturales.
                   </p>
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   variant="outline"
                   onClick={() => setRoleDialogOpen(false)}
                   disabled={isAssigningRole}
-                  className="flex-1"
+                  className="flex-1 h-10 md:h-11"
                 >
                   Cancelar
                 </Button>
                 <Button
                   onClick={confirmAssignRole}
                   disabled={isAssigningRole}
-                  className="flex-1"
+                  className="flex-1 h-10 md:h-11"
                 >
                   {isAssigningRole ? "Asignando..." : "Asignar Rol"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Assign Group Dialog */}
+          <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg md:text-xl">Asignar como Encargado de Grupo</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Asigna a {userToAssignGroup?.nombres} como encargado de un grupo cultural
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                {userAssignedGroup && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-xs md:text-sm text-amber-800">
+                      <strong>Grupo actual:</strong> {userAssignedGroup}
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Grupo Cultural</label>
+                  <Combobox
+                    options={gruposOptions}
+                    value={selectedGroup}
+                    onValueChange={setSelectedGroup}
+                    placeholder="Selecciona un grupo"
+                    searchPlaceholder="Buscar grupo..."
+                    emptyText="No se encontró el grupo"
+                  />
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs md:text-sm text-blue-800">
+                    <strong>Nota:</strong> Un director/monitor solo puede ser encargado de un grupo a la vez.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                {userAssignedGroup && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleRemoveGroup}
+                    disabled={isAssigningGroup}
+                    className="flex-1 h-10 md:h-11"
+                  >
+                    {isAssigningGroup ? "Removiendo..." : "Quitar como Encargado"}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setGroupDialogOpen(false)
+                    setSelectedGroup("")
+                    setUserAssignedGroup(null)
+                  }}
+                  disabled={isAssigningGroup}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmAssignGroup}
+                  disabled={isAssigningGroup || !selectedGroup}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  {isAssigningGroup ? "Asignando..." : "Asignar como Encargado"}
                 </Button>
               </div>
             </DialogContent>

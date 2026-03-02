@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,16 +28,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Navigation } from "@/components/navigation"
-import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle } from "lucide-react"
+import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search } from "lucide-react"
 import Link from "next/link"
 import { getAllGroupsWithEnrollments, getAllUsers } from "@/lib/firestore"
-import { assignGroupManager, getGroupManagers } from "@/lib/auth"
+import { assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/auth"
 import { GRUPOS_CULTURALES } from "@/lib/data"
 import type { GroupWithEnrollments, UserProfile, GroupManager } from "@/lib/types"
 
 export default function GruposPage() {
   const [groups, setGroups] = useState<GroupWithEnrollments[]>([])
+  const [filteredGroups, setFilteredGroups] = useState<GroupWithEnrollments[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [managerDialogOpen, setManagerDialogOpen] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<string>("")
@@ -48,10 +52,29 @@ export default function GruposPage() {
   const [groupManagers, setGroupManagers] = useState<Record<string, (GroupManager & { user: UserProfile })[]>>({})
   const [viewManagersDialogOpen, setViewManagersDialogOpen] = useState(false)
   const [viewingGroup, setViewingGroup] = useState<string>("")
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
   useEffect(() => {
+    // Verificar si es admin o super admin
+    const adminStatus = sessionStorage.getItem("isAdmin") === "true"
+    const superAdminStatus = sessionStorage.getItem("isSuperAdmin") === "true"
+    setIsAdmin(adminStatus)
+    setIsSuperAdmin(superAdminStatus)
+    
     loadGroups()
   }, [])
+
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      const filtered = groups.filter((group) =>
+        group.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      setFilteredGroups(filtered)
+    } else {
+      setFilteredGroups(groups)
+    }
+  }, [searchTerm, groups])
 
   async function loadGroups() {
     try {
@@ -72,6 +95,7 @@ export default function GruposPage() {
         managersMap[group.nombre] = managers
       }
       setGroupManagers(managersMap)
+      setFilteredGroups(allGroups)
     } catch (error) {
       console.error("Error cargando grupos:", error)
     } finally {
@@ -80,6 +104,12 @@ export default function GruposPage() {
   }
 
   const handleAssignManager = async (groupName: string) => {
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden asignar encargados")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    
     setSelectedGroup(groupName)
     setManagerDialogOpen(true)
     
@@ -121,6 +151,25 @@ export default function GruposPage() {
     setViewManagersDialogOpen(true)
   }
 
+  const handleRemoveManager = async (managerId: string) => {
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden remover encargados")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    
+    try {
+      await removeGroupManager(managerId)
+      setSuccess("Encargado removido exitosamente")
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error) {
+      console.error("Error removing manager:", error)
+      setError("Error al remover encargado")
+      setTimeout(() => setError(null), 3000)
+    }
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -130,8 +179,14 @@ export default function GruposPage() {
       .slice(0, 2)
   }
 
-  const totalInscritos = groups.reduce((sum, g) => sum + g.totalInscritos, 0)
-  const gruposConInscritos = groups.filter(g => g.totalInscritos > 0).length
+  // Preparar opciones para el Combobox
+  const gruposOptions: ComboboxOption[] = GRUPOS_CULTURALES.map((grupo) => ({
+    value: grupo,
+    label: grupo,
+  }))
+
+  const totalInscritos = filteredGroups.reduce((sum, g) => sum + g.totalInscritos, 0)
+  const gruposConInscritos = filteredGroups.filter(g => g.totalInscritos > 0).length
 
   if (loading) {
     return (
@@ -170,6 +225,43 @@ export default function GruposPage() {
               <AlertDescription className="text-green-800">{success}</AlertDescription>
             </Alert>
           )}
+
+          {/* Filtro de búsqueda */}
+          <Card className="w-full max-w-full md:max-w-2xl lg:max-w-3xl mx-auto">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+                <Search className="w-4 h-4 md:w-5 md:h-5" />
+                Buscar Grupos
+              </CardTitle>
+              <CardDescription className="text-sm">Filtra grupos por nombre</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nombre de grupo..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 h-10 md:h-11"
+                />
+              </div>
+              {searchTerm && (
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <p className="text-xs md:text-sm text-gray-600">
+                    Mostrando {filteredGroups.length} de {groups.length} grupos
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSearchTerm("")}
+                    className="w-full sm:w-auto"
+                  >
+                    Limpiar
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Resumen */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -222,22 +314,26 @@ export default function GruposPage() {
                 Lista de Grupos Culturales
               </CardTitle>
               <CardDescription>
-                Todos los grupos culturales disponibles y sus inscripciones
+                {searchTerm 
+                  ? `${filteredGroups.length} grupo${filteredGroups.length !== 1 ? 's' : ''} encontrado${filteredGroups.length !== 1 ? 's' : ''}`
+                  : "Todos los grupos culturales disponibles y sus inscripciones"
+                }
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Grupo</TableHead>
-                      <TableHead className="text-center">Total Inscritos</TableHead>
-                      <TableHead className="text-center">Encargados</TableHead>
-                      <TableHead className="text-center">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groups.map((group) => {
+              {filteredGroups.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Grupo</TableHead>
+                        <TableHead className="text-center">Total Inscritos</TableHead>
+                        <TableHead className="text-center">Encargados</TableHead>
+                        <TableHead className="text-center">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredGroups.map((group) => {
                       const managers = groupManagers[group.nombre] || []
                       return (
                         <TableRow key={group.nombre}>
@@ -298,10 +394,12 @@ export default function GruposPage() {
                                     Ver Grupo
                                   </Link>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleAssignManager(group.nombre)}>
-                                  <UserPlus className="h-4 w-4 mr-2" />
-                                  Asignar Encargado
-                                </DropdownMenuItem>
+                                {(isAdmin || isSuperAdmin) && (
+                                  <DropdownMenuItem onClick={() => handleAssignManager(group.nombre)}>
+                                    <UserPlus className="h-4 w-4 mr-2" />
+                                    Asignar Encargado
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -311,15 +409,22 @@ export default function GruposPage() {
                   </TableBody>
                 </Table>
               </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  {searchTerm
+                    ? "No se encontraron grupos con ese nombre"
+                    : "No hay grupos disponibles"}
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Dialog para asignar encargado */}
           <Dialog open={managerDialogOpen} onOpenChange={setManagerDialogOpen}>
-            <DialogContent>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle>Asignar Encargado</DialogTitle>
-                <DialogDescription>
+                <DialogTitle className="text-lg md:text-xl">Asignar Encargado</DialogTitle>
+                <DialogDescription className="text-sm">
                   Selecciona un director o monitor para el grupo {selectedGroup}
                 </DialogDescription>
               </DialogHeader>
@@ -330,7 +435,7 @@ export default function GruposPage() {
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Director / Monitor</label>
                       <Select value={selectedManager} onValueChange={setSelectedManager}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-10 md:h-11">
                           <SelectValue placeholder="Selecciona un encargado" />
                         </SelectTrigger>
                         <SelectContent>
@@ -344,22 +449,22 @@ export default function GruposPage() {
                     </div>
 
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                      <p className="text-sm text-amber-800">
+                      <p className="text-xs md:text-sm text-amber-800">
                         <strong>Nota:</strong> Un usuario solo puede ser encargado de un grupo a la vez.
                       </p>
                     </div>
                   </>
                 ) : (
                   <div className="text-center py-8">
-                    <p className="text-gray-500">No hay directores o monitores disponibles.</p>
-                    <p className="text-sm text-gray-400 mt-2">
+                    <p className="text-sm text-gray-500">No hay directores o monitores disponibles.</p>
+                    <p className="text-xs md:text-sm text-gray-400 mt-2">
                       Asigna roles de Director o Monitor desde la página de Usuarios.
                     </p>
                   </div>
                 )}
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -367,14 +472,14 @@ export default function GruposPage() {
                     setSelectedManager("")
                   }}
                   disabled={isAssigning}
-                  className="flex-1"
+                  className="flex-1 h-10 md:h-11"
                 >
                   Cancelar
                 </Button>
                 <Button
                   onClick={confirmAssignManager}
                   disabled={isAssigning || !selectedManager}
-                  className="flex-1"
+                  className="flex-1 h-10 md:h-11"
                 >
                   {isAssigning ? "Asignando..." : "Asignar"}
                 </Button>
@@ -384,32 +489,48 @@ export default function GruposPage() {
 
           {/* Dialog para ver encargados */}
           <Dialog open={viewManagersDialogOpen} onOpenChange={setViewManagersDialogOpen}>
-            <DialogContent>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle>Encargados de {viewingGroup}</DialogTitle>
-                <DialogDescription>
+                <DialogTitle className="text-lg md:text-xl">Encargados de {viewingGroup}</DialogTitle>
+                <DialogDescription className="text-sm">
                   Lista de directores y monitores asignados a este grupo
                 </DialogDescription>
               </DialogHeader>
               
-              <div className="space-y-3 py-4">
-                {groupManagers[viewingGroup]?.map((manager) => (
-                  <div key={manager.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Avatar>
-                      <AvatarFallback className="bg-blue-100 text-blue-700">
-                        {manager.user.nombres.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <p className="font-medium">{manager.user.nombres}</p>
-                      <p className="text-sm text-gray-500">{manager.user.correo}</p>
+              <div className="space-y-3 py-4 max-h-[60vh] overflow-y-auto">
+                {groupManagers[viewingGroup]?.length > 0 ? (
+                  groupManagers[viewingGroup].map((manager) => (
+                    <div key={manager.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <Avatar className="h-9 w-9 md:h-10 md:w-10">
+                        <AvatarFallback className="bg-blue-100 text-blue-700 text-xs md:text-sm">
+                          {manager.user.nombres.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm md:text-base truncate">{manager.user.nombres}</p>
+                        <p className="text-xs md:text-sm text-gray-500 truncate">{manager.user.correo}</p>
+                      </div>
+                      <Badge variant="secondary" className="text-xs shrink-0">{manager.user.rol}</Badge>
+                      {(isAdmin || isSuperAdmin) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveManager(manager.id)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0 shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
-                    <Badge variant="secondary">{manager.user.rol}</Badge>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    No hay encargados asignados a este grupo
                   </div>
-                ))}
+                )}
               </div>
 
-              <Button onClick={() => setViewManagersDialogOpen(false)} className="w-full">
+              <Button onClick={() => setViewManagersDialogOpen(false)} className="w-full h-10 md:h-11">
                 Cerrar
               </Button>
             </DialogContent>

@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, setDoc, query, where, updateDoc } from "firebase/firestore"
+import { collection, doc, getDoc, getDocs, setDoc, query, where, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from "./firebase"
 import type { AdminUser, GroupManager, UserProfile, UserRole } from "./types"
 
@@ -202,7 +202,7 @@ export async function verifyGroupManager(
 export async function removeGroupManager(managerId: string): Promise<void> {
   try {
     const managerRef = doc(db, GROUP_MANAGERS_COLLECTION, managerId)
-    await updateDoc(managerRef, { removed: true, removedAt: new Date() })
+    await deleteDoc(managerRef)
   } catch (error) {
     console.error("Error removing group manager:", error)
     throw error
