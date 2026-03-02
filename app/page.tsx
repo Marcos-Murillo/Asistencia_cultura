@@ -24,7 +24,6 @@ import {
 } from "@/lib/data"
 import {
   saveUserProfile,
-  saveAttendanceEntry,
   findSimilarUsers,
   getUserEnrollments,
   enrollUserToGroup,
@@ -53,7 +52,6 @@ export default function RegistroAsistencia() {
 
   const [isCheckingSimilarity, setIsCheckingSimilarity] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
@@ -150,7 +148,7 @@ export default function RegistroAsistencia() {
 
     toast({
       title: "Usuario reconocido",
-      description: `¡Hola ${user.nombres}! Selecciona el grupo cultural al que asististe.`,
+      description: `¡Hola ${user.nombres}! Selecciona el grupo al que deseas inscribirte.`,
     })
   }
 
@@ -251,7 +249,6 @@ export default function RegistroAsistencia() {
       return
     }
 
-    setIsSubmitting(true)
     setError("")
 
     try {
@@ -290,9 +287,10 @@ export default function RegistroAsistencia() {
         console.log("[v0] New user created with ID:", userId)
       }
 
-      console.log("[v0] Saving attendance entry for user:", userId, "group:", formData.grupoCultural)
-      await saveAttendanceEntry(userId, formData.grupoCultural)
-      console.log("[v0] Attendance entry saved successfully")
+      // Solo inscribir al grupo, no registrar asistencia
+      console.log("[v0] Enrolling user to group:", userId, "group:", formData.grupoCultural)
+      await enrollUserToGroup(userId, formData.grupoCultural)
+      console.log("[v0] User enrolled successfully")
 
       setSuccess(true)
       setTimeout(() => {
@@ -319,10 +317,8 @@ export default function RegistroAsistencia() {
         setSimilarUsers([])
       }, 3000)
     } catch (error) {
-      console.error("Error saving attendance:", error)
-      setError("Hubo un problema al registrar la asistencia. Por favor intenta nuevamente.")
-    } finally {
-      setIsSubmitting(false)
+      console.error("Error saving enrollment:", error)
+      setError("Hubo un problema al inscribirte. Por favor intenta nuevamente.")
     }
   }
 
@@ -628,8 +624,8 @@ export default function RegistroAsistencia() {
           <Alert className="border-amber-200 bg-amber-50">
             <AlertCircle className="h-4 w-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
-              <strong>Debes inscribirte en un grupo para confirmar tu asistencia.</strong>
-              <p className="text-sm mt-1">Una vez inscrito, podrás registrar tu asistencia de forma más rápida.</p>
+              <strong>Inscríbete en un grupo cultural para comenzar.</strong>
+              <p className="text-sm mt-1">Una vez inscrito, el director o monitor del grupo registrará tu asistencia.</p>
             </AlertDescription>
           </Alert>
 
@@ -727,8 +723,8 @@ export default function RegistroAsistencia() {
 
         <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
           {isRecognizedUser 
-            ? "Selecciona el grupo al que asististe hoy."
-            : "Selecciona el grupo cultural al que asististe."
+            ? "Selecciona el grupo al que deseas inscribirte o al que ya estás inscrito."
+            : "Selecciona el grupo cultural al que deseas inscribirte."
           }
         </div>
       </div>
@@ -759,50 +755,52 @@ export default function RegistroAsistencia() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Navigation />
-      <div className="p-4">
+      <div className="p-3 md:p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl font-bold text-gray-900">Sistema de Registro de Asistencia</CardTitle>
-              <CardDescription className="text-lg">Grupos Culturales - Universidad del Valle</CardDescription>
+            <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
+              <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">
+                Sistema de Inscripción a Grupos Culturales
+              </CardTitle>
+              <CardDescription className="text-base md:text-lg">Universidad del Valle</CardDescription>
               {!selectedUser && (
                 <>
-                  <div className="flex justify-center mt-4">
+                  <div className="flex justify-center mt-3 md:mt-4">
                     <div className="flex space-x-2">
                       {Array.from({ length: totalSteps }, (_, i) => (
                         <div
                           key={i}
-                          className={`w-3 h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
+                          className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
                         />
                       ))}
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 mt-2">
+                  <p className="text-xs md:text-sm text-gray-600 mt-2">
                     Paso {currentStep} de {totalSteps}: {getStepTitle()}
                   </p>
                 </>
               )}
-              {selectedUser && <p className="text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
+              {selectedUser && <p className="text-xs md:text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
               {renderStep()}
 
-              <div className="flex justify-between pt-6">
+              <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 md:pt-6">
                 <Button
                   variant="outline"
                   onClick={handlePrevious}
                   disabled={currentStep === 1 || !!selectedUser}
-                  className="px-6 bg-transparent"
+                  className="w-full sm:w-auto px-6 bg-transparent order-2 sm:order-1"
                 >
                   Anterior
                 </Button>
 
                 {currentStep === totalSteps || selectedUser ? (
-                  <Button onClick={handleSubmit} className="px-6 bg-green-600 hover:bg-green-700">
-                    Registrar Asistencia
+                  <Button onClick={handleSubmit} className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2">
+                    Inscribirme al Grupo
                   </Button>
                 ) : (
-                  <Button onClick={handleNext} className="px-6">
+                  <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
                     Siguiente
                   </Button>
                 )}
@@ -812,17 +810,17 @@ export default function RegistroAsistencia() {
         </div>
       </div>
       {error && (
-        <Alert variant="destructive" className="fixed bottom-4 left-1/2 transform -translate-x-1/2">
+        <Alert variant="destructive" className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md z-50">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
       {success && (
         <Alert
           variant="default"
-          className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-green-50 border-green-200"
+          className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md bg-green-50 border-green-200 z-50"
         >
           <AlertDescription className="text-green-800">
-            Tu asistencia ha sido registrada correctamente.
+            Te has inscrito al grupo exitosamente.
           </AlertDescription>
         </Alert>
       )}

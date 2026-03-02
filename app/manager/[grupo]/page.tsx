@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Select,
   SelectContent,
@@ -16,6 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { 
   Users, 
@@ -24,12 +31,16 @@ import {
   TrendingUp, 
   Calendar,
   Search,
-  UserCheck
+  UserCheck,
+  Filter,
+  X,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react"
 import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } from "@/lib/firestore"
 import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
 import { getAttendanceRecords } from "@/lib/storage"
-import type { UserProfile, GroupCategory, AttendanceRecord } from "@/lib/types"
+import type { UserProfile, GroupCategory } from "@/lib/types"
 
 export default function ManagerGroupPage() {
   const params = useParams()
@@ -47,6 +58,7 @@ export default function ManagerGroupPage() {
   const [filterFacultad, setFilterFacultad] = useState("")
   const [filterPrograma, setFilterPrograma] = useState("")
   const [filterCodigo, setFilterCodigo] = useState("")
+  const [showFilters, setShowFilters] = useState(false)
 
   // Asistencia
   const [selectedForAttendance, setSelectedForAttendance] = useState<Set<string>>(new Set())
@@ -57,12 +69,12 @@ export default function ManagerGroupPage() {
   const [selectedCategory, setSelectedCategory] = useState<GroupCategory>("SEMILLERO")
   const [isAssigningCategory, setIsAssigningCategory] = useState(false)
   const [userCategories, setUserCategories] = useState<Record<string, GroupCategory>>({})
+  const [showCategoryDialog, setShowCategoryDialog] = useState(false)
 
   // Estadísticas
   const [attendanceStats, setAttendanceStats] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    // Verificar autenticación
     const userType = sessionStorage.getItem("userType")
     const userRole = sessionStorage.getItem("userRole")
     const assignedGroup = sessionStorage.getItem("grupoCultural")
@@ -87,11 +99,9 @@ export default function ManagerGroupPage() {
   async function loadGroupData() {
     setLoading(true)
     try {
-      // Cargar usuarios inscritos
       const enrollments = await getGroupEnrollments(groupName)
       setEnrolledUsers(enrollments)
 
-      // Cargar categorías de usuarios
       const categories: Record<string, GroupCategory> = {}
       for (const user of enrollments) {
         const category = await getUserCategory(user.id, groupName)
@@ -101,7 +111,6 @@ export default function ManagerGroupPage() {
       }
       setUserCategories(categories)
 
-      // Cargar estadísticas de asistencia
       const allAttendances = await getAttendanceRecords()
       const stats: Record<string, number> = {}
       
@@ -213,6 +222,7 @@ export default function ManagerGroupPage() {
       await assignUsersToCategory(Array.from(selectedForCategory), groupName, selectedCategory)
       setSuccess(`${selectedForCategory.size} usuario(s) asignado(s) a ${selectedCategory}`)
       setSelectedForCategory(new Set())
+      setShowCategoryDialog(false)
       await loadGroupData()
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
@@ -223,7 +233,6 @@ export default function ManagerGroupPage() {
     }
   }
 
-  // Opciones para filtros
   const facultades: ComboboxOption[] = Array.from(new Set(enrolledUsers.map(u => u.facultad).filter(Boolean)))
     .map(f => ({ value: f!, label: f! }))
     .sort((a, b) => a.label.localeCompare(b.label))
@@ -232,15 +241,27 @@ export default function ManagerGroupPage() {
     .map(p => ({ value: p!, label: p! }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
-  // Top asistentes
   const topAttendees = enrolledUsers
     .map(u => ({ user: u, count: attendanceStats[u.id] || 0 }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 5)
 
+  const getInitials = (name: string) => {
+    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+  }
+
+  const clearFilters = () => {
+    setSearchName("")
+    setFilterCodigo("")
+    setFilterFacultad("")
+    setFilterPrograma("")
+  }
+
+  const hasActiveFilters = searchName || filterCodigo || filterFacultad || filterPrograma
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center p-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600" />
       </div>
     )
@@ -248,12 +269,14 @@ export default function ManagerGroupPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
-      <div className="container mx-auto p-6 max-w-7xl">
-        <div className="space-y-6">
+      <div className="container mx-auto p-4 md:p-6 max-w-7xl">
+        <div className="space-y-4 md:space-y-6">
           {/* Header */}
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{groupName}</h1>
-            <p className="text-gray-600 mt-1">Panel de Gestión - {sessionStorage.getItem("userRole")}</p>
+          <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{groupName}</h1>
+            <p className="text-sm md:text-base text-gray-600 mt-1">
+              Panel de Gestión - {sessionStorage.getItem("userRole")}
+            </p>
           </div>
 
           {error && (
@@ -271,280 +294,300 @@ export default function ManagerGroupPage() {
           )}
 
           {/* Estadísticas */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Users className="h-5 w-5 text-blue-600" />
+              <CardContent className="pt-4 md:pt-6">
+                <div className="text-center">
+                  <div className="mx-auto w-10 h-10 md:w-12 md:h-12 bg-blue-100 rounded-full flex items-center justify-center mb-2">
+                    <Users className="h-5 w-5 md:h-6 md:w-6 text-blue-600" />
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Total Inscritos</p>
-                    <p className="text-2xl font-bold">{enrolledUsers.length}</p>
-                  </div>
+                  <p className="text-xs md:text-sm text-gray-500">Total</p>
+                  <p className="text-xl md:text-2xl font-bold">{enrolledUsers.length}</p>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <UserCheck className="h-5 w-5 text-green-600" />
+              <CardContent className="pt-4 md:pt-6">
+                <div className="text-center">
+                  <div className="mx-auto w-10 h-10 md:w-12 md:h-12 bg-green-100 rounded-full flex items-center justify-center mb-2">
+                    <UserCheck className="h-5 w-5 md:h-6 md:w-6 text-green-600" />
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Semillero</p>
-                    <p className="text-2xl font-bold">
-                      {Object.values(userCategories).filter(c => c === "SEMILLERO").length}
-                    </p>
-                  </div>
+                  <p className="text-xs md:text-sm text-gray-500">Semillero</p>
+                  <p className="text-xl md:text-2xl font-bold">
+                    {Object.values(userCategories).filter(c => c === "SEMILLERO").length}
+                  </p>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <UserCheck className="h-5 w-5 text-purple-600" />
+              <CardContent className="pt-4 md:pt-6">
+                <div className="text-center">
+                  <div className="mx-auto w-10 h-10 md:w-12 md:h-12 bg-purple-100 rounded-full flex items-center justify-center mb-2">
+                    <UserCheck className="h-5 w-5 md:h-6 md:w-6 text-purple-600" />
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Proceso</p>
-                    <p className="text-2xl font-bold">
-                      {Object.values(userCategories).filter(c => c === "PROCESO").length}
-                    </p>
-                  </div>
+                  <p className="text-xs md:text-sm text-gray-500">Proceso</p>
+                  <p className="text-xl md:text-2xl font-bold">
+                    {Object.values(userCategories).filter(c => c === "PROCESO").length}
+                  </p>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-orange-100 rounded-lg">
-                    <UserCheck className="h-5 w-5 text-orange-600" />
+              <CardContent className="pt-4 md:pt-6">
+                <div className="text-center">
+                  <div className="mx-auto w-10 h-10 md:w-12 md:h-12 bg-orange-100 rounded-full flex items-center justify-center mb-2">
+                    <UserCheck className="h-5 w-5 md:h-6 md:w-6 text-orange-600" />
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Representativo</p>
-                    <p className="text-2xl font-bold">
-                      {Object.values(userCategories).filter(c => c === "REPRESENTATIVO").length}
-                    </p>
-                  </div>
+                  <p className="text-xs md:text-sm text-gray-500">Representativo</p>
+                  <p className="text-xl md:text-2xl font-bold">
+                    {Object.values(userCategories).filter(c => c === "REPRESENTATIVO").length}
+                  </p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Tabla Principal */}
-            <div className="lg:col-span-2 space-y-4">
-              {/* Filtros */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Search className="h-5 w-5" />
-                    Filtros
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Buscar por nombre</label>
-                      <Input
-                        placeholder="Nombre del estudiante..."
-                        value={searchName}
-                        onChange={(e) => setSearchName(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Código</label>
-                      <Input
-                        placeholder="Código estudiante..."
-                        value={filterCodigo}
-                        onChange={(e) => setFilterCodigo(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Facultad</label>
-                      <Combobox
-                        options={facultades}
-                        value={filterFacultad}
-                        onValueChange={setFilterFacultad}
-                        placeholder="Todas"
-                        searchPlaceholder="Buscar..."
-                        emptyText="No encontrado"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Programa</label>
-                      <Combobox
-                        options={programas}
-                        value={filterPrograma}
-                        onValueChange={setFilterPrograma}
-                        placeholder="Todos"
-                        searchPlaceholder="Buscar..."
-                        emptyText="No encontrado"
-                      />
-                    </div>
-                  </div>
-                  {(searchName || filterCodigo || filterFacultad || filterPrograma) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSearchName("")
-                        setFilterCodigo("")
-                        setFilterFacultad("")
-                        setFilterPrograma("")
-                      }}
-                    >
+          {/* Búsqueda y Filtros */}
+          <Card>
+            <CardContent className="pt-4 md:pt-6 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Buscar por nombre..."
+                  value={searchName}
+                  onChange={(e) => setSearchName(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() => setShowFilters(!showFilters)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  Filtros Avanzados
+                  {hasActiveFilters && (
+                    <Badge variant="secondary" className="ml-2">
+                      {[searchName, filterCodigo, filterFacultad, filterPrograma].filter(Boolean).length}
+                    </Badge>
+                  )}
+                </span>
+                {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+
+              {showFilters && (
+                <div className="space-y-3 pt-2">
+                  <Input
+                    placeholder="Código estudiante..."
+                    value={filterCodigo}
+                    onChange={(e) => setFilterCodigo(e.target.value)}
+                  />
+                  <Combobox
+                    options={facultades}
+                    value={filterFacultad}
+                    onValueChange={setFilterFacultad}
+                    placeholder="Todas las facultades"
+                    searchPlaceholder="Buscar..."
+                    emptyText="No encontrado"
+                  />
+                  <Combobox
+                    options={programas}
+                    value={filterPrograma}
+                    onValueChange={setFilterPrograma}
+                    placeholder="Todos los programas"
+                    searchPlaceholder="Buscar..."
+                    emptyText="No encontrado"
+                  />
+                  {hasActiveFilters && (
+                    <Button variant="outline" onClick={clearFilters} className="w-full">
+                      <X className="h-4 w-4 mr-2" />
                       Limpiar Filtros
                     </Button>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-              {/* Acciones */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Acciones Rápidas</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Marcar Asistencia */}
-                  <div className="flex items-center gap-3">
-                    <Button
-                      onClick={handleMarkAttendance}
-                      disabled={selectedForAttendance.size === 0 || isMarkingAttendance}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <Calendar className="h-4 w-4 mr-2" />
-                      {isMarkingAttendance ? "Registrando..." : `Marcar Asistencia (${selectedForAttendance.size})`}
-                    </Button>
-                  </div>
+          {/* Acciones Rápidas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Button
+              onClick={handleMarkAttendance}
+              disabled={selectedForAttendance.size === 0 || isMarkingAttendance}
+              className="w-full bg-green-600 hover:bg-green-700 h-12 md:h-auto"
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              {isMarkingAttendance ? "Registrando..." : `Marcar Asistencia (${selectedForAttendance.size})`}
+            </Button>
 
-                  {/* Asignar Categoría */}
-                  <div className="flex items-center gap-3">
-                    <Select value={selectedCategory} onValueChange={(v) => setSelectedCategory(v as GroupCategory)}>
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="SEMILLERO">Semillero</SelectItem>
-                        <SelectItem value="PROCESO">Proceso</SelectItem>
-                        <SelectItem value="REPRESENTATIVO">Representativo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      onClick={handleAssignCategory}
-                      disabled={selectedForCategory.size === 0 || isAssigningCategory}
-                      variant="outline"
-                    >
-                      {isAssigningCategory ? "Asignando..." : `Asignar a ${selectedForCategory.size} usuario(s)`}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Tabla de Usuarios */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center justify-between">
-                    <span>Usuarios Inscritos ({filteredUsers.length})</span>
-                    <Button variant="outline" size="sm" onClick={handleSelectAllForAttendance}>
-                      {selectedForAttendance.size === filteredUsers.length ? "Deseleccionar Todos" : "Seleccionar Todos"}
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12">Asist.</TableHead>
-                          <TableHead className="w-12">Cat.</TableHead>
-                          <TableHead>Nombre</TableHead>
-                          <TableHead>Código</TableHead>
-                          <TableHead>Programa</TableHead>
-                          <TableHead>Categoría</TableHead>
-                          <TableHead className="text-center">Asistencias</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredUsers.map((user) => (
-                          <TableRow key={user.id}>
-                            <TableCell>
-                              <Checkbox
-                                checked={selectedForAttendance.has(user.id)}
-                                onCheckedChange={() => handleSelectForAttendance(user.id)}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={selectedForCategory.has(user.id)}
-                                onCheckedChange={() => handleSelectForCategory(user.id)}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{user.nombres}</TableCell>
-                            <TableCell>{user.codigoEstudiante || "N/A"}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">{user.programaAcademico || "N/A"}</TableCell>
-                            <TableCell>
-                              {userCategories[user.id] ? (
-                                <Badge
-                                  className={
-                                    userCategories[user.id] === "SEMILLERO"
-                                      ? "bg-green-100 text-green-800"
-                                      : userCategories[user.id] === "PROCESO"
-                                      ? "bg-purple-100 text-purple-800"
-                                      : "bg-orange-100 text-orange-800"
-                                  }
-                                >
-                                  {userCategories[user.id]}
-                                </Badge>
-                              ) : (
-                                <span className="text-sm text-gray-400">Sin asignar</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary">{attendanceStats[user.id] || 0}</Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Panel Lateral - Top Asistentes */}
-            <div>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5" />
-                    Top 5 Asistentes
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {topAttendees.map((item, index) => (
-                      <div key={item.user.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600">
-                          {index + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{item.user.nombres}</p>
-                          <p className="text-sm text-gray-500">{item.count} asistencias</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <Button
+              onClick={() => setShowCategoryDialog(true)}
+              disabled={selectedForCategory.size === 0}
+              variant="outline"
+              className="w-full h-12 md:h-auto"
+            >
+              <UserCheck className="h-4 w-4 mr-2" />
+              Asignar Categoría ({selectedForCategory.size})
+            </Button>
           </div>
+
+          {/* Seleccionar Todos */}
+          <Card>
+            <CardContent className="pt-4">
+              <Button
+                variant="outline"
+                onClick={handleSelectAllForAttendance}
+                className="w-full"
+              >
+                {selectedForAttendance.size === filteredUsers.length ? "Deseleccionar Todos" : "Seleccionar Todos"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Lista de Usuarios - Vista Móvil */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-2">
+              <h3 className="text-lg font-semibold">Usuarios ({filteredUsers.length})</h3>
+            </div>
+
+            {filteredUsers.map((user) => (
+              <Card key={user.id} className="overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    {/* Checkboxes */}
+                    <div className="flex flex-col gap-2 pt-1">
+                      <Checkbox
+                        checked={selectedForAttendance.has(user.id)}
+                        onCheckedChange={() => handleSelectForAttendance(user.id)}
+                      />
+                      <Checkbox
+                        checked={selectedForCategory.has(user.id)}
+                        onCheckedChange={() => handleSelectForCategory(user.id)}
+                      />
+                    </div>
+
+                    {/* Avatar */}
+                    <Avatar className="h-12 w-12 flex-shrink-0">
+                      <AvatarFallback className="bg-blue-100 text-blue-700 text-sm font-semibold">
+                        {getInitials(user.nombres)}
+                      </AvatarFallback>
+                    </Avatar>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-sm md:text-base truncate">{user.nombres}</h4>
+                      <p className="text-xs text-gray-500 truncate">{user.codigoEstudiante || "Sin código"}</p>
+                      
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {userCategories[user.id] && (
+                          <Badge
+                            className={`text-xs ${
+                              userCategories[user.id] === "SEMILLERO"
+                                ? "bg-green-100 text-green-800"
+                                : userCategories[user.id] === "PROCESO"
+                                ? "bg-purple-100 text-purple-800"
+                                : "bg-orange-100 text-orange-800"
+                            }`}
+                          >
+                            {userCategories[user.id]}
+                          </Badge>
+                        )}
+                        <Badge variant="secondary" className="text-xs">
+                          {attendanceStats[user.id] || 0} asistencias
+                        </Badge>
+                      </div>
+
+                      {user.programaAcademico && (
+                        <p className="text-xs text-gray-600 mt-1 truncate">{user.programaAcademico}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+
+            {filteredUsers.length === 0 && (
+              <Card>
+                <CardContent className="py-12 text-center text-gray-500">
+                  No se encontraron usuarios
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Top Asistentes */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Top 5 Asistentes
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {topAttendees.map((item, index) => (
+                  <div key={item.user.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-sm">
+                      {index + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{item.user.nombres}</p>
+                      <p className="text-xs text-gray-500">{item.count} asistencias</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
+
+      {/* Dialog de Categorías */}
+      <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Asignar Categoría</DialogTitle>
+            <DialogDescription>
+              Selecciona la categoría para {selectedForCategory.size} usuario(s)
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <Select value={selectedCategory} onValueChange={(v) => setSelectedCategory(v as GroupCategory)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="SEMILLERO">Semillero</SelectItem>
+                <SelectItem value="PROCESO">Proceso</SelectItem>
+                <SelectItem value="REPRESENTATIVO">Representativo</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowCategoryDialog(false)}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleAssignCategory}
+                disabled={isAssigningCategory}
+                className="flex-1"
+              >
+                {isAssigningCategory ? "Asignando..." : "Asignar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
