@@ -90,6 +90,7 @@ export default function UsuariosPage() {
   const [userAssignedGroup, setUserAssignedGroup] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
 
   const loadUsers = async () => {
     try {
@@ -297,6 +298,79 @@ export default function UsuariosPage() {
     }
   }
 
+  const handleCleanDuplicates = async () => {
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden limpiar duplicados")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    const confirmed = window.confirm(
+      "¿Estás seguro de que deseas eliminar usuarios duplicados?\n\n" +
+      "Esta acción eliminará todos los usuarios con el mismo número de documento, " +
+      "excepto el más reciente. Esta acción no se puede deshacer."
+    )
+
+    if (!confirmed) return
+
+    setIsCleaningDuplicates(true)
+    try {
+      // Agrupar usuarios por número de documento
+      const usersByDocument = new Map<string, UserProfile[]>()
+      
+      users.forEach(user => {
+        const doc = user.numeroDocumento
+        if (!usersByDocument.has(doc)) {
+          usersByDocument.set(doc, [])
+        }
+        usersByDocument.get(doc)!.push(user)
+      })
+
+      // Encontrar duplicados
+      let duplicatesFound = 0
+      let duplicatesDeleted = 0
+
+      const entries = Array.from(usersByDocument.entries())
+      
+      for (const [documento, userList] of entries) {
+        if (userList.length > 1) {
+          duplicatesFound += userList.length - 1
+          
+          // Ordenar por fecha de creación (más reciente primero)
+          userList.sort((a: UserProfile, b: UserProfile) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )
+          
+          // Mantener el primero (más reciente), eliminar los demás
+          for (let i = 1; i < userList.length; i++) {
+            try {
+              await deleteUser(userList[i].id)
+              duplicatesDeleted++
+            } catch (error) {
+              console.error(`Error eliminando usuario duplicado ${userList[i].id}:`, error)
+            }
+          }
+        }
+      }
+
+      await loadUsers()
+      
+      if (duplicatesDeleted > 0) {
+        setSuccess(`Se eliminaron ${duplicatesDeleted} usuario(s) duplicado(s)`)
+      } else {
+        setSuccess("No se encontraron usuarios duplicados")
+      }
+      
+      setTimeout(() => setSuccess(null), 5000)
+    } catch (error) {
+      console.error("Error limpiando duplicados:", error)
+      setError("Error al limpiar usuarios duplicados")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsCleaningDuplicates(false)
+    }
+  }
+
   // Obtener opciones únicas para los filtros
   const facultades: ComboboxOption[] = Array.from(new Set(users.map(u => u.facultad).filter(Boolean)))
     .map(f => ({ value: f!, label: f! }))
@@ -345,6 +419,16 @@ export default function UsuariosPage() {
               <p className="text-gray-600 mt-1">Administrar perfiles de usuarios registrados</p>
             </div>
             <div className="flex items-center gap-2">
+              {(isAdmin || isSuperAdmin) && (
+                <Button
+                  onClick={handleCleanDuplicates}
+                  disabled={isCleaningDuplicates}
+                  variant="outline"
+                  className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                >
+                  {isCleaningDuplicates ? "Limpiando..." : "Limpiar Duplicados"}
+                </Button>
+              )}
               <Badge variant="secondary" className="text-sm">
                 <Users className="w-4 h-4 mr-1" />
                 {filteredUsers.length} usuarios

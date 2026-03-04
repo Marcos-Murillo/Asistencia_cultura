@@ -61,6 +61,7 @@ export default function RegistroAsistencia() {
   const [showEnrollmentForm, setShowEnrollmentForm] = useState(false)
   const [selectedGroupToEnroll, setSelectedGroupToEnroll] = useState("")
   const [isEnrolling, setIsEnrolling] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
@@ -249,7 +250,13 @@ export default function RegistroAsistencia() {
       return
     }
 
+    if (isSubmitting) {
+      console.log("[v0] Submit already in progress, ignoring duplicate click")
+      return
+    }
+
     setError("")
+    setIsSubmitting(true)
 
     try {
       let userId: string
@@ -322,6 +329,7 @@ export default function RegistroAsistencia() {
         setSelectedUser(null)
         setSimilarUsers([])
         setUserEnrollments([])
+        setIsSubmitting(false)
       }, 3000)
     } catch (error: any) {
       console.error("[v0] Error saving enrollment:", error)
@@ -338,6 +346,7 @@ export default function RegistroAsistencia() {
       }
       
       setError(errorMessage)
+      setIsSubmitting(false)
       toast({
         title: "Error en la inscripción",
         description: errorMessage,
@@ -825,10 +834,10 @@ export default function RegistroAsistencia() {
                 {(currentStep === totalSteps && !selectedUser) || (selectedUser && !showEnrollmentForm && formData.grupoCultural) ? (
                   <Button 
                     onClick={handleSubmit} 
-                    disabled={!formData.grupoCultural}
-                    className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2"
+                    disabled={!formData.grupoCultural || isSubmitting}
+                    className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Inscribirme al Grupo
+                    {isSubmitting ? "Inscribiendo..." : "Inscribirme al Grupo"}
                   </Button>
                 ) : !selectedUser ? (
                   <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
