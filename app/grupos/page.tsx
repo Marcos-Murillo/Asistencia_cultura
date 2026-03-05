@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,9 +31,9 @@ import {
 } from "@/components/ui/select"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Navigation } from "@/components/navigation"
-import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search } from "lucide-react"
+import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search, Edit, Trash, Plus } from "lucide-react"
 import Link from "next/link"
-import { getAllGroupsWithEnrollments, getAllUsers } from "@/lib/firestore"
+import { getAllGroupsWithEnrollments, getAllUsers, getAllCulturalGroups, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, type CulturalGroup } from "@/lib/firestore"
 import { assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/auth"
 import { GRUPOS_CULTURALES } from "@/lib/data"
 import type { GroupWithEnrollments, UserProfile, GroupManager } from "@/lib/types"
@@ -40,6 +41,7 @@ import type { GroupWithEnrollments, UserProfile, GroupManager } from "@/lib/type
 export default function GruposPage() {
   const [groups, setGroups] = useState<GroupWithEnrollments[]>([])
   const [filteredGroups, setFilteredGroups] = useState<GroupWithEnrollments[]>([])
+  const [culturalGroups, setCulturalGroups] = useState<CulturalGroup[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [managerDialogOpen, setManagerDialogOpen] = useState(false)
@@ -54,6 +56,18 @@ export default function GruposPage() {
   const [viewingGroup, setViewingGroup] = useState<string>("")
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  
+  // Estados para crear/editar/eliminar grupos
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [newGroupName, setNewGroupName] = useState("")
+  const [editingGroup, setEditingGroup] = useState<CulturalGroup | null>(null)
+  const [editedGroupName, setEditedGroupName] = useState("")
+  const [deletingGroup, setDeletingGroup] = useState<CulturalGroup | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [isMigrating, setIsMigrating] = useState(false)
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
 
   useEffect(() => {
     // Verificar si es admin o super admin
@@ -78,14 +92,15 @@ export default function GruposPage() {
 
   async function loadGroups() {
     try {
-      const enrolledGroups = await getAllGroupsWithEnrollments()
+      const [allGroups, allCulturalGroups] = await Promise.all([
+        getAllGroupsWithEnrollments(),
+        getAllCulturalGroups()
+      ])
       
-      // Combinar con todos los grupos culturales (incluso los sin inscritos)
-      const allGroups: GroupWithEnrollments[] = GRUPOS_CULTURALES.map(nombre => {
-        const existing = enrolledGroups.find(g => g.nombre === nombre)
-        return existing || { nombre, totalInscritos: 0 }
-      })
-
+      console.log("[Grupos] Groups with enrollments:", allGroups)
+      console.log("[Grupos] Cultural groups from DB:", allCulturalGroups)
+      
+      setCulturalGroups(allCulturalGroups)
       setGroups(allGroups)
 
       // Cargar encargados de cada grupo
@@ -170,6 +185,137 @@ export default function GruposPage() {
     }
   }
 
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) {
+      setError("El nombre del grupo no puede estar vacío")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      await createCulturalGroup(newGroupName.trim())
+      setSuccess(`Grupo "${newGroupName}" creado exitosamente`)
+      setNewGroupName("")
+      setCreateDialogOpen(false)
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error: any) {
+      setError(error.message || "Error al crear el grupo")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleEditGroup = (group: CulturalGroup) => {
+    setEditingGroup(group)
+    setEditedGroupName(group.nombre)
+    setEditDialogOpen(true)
+  }
+
+  const confirmEditGroup = async () => {
+    if (!editingGroup || !editedGroupName.trim()) {
+      setError("El nombre del grupo no puede estar vacío")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    setIsProcessing(true)
+    try {
+      await updateCulturalGroupName(editingGroup.id, editingGroup.nombre, editedGroupName.trim())
+      setSuccess(`Grupo actualizado exitosamente`)
+      setEditDialogOpen(false)
+      setEditingGroup(null)
+      setEditedGroupName("")
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error: any) {
+      setError(error.message || "Error al actualizar el grupo")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleDeleteGroup = (group: CulturalGroup) => {
+    setDeletingGroup(group)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteGroup = async () => {
+    if (!deletingGroup) return
+
+    setIsProcessing(true)
+    try {
+      await deleteCulturalGroup(deletingGroup.id, deletingGroup.nombre)
+      setSuccess(`Grupo "${deletingGroup.nombre}" eliminado exitosamente`)
+      setDeleteDialogOpen(false)
+      setDeletingGroup(null)
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error: any) {
+      setError(error.message || "Error al eliminar el grupo")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleMigrateGroups = async () => {
+    const confirmed = window.confirm(
+      "¿Deseas migrar los grupos existentes?\n\n" +
+      "Esto creará registros en la colección 'cultural_groups' para todos los grupos " +
+      "que ya existen en tus inscripciones y asistencias.\n\n" +
+      "No se perderá ningún dato."
+    )
+
+    if (!confirmed) return
+
+    setIsMigrating(true)
+    try {
+      const result = await migrateExistingGroupsToCollection()
+      setSuccess(
+        `Migración completada: ${result.created} grupo(s) creado(s), ` +
+        `${result.existing.length} ya existían`
+      )
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 5000)
+    } catch (error: any) {
+      setError(error.message || "Error durante la migración")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsMigrating(false)
+    }
+  }
+
+  const handleCleanDuplicates = async () => {
+    const confirmed = window.confirm(
+      "¿Deseas limpiar inscripciones duplicadas?\n\n" +
+      "Esto eliminará inscripciones duplicadas de usuarios al mismo grupo, " +
+      "manteniendo solo la más reciente.\n\n" +
+      "Esto corregirá el conteo de inscritos."
+    )
+
+    if (!confirmed) return
+
+    setIsCleaningDuplicates(true)
+    try {
+      const result = await cleanDuplicateEnrollments()
+      setSuccess(
+        `Limpieza completada: ${result.removed} inscripción(es) duplicada(s) eliminada(s), ` +
+        `${result.kept} inscripción(es) mantenida(s)`
+      )
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 5000)
+    } catch (error: any) {
+      setError(error.message || "Error durante la limpieza")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsCleaningDuplicates(false)
+    }
+  }
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -207,9 +353,54 @@ export default function GruposPage() {
       <div className="container mx-auto p-6">
         <div className="space-y-6">
           {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Grupos Culturales</h1>
-            <p className="text-gray-600 mt-2">Gestión de inscripciones a grupos culturales</p>
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Grupos Culturales</h1>
+              <p className="text-gray-600 mt-2">Gestión de inscripciones a grupos culturales</p>
+            </div>
+            {(isAdmin || isSuperAdmin) && (
+              <div className="flex flex-wrap gap-2">
+                {culturalGroups.length === 0 && isSuperAdmin && (
+                  <Button
+                    onClick={handleMigrateGroups}
+                    disabled={isMigrating}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isMigrating ? "Migrando..." : "Migrar Grupos Existentes"}
+                  </Button>
+                )}
+                {isSuperAdmin && (
+                  <>
+                    <Button
+                      onClick={handleCleanDuplicates}
+                      disabled={isCleaningDuplicates}
+                      variant="outline"
+                      className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                    >
+                      {isCleaningDuplicates ? "Limpiando..." : "Limpiar Duplicados"}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setLoading(true)
+                        loadGroups()
+                      }}
+                      disabled={loading}
+                      variant="outline"
+                      className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                    >
+                      {loading ? "Recargando..." : "Recargar Datos"}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  onClick={() => setCreateDialogOpen(true)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Crear Grupo
+                </Button>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -335,6 +526,7 @@ export default function GruposPage() {
                     <TableBody>
                       {filteredGroups.map((group) => {
                       const managers = groupManagers[group.nombre] || []
+                      const culturalGroup = culturalGroups.find(cg => cg.nombre === group.nombre)
                       return (
                         <TableRow key={group.nombre}>
                           <TableCell>
@@ -395,10 +587,27 @@ export default function GruposPage() {
                                   </Link>
                                 </DropdownMenuItem>
                                 {(isAdmin || isSuperAdmin) && (
-                                  <DropdownMenuItem onClick={() => handleAssignManager(group.nombre)}>
-                                    <UserPlus className="h-4 w-4 mr-2" />
-                                    Asignar Encargado
-                                  </DropdownMenuItem>
+                                  <>
+                                    <DropdownMenuItem onClick={() => handleAssignManager(group.nombre)}>
+                                      <UserPlus className="h-4 w-4 mr-2" />
+                                      Asignar Encargado
+                                    </DropdownMenuItem>
+                                    {culturalGroup && (
+                                      <>
+                                        <DropdownMenuItem onClick={() => handleEditGroup(culturalGroup)}>
+                                          <Edit className="h-4 w-4 mr-2" />
+                                          Editar Nombre
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem 
+                                          onClick={() => handleDeleteGroup(culturalGroup)}
+                                          className="text-red-600"
+                                        >
+                                          <Trash className="h-4 w-4 mr-2" />
+                                          Eliminar Grupo
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </>
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -533,6 +742,156 @@ export default function GruposPage() {
               <Button onClick={() => setViewManagersDialogOpen(false)} className="w-full h-10 md:h-11">
                 Cerrar
               </Button>
+            </DialogContent>
+          </Dialog>
+
+          {/* Dialog para crear grupo */}
+          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg md:text-xl">Crear Nuevo Grupo Cultural</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Ingresa el nombre del nuevo grupo cultural
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="newGroupName">Nombre del Grupo</Label>
+                  <Input
+                    id="newGroupName"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="Ej: Grupo de Teatro"
+                    className="h-10 md:h-11"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCreateDialogOpen(false)
+                    setNewGroupName("")
+                  }}
+                  disabled={isProcessing}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleCreateGroup}
+                  disabled={isProcessing || !newGroupName.trim()}
+                  className="flex-1 h-10 md:h-11 bg-green-600 hover:bg-green-700"
+                >
+                  {isProcessing ? "Creando..." : "Crear Grupo"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Dialog para editar grupo */}
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg md:text-xl">Editar Nombre del Grupo</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Modifica el nombre del grupo. Esto actualizará todos los registros relacionados.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-xs md:text-sm text-amber-800">
+                    <strong>Nombre actual:</strong> {editingGroup?.nombre}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="editedGroupName">Nuevo Nombre</Label>
+                  <Input
+                    id="editedGroupName"
+                    value={editedGroupName}
+                    onChange={(e) => setEditedGroupName(e.target.value)}
+                    placeholder="Ingresa el nuevo nombre"
+                    className="h-10 md:h-11"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditDialogOpen(false)
+                    setEditingGroup(null)
+                    setEditedGroupName("")
+                  }}
+                  disabled={isProcessing}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmEditGroup}
+                  disabled={isProcessing || !editedGroupName.trim()}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  {isProcessing ? "Actualizando..." : "Actualizar"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Dialog para eliminar grupo */}
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg md:text-xl text-red-600">Eliminar Grupo Cultural</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Esta acción no se puede deshacer
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm text-red-800">
+                    ¿Estás seguro de que deseas eliminar el grupo <strong>"{deletingGroup?.nombre}"</strong>?
+                  </p>
+                  <p className="text-xs text-red-700 mt-2">
+                    Esto eliminará:
+                  </p>
+                  <ul className="text-xs text-red-700 mt-1 ml-4 list-disc">
+                    <li>Todas las inscripciones al grupo</li>
+                    <li>Todos los registros de asistencia</li>
+                    <li>Todas las asignaciones de encargados</li>
+                    <li>Todas las categorías asignadas</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDeleteDialogOpen(false)
+                    setDeletingGroup(null)
+                  }}
+                  disabled={isProcessing}
+                  className="flex-1 h-10 md:h-11"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmDeleteGroup}
+                  disabled={isProcessing}
+                  variant="destructive"
+                  className="flex-1 h-10 md:h-11"
+                >
+                  {isProcessing ? "Eliminando..." : "Eliminar Grupo"}
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
         </div>

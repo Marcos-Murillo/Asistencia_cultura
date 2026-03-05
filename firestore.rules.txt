@@ -45,6 +45,11 @@ service cloud.firestore {
     match /group_category_assignments/{assignmentId} {
       allow read, write: if true;
     }
+    
+    // Grupos culturales
+    match /cultural_groups/{groupId} {
+      allow read, write: if true;
+    }
   }
 }
 

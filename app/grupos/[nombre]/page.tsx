@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Navigation } from "@/components/navigation"
+import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
 import * as XLSX from "xlsx"
 import { 
   Users, 
@@ -90,20 +91,77 @@ export default function GrupoDetallePage() {
     ? PROGRAMAS_POR_FACULTAD[filterFaculty] || []
     : []
 
-  // Descargar Excel
-  const handleDownloadExcel = () => {
-    // Preparar datos para Excel
-    const data = filteredUsers.map(user => ({
-      "Nombres": user.nombres,
-      "Correo": user.correo,
-      "Documento": user.numeroDocumento,
-      "Teléfono": user.telefono,
-      "Género": user.genero,
-      "Facultad": user.facultad || "N/A",
-      "Programa": user.programaAcademico || "N/A",
-      "Estamento": user.estamento,
-      "Fecha Inscripción": user.fechaInscripcion.toLocaleDateString()
-    }))
+  // Columnas disponibles para Excel (nombres siempre se incluye por defecto)
+  const availableColumns: ExcelColumn[] = [
+    { key: "correo", label: "Correo" },
+    { key: "numeroDocumento", label: "Documento" },
+    { key: "tipoDocumento", label: "Tipo Documento" },
+    { key: "telefono", label: "Teléfono" },
+    { key: "genero", label: "Género" },
+    { key: "etnia", label: "Etnia" },
+    { key: "edad", label: "Edad" },
+    { key: "sede", label: "Sede" },
+    { key: "estamento", label: "Estamento" },
+    { key: "codigoEstudiante", label: "Código" },
+    { key: "facultad", label: "Facultad" },
+    { key: "programaAcademico", label: "Programa" },
+    { key: "fechaInscripcion", label: "Fecha Inscripción" },
+  ]
+
+  // Descargar Excel con columnas seleccionadas
+  const handleDownloadExcel = (selectedColumns: string[]) => {
+    const data = filteredUsers.map(user => {
+      const row: Record<string, any> = {}
+      
+      selectedColumns.forEach(key => {
+        switch (key) {
+          case "nombres":
+            row["Nombres"] = user.nombres
+            break
+          case "correo":
+            row["Correo"] = user.correo
+            break
+          case "numeroDocumento":
+            row["Documento"] = user.numeroDocumento
+            break
+          case "tipoDocumento":
+            row["Tipo Documento"] = user.tipoDocumento
+            break
+          case "telefono":
+            row["Teléfono"] = user.telefono
+            break
+          case "genero":
+            row["Género"] = user.genero
+            break
+          case "etnia":
+            row["Etnia"] = user.etnia
+            break
+          case "edad":
+            row["Edad"] = user.edad
+            break
+          case "sede":
+            row["Sede"] = user.sede
+            break
+          case "estamento":
+            row["Estamento"] = user.estamento
+            break
+          case "codigoEstudiante":
+            row["Código"] = user.codigoEstudiante || "N/A"
+            break
+          case "facultad":
+            row["Facultad"] = user.facultad || "N/A"
+            break
+          case "programaAcademico":
+            row["Programa"] = user.programaAcademico || "N/A"
+            break
+          case "fechaInscripcion":
+            row["Fecha Inscripción"] = user.fechaInscripcion.toLocaleDateString()
+            break
+        }
+      })
+      
+      return row
+    })
 
     // Crear libro de trabajo
     const worksheet = XLSX.utils.json_to_sheet(data)
@@ -135,10 +193,12 @@ export default function GrupoDetallePage() {
               <h1 className="text-3xl font-bold text-gray-900">{groupName}</h1>
               <p className="text-gray-600 mt-1">{users.length} personas inscritas</p>
             </div>
-            <Button onClick={handleDownloadExcel} className="bg-green-600 hover:bg-green-700">
-              <Download className="h-4 w-4 mr-2" />
-              Descargar Excel
-            </Button>
+            <ExcelColumnSelector
+              availableColumns={availableColumns}
+              onDownload={handleDownloadExcel}
+              buttonText="Descargar Excel"
+              buttonClassName="bg-green-600 hover:bg-green-700"
+            />
           </div>
         </div>
 

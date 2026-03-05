@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Navigation } from "@/components/navigation"
+import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
 import { getEventById, getEventAttendees } from "@/lib/firestore"
 import { FACULTADES_PROGRAMAS } from "@/lib/data"
 import type { Event, UserProfile } from "@/lib/types"
@@ -111,20 +112,77 @@ export default function EventoAsistentesPage() {
     setFilterPrograma("todos")
   }, [filterFacultad])
 
-  // Descargar Excel
-  function downloadExcel() {
-    const data = filteredAttendees.map(a => ({
-      "Nombres": a.nombres,
-      "Documento": a.numeroDocumento,
-      "Correo": a.correo,
-      "Teléfono": a.telefono,
-      "Género": a.genero,
-      "Edad": a.edad,
-      "Estamento": a.estamento,
-      "Facultad": a.facultad || "N/A",
-      "Programa": a.programaAcademico || "N/A",
-      "Fecha de Asistencia": new Date(a.fechaAsistencia).toLocaleString("es-CO")
-    }))
+  // Columnas disponibles para Excel (nombres siempre se incluye por defecto)
+  const availableColumns: ExcelColumn[] = [
+    { key: "correo", label: "Correo" },
+    { key: "numeroDocumento", label: "Documento" },
+    { key: "tipoDocumento", label: "Tipo Documento" },
+    { key: "telefono", label: "Teléfono" },
+    { key: "genero", label: "Género" },
+    { key: "etnia", label: "Etnia" },
+    { key: "edad", label: "Edad" },
+    { key: "sede", label: "Sede" },
+    { key: "estamento", label: "Estamento" },
+    { key: "codigoEstudiante", label: "Código" },
+    { key: "facultad", label: "Facultad" },
+    { key: "programaAcademico", label: "Programa" },
+    { key: "fechaAsistencia", label: "Fecha Asistencia" },
+  ]
+
+  // Descargar Excel con columnas seleccionadas
+  function downloadExcel(selectedColumns: string[]) {
+    const data = filteredAttendees.map(a => {
+      const row: Record<string, any> = {}
+      
+      selectedColumns.forEach(key => {
+        switch (key) {
+          case "nombres":
+            row["Nombres"] = a.nombres
+            break
+          case "correo":
+            row["Correo"] = a.correo
+            break
+          case "numeroDocumento":
+            row["Documento"] = a.numeroDocumento
+            break
+          case "tipoDocumento":
+            row["Tipo Documento"] = a.tipoDocumento
+            break
+          case "telefono":
+            row["Teléfono"] = a.telefono
+            break
+          case "genero":
+            row["Género"] = a.genero
+            break
+          case "etnia":
+            row["Etnia"] = a.etnia
+            break
+          case "edad":
+            row["Edad"] = a.edad
+            break
+          case "sede":
+            row["Sede"] = a.sede
+            break
+          case "estamento":
+            row["Estamento"] = a.estamento
+            break
+          case "codigoEstudiante":
+            row["Código"] = a.codigoEstudiante || "N/A"
+            break
+          case "facultad":
+            row["Facultad"] = a.facultad || "N/A"
+            break
+          case "programaAcademico":
+            row["Programa"] = a.programaAcademico || "N/A"
+            break
+          case "fechaAsistencia":
+            row["Fecha de Asistencia"] = new Date(a.fechaAsistencia).toLocaleString("es-CO")
+            break
+        }
+      })
+      
+      return row
+    })
 
     const worksheet = XLSX.utils.json_to_sheet(data)
     const workbook = XLSX.utils.book_new()
@@ -203,10 +261,12 @@ export default function EventoAsistentesPage() {
             </div>
           </div>
 
-          <Button onClick={downloadExcel} className="gap-2">
-            <Download className="h-4 w-4" />
-            Descargar Excel
-          </Button>
+          <ExcelColumnSelector
+            availableColumns={availableColumns}
+            onDownload={downloadExcel}
+            buttonText="Descargar Excel"
+            buttonClassName="bg-green-600 hover:bg-green-700"
+          />
         </div>
 
         {/* Stats */}

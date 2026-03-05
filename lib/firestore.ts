@@ -20,6 +20,7 @@ const ATTENDANCE_COLLECTION = "attendance_records"
 const EVENTS_COLLECTION = "events"
 const EVENT_ATTENDANCE_COLLECTION = "event_attendance_records"
 const GROUP_ENROLLMENTS_COLLECTION = "group_enrollments"
+const CULTURAL_GROUPS_COLLECTION = "cultural_groups"
 
 // Convert Firestore timestamp to Date
 function timestampToDate(timestamp: any): Date {
@@ -785,22 +786,25 @@ export async function getUserEnrollments(userId: string): Promise<GroupEnrollmen
 // Obtener todos los grupos con cantidad de inscritos
 export async function getAllGroupsWithEnrollments(): Promise<GroupWithEnrollments[]> {
   try {
-    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
-    const snapshot = await getDocs(enrollmentsRef)
+    // Obtener todos los grupos culturales
+    const culturalGroups = await getAllCulturalGroups()
+    
+    console.log(`[getAllGroupsWithEnrollments] Total cultural groups: ${culturalGroups.length}`)
 
-    const groupCounts = new Map<string, number>()
-    snapshot.forEach((doc) => {
-      const data = doc.data()
-      const current = groupCounts.get(data.grupoCultural) || 0
-      groupCounts.set(data.grupoCultural, current + 1)
-    })
+    // Para cada grupo, obtener el conteo de usuarios inscritos usando la misma función
+    const groupsWithCounts: GroupWithEnrollments[] = await Promise.all(
+      culturalGroups.map(async (group) => {
+        const enrolledUsers = await getGroupEnrolledUsers(group.nombre)
+        const count = enrolledUsers.length
+        console.log(`[getAllGroupsWithEnrollments] ${group.nombre}: ${count} usuarios inscritos`)
+        return {
+          nombre: group.nombre,
+          totalInscritos: count,
+        }
+      })
+    )
 
-    const groups: GroupWithEnrollments[] = Array.from(groupCounts.entries()).map(([nombre, totalInscritos]) => ({
-      nombre,
-      totalInscritos,
-    }))
-
-    return groups.sort((a, b) => a.nombre.localeCompare(b.nombre))
+    return groupsWithCounts.sort((a, b) => a.nombre.localeCompare(b.nombre))
   } catch (error) {
     console.error("[v0] Error getting groups with enrollments:", error)
     throw error
@@ -828,17 +832,28 @@ export async function getGroupEnrolledUsers(grupoCultural: string): Promise<(Use
       } as UserProfile)
     })
 
-    const enrolledUsers: (UserProfile & { fechaInscripcion: Date })[] = []
+    // Usar un Map para evitar duplicados - mantener solo la inscripción más reciente por usuario
+    const enrolledUsersMap = new Map<string, UserProfile & { fechaInscripcion: Date }>()
+    
     enrollmentsSnapshot.forEach((doc) => {
       const data = doc.data()
       const user = users.get(data.userId)
       if (user) {
-        enrolledUsers.push({
-          ...user,
-          fechaInscripcion: timestampToDate(data.fechaInscripcion),
-        })
+        const fechaInscripcion = timestampToDate(data.fechaInscripcion)
+        const existing = enrolledUsersMap.get(data.userId)
+        
+        // Si no existe o la fecha actual es más reciente, actualizar
+        if (!existing || fechaInscripcion > existing.fechaInscripcion) {
+          enrolledUsersMap.set(data.userId, {
+            ...user,
+            fechaInscripcion,
+          })
+        }
       }
     })
+
+    // Convertir Map a array
+    const enrolledUsers = Array.from(enrolledUsersMap.values())
 
     return enrolledUsers.sort((a, b) => a.nombres.localeCompare(b.nombres))
   } catch (error) {
@@ -876,5 +891,305 @@ export async function isUserEnrolledInAnyGroup(userId: string): Promise<boolean>
   } catch (error) {
     console.error("[v0] Error checking user enrollment:", error)
     return false
+  }
+}
+
+// ==================== FUNCIONES DE GESTIÓN DE GRUPOS CULTURALES ====================
+
+export interface CulturalGroup {
+  id: string
+  nombre: string
+  createdAt: Date
+  activo: boolean
+}
+
+// Obtener todos los grupos culturales
+export async function getAllCulturalGroups(): Promise<CulturalGroup[]> {
+  try {
+    const groupsRef = collection(db, CULTURAL_GROUPS_COLLECTION)
+    const snapshot = await getDocs(groupsRef)
+
+    const groups: CulturalGroup[] = []
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      groups.push({
+        id: doc.id,
+        nombre: data.nombre,
+        createdAt: timestampToDate(data.createdAt),
+        activo: data.activo ?? true,
+      })
+    })
+
+    return groups.sort((a, b) => a.nombre.localeCompare(b.nombre))
+  } catch (error) {
+    console.error("[v0] Error getting cultural groups:", error)
+    throw error
+  }
+}
+
+// Crear un nuevo grupo cultural
+export async function createCulturalGroup(nombre: string): Promise<string> {
+  try {
+    // Verificar si ya existe un grupo con ese nombre
+    const existingGroups = await getAllCulturalGroups()
+    if (existingGroups.some(g => g.nombre.toLowerCase() === nombre.toLowerCase())) {
+      throw new Error("Ya existe un grupo con ese nombre")
+    }
+
+    const group = {
+      nombre,
+      createdAt: new Date(),
+      activo: true,
+    }
+
+    console.log("[v0] Creating cultural group:", group)
+    const docRef = await addDoc(collection(db, CULTURAL_GROUPS_COLLECTION), group)
+    console.log("[v0] Cultural group created with ID:", docRef.id)
+    return docRef.id
+  } catch (error) {
+    console.error("[v0] Error creating cultural group:", error)
+    throw error
+  }
+}
+
+// Editar nombre de un grupo cultural
+export async function updateCulturalGroupName(groupId: string, oldName: string, newName: string): Promise<void> {
+  try {
+    console.log("[v0] Updating group name from", oldName, "to", newName)
+
+    // Verificar si ya existe otro grupo con el nuevo nombre
+    const existingGroups = await getAllCulturalGroups()
+    if (existingGroups.some(g => g.id !== groupId && g.nombre.toLowerCase() === newName.toLowerCase())) {
+      throw new Error("Ya existe un grupo con ese nombre")
+    }
+
+    // Actualizar el nombre del grupo
+    const groupRef = doc(db, CULTURAL_GROUPS_COLLECTION, groupId)
+    await updateDoc(groupRef, { nombre: newName })
+
+    // Actualizar todas las inscripciones
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentsQuery = query(enrollmentsRef, where("grupoCultural", "==", oldName))
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+    
+    const enrollmentUpdates = enrollmentsSnapshot.docs.map(doc => 
+      updateDoc(doc.ref, { grupoCultural: newName })
+    )
+
+    // Actualizar todas las asistencias
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    const attendanceQuery = query(attendanceRef, where("grupoCultural", "==", oldName))
+    const attendanceSnapshot = await getDocs(attendanceQuery)
+    
+    const attendanceUpdates = attendanceSnapshot.docs.map(doc => 
+      updateDoc(doc.ref, { grupoCultural: newName })
+    )
+
+    // Actualizar asignaciones de encargados
+    const managersRef = collection(db, "group_managers")
+    const managersQuery = query(managersRef, where("grupoCultural", "==", oldName))
+    const managersSnapshot = await getDocs(managersQuery)
+    
+    const managerUpdates = managersSnapshot.docs.map(doc => 
+      updateDoc(doc.ref, { grupoCultural: newName })
+    )
+
+    // Actualizar asignaciones de categorías
+    const categoriesRef = collection(db, "group_category_assignments")
+    const categoriesQuery = query(categoriesRef, where("grupoCultural", "==", oldName))
+    const categoriesSnapshot = await getDocs(categoriesQuery)
+    
+    const categoryUpdates = categoriesSnapshot.docs.map(doc => 
+      updateDoc(doc.ref, { grupoCultural: newName })
+    )
+
+    await Promise.all([...enrollmentUpdates, ...attendanceUpdates, ...managerUpdates, ...categoryUpdates])
+
+    console.log("[v0] Group name updated successfully across all collections")
+  } catch (error) {
+    console.error("[v0] Error updating cultural group name:", error)
+    throw error
+  }
+}
+
+// Eliminar un grupo cultural
+export async function deleteCulturalGroup(groupId: string, groupName: string): Promise<void> {
+  try {
+    console.log("[v0] Deleting cultural group:", groupName)
+
+    // Eliminar todas las inscripciones
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentsQuery = query(enrollmentsRef, where("grupoCultural", "==", groupName))
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+    
+    const enrollmentDeletes = enrollmentsSnapshot.docs.map(doc => deleteDoc(doc.ref))
+
+    // Eliminar todas las asistencias
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    const attendanceQuery = query(attendanceRef, where("grupoCultural", "==", groupName))
+    const attendanceSnapshot = await getDocs(attendanceQuery)
+    
+    const attendanceDeletes = attendanceSnapshot.docs.map(doc => deleteDoc(doc.ref))
+
+    // Eliminar asignaciones de encargados
+    const managersRef = collection(db, "group_managers")
+    const managersQuery = query(managersRef, where("grupoCultural", "==", groupName))
+    const managersSnapshot = await getDocs(managersQuery)
+    
+    const managerDeletes = managersSnapshot.docs.map(doc => deleteDoc(doc.ref))
+
+    // Eliminar asignaciones de categorías
+    const categoriesRef = collection(db, "group_category_assignments")
+    const categoriesQuery = query(categoriesRef, where("grupoCultural", "==", groupName))
+    const categoriesSnapshot = await getDocs(categoriesQuery)
+    
+    const categoryDeletes = categoriesSnapshot.docs.map(doc => deleteDoc(doc.ref))
+
+    await Promise.all([...enrollmentDeletes, ...attendanceDeletes, ...managerDeletes, ...categoryDeletes])
+
+    // Finalmente eliminar el grupo
+    const groupRef = doc(db, CULTURAL_GROUPS_COLLECTION, groupId)
+    await deleteDoc(groupRef)
+
+    console.log("[v0] Cultural group and all related data deleted successfully")
+  } catch (error) {
+    console.error("[v0] Error deleting cultural group:", error)
+    throw error
+  }
+}
+
+// Alternar estado activo de un grupo
+export async function toggleCulturalGroupActive(groupId: string, activo: boolean): Promise<void> {
+  try {
+    const groupRef = doc(db, CULTURAL_GROUPS_COLLECTION, groupId)
+    await updateDoc(groupRef, { activo })
+    console.log("[v0] Cultural group active status updated:", activo)
+  } catch (error) {
+    console.error("[v0] Error toggling cultural group active:", error)
+    throw error
+  }
+}
+
+// ==================== FUNCIÓN DE MIGRACIÓN ====================
+
+// Migrar grupos existentes a la nueva colección cultural_groups
+export async function migrateExistingGroupsToCollection(): Promise<{ created: number; existing: string[] }> {
+  try {
+    console.log("[v0] Starting migration of existing groups...")
+    
+    // Obtener grupos únicos de inscripciones
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const enrollmentsSnapshot = await getDocs(enrollmentsRef)
+    const groupsFromEnrollments = new Set<string>()
+    enrollmentsSnapshot.forEach(doc => {
+      const data = doc.data()
+      if (data.grupoCultural) {
+        groupsFromEnrollments.add(data.grupoCultural)
+      }
+    })
+
+    // Obtener grupos únicos de asistencias
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    const attendanceSnapshot = await getDocs(attendanceRef)
+    const groupsFromAttendance = new Set<string>()
+    attendanceSnapshot.forEach(doc => {
+      const data = doc.data()
+      if (data.grupoCultural) {
+        groupsFromAttendance.add(data.grupoCultural)
+      }
+    })
+
+    // Combinar todos los grupos únicos
+    const allUniqueGroups = Array.from(new Set([...Array.from(groupsFromEnrollments), ...Array.from(groupsFromAttendance)]))
+    console.log("[v0] Found", allUniqueGroups.length, "unique groups in existing data")
+
+    // Obtener grupos que ya existen en cultural_groups
+    const existingCulturalGroups = await getAllCulturalGroups()
+    const existingGroupNames = new Set(existingCulturalGroups.map(g => g.nombre))
+
+    // Crear solo los grupos que no existen
+    let created = 0
+    const existing: string[] = []
+
+    for (const groupName of allUniqueGroups) {
+      if (existingGroupNames.has(groupName)) {
+        existing.push(groupName)
+        console.log("[v0] Group already exists:", groupName)
+      } else {
+        try {
+          await createCulturalGroup(groupName)
+          created++
+          console.log("[v0] Created group:", groupName)
+        } catch (error) {
+          console.error("[v0] Error creating group:", groupName, error)
+        }
+      }
+    }
+
+    console.log("[v0] Migration complete. Created:", created, "Existing:", existing.length)
+    return { created, existing }
+  } catch (error) {
+    console.error("[v0] Error during migration:", error)
+    throw error
+  }
+}
+
+// Limpiar inscripciones duplicadas (mantener solo la más reciente por usuario y grupo)
+export async function cleanDuplicateEnrollments(): Promise<{ removed: number; kept: number }> {
+  try {
+    console.log("[v0] Starting cleanup of duplicate enrollments...")
+    
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const snapshot = await getDocs(enrollmentsRef)
+
+    // Agrupar inscripciones por userId + grupoCultural
+    const enrollmentsByUserGroup = new Map<string, any[]>()
+    
+    snapshot.forEach((doc) => {
+      const data = doc.data()
+      const key = `${data.userId}_${data.grupoCultural}`
+      
+      if (!enrollmentsByUserGroup.has(key)) {
+        enrollmentsByUserGroup.set(key, [])
+      }
+      
+      enrollmentsByUserGroup.get(key)!.push({
+        id: doc.id,
+        ...data,
+        fechaInscripcion: timestampToDate(data.fechaInscripcion)
+      })
+    })
+
+    let removed = 0
+    let kept = 0
+
+    // Para cada grupo de inscripciones duplicadas
+    for (const [key, enrollments] of Array.from(enrollmentsByUserGroup.entries())) {
+      if (enrollments.length > 1) {
+        // Ordenar por fecha (más reciente primero)
+        enrollments.sort((a, b) => b.fechaInscripcion.getTime() - a.fechaInscripcion.getTime())
+        
+        // Mantener el primero (más reciente), eliminar los demás
+        kept++
+        for (let i = 1; i < enrollments.length; i++) {
+          try {
+            const docRef = doc(db, GROUP_ENROLLMENTS_COLLECTION, enrollments[i].id)
+            await deleteDoc(docRef)
+            removed++
+            console.log("[v0] Removed duplicate enrollment:", enrollments[i].id)
+          } catch (error) {
+            console.error("[v0] Error removing duplicate:", error)
+          }
+        }
+      } else {
+        kept++
+      }
+    }
+
+    console.log("[v0] Cleanup complete. Removed:", removed, "Kept:", kept)
+    return { removed, kept }
+  } catch (error) {
+    console.error("[v0] Error cleaning duplicate enrollments:", error)
+    throw error
   }
 }

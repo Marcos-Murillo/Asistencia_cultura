@@ -5,20 +5,23 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BarChart3, FileText, Home, Users, Calendar, UsersRound, Megaphone, Shield } from "lucide-react"
+import { BarChart3, FileText, Home, Users, Calendar, UsersRound, Megaphone, Settings, Shield } from "lucide-react"
 
 export function Navigation() {
   const pathname = usePathname()
   const isRegistrationPage = pathname === "/"
   const isConvocatoriasPage = pathname === "/convocatorias"
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
-    // Verificar si el usuario es super admin
+    // Verificar si el usuario es super admin o admin
     const userType = sessionStorage.getItem("userType")
+    const adminStatus = sessionStorage.getItem("isAdmin") === "true"
     setIsSuperAdmin(userType === "superadmin")
+    setIsAdmin(adminStatus && userType !== "superadmin")
   }, [])
 
   // No renderizar el badge hasta que el componente esté montado
@@ -36,7 +39,7 @@ export function Navigation() {
                   <Link href="/">
                     <Button variant="ghost" size="sm" className="flex items-center gap-2">
                       <Home className="w-4 h-4" />
-                      Asistencia
+                      Inscripciones
                     </Button>
                   </Link>
                   <Link href="/convocatorias">
@@ -106,7 +109,7 @@ export function Navigation() {
                       className="flex items-center gap-2"
                     >
                       <Home className="w-4 h-4" />
-                      Asistencia a Grupos
+                      Inscripción a Grupos
                     </Button>
                   </Link>
                   <Link href="/convocatorias">
@@ -136,13 +139,18 @@ export function Navigation() {
             <h1 className="text-sm md:text-xl font-bold text-gray-900">Sistema Cultural UV</h1>
             {isSuperAdmin && (
               <Badge className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1 text-xs px-2 py-0.5">
-                <Shield className="w-2.5 h-2.5 md:w-3 md:h-3" />
-                <span className="hidden sm:inline">Super Admin</span>
-                <span className="sm:hidden">Admin</span>
+                <Shield className="w-3 h-3" />
+                SUP-A
+              </Badge>
+            )}
+            {isAdmin && (
+              <Badge className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 text-xs px-2 py-0.5">
+                <Settings className="w-3 h-3" />
+                Admin
               </Badge>
             )}
           </div>
-          <div className="flex items-center space-x-1 md:space-x-2 overflow-x-auto">
+          <div className="flex items-center space-x-1 md:space-x-2">
             {!isRegistrationPage && !isConvocatoriasPage && (
               <>
                 <Link href="/">
@@ -214,8 +222,8 @@ export function Navigation() {
                       size="sm"
                       className="flex items-center gap-1 md:gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
                     >
-                      <Shield className="w-3 h-3 md:w-4 md:h-4" />
-                      <span className="hidden xl:inline">Panel Admin</span>
+                      <Settings className="w-3 h-3 md:w-4 md:h-4" />
+                      <span className="hidden xl:inline">Panel</span>
                     </Button>
                   </Link>
                 )}

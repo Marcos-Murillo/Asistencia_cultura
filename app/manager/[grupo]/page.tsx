@@ -58,7 +58,12 @@ export default function ManagerGroupPage() {
   const [filterFacultad, setFilterFacultad] = useState("")
   const [filterPrograma, setFilterPrograma] = useState("")
   const [filterCodigo, setFilterCodigo] = useState("")
+  const [filterCategory, setFilterCategory] = useState<GroupCategory | "TODOS">("TODOS")
   const [showFilters, setShowFilters] = useState(false)
+
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 8
 
   // Asistencia
   const [selectedForAttendance, setSelectedForAttendance] = useState<Set<string>>(new Set())
@@ -94,7 +99,7 @@ export default function ManagerGroupPage() {
 
   useEffect(() => {
     applyFilters()
-  }, [searchName, filterFacultad, filterPrograma, filterCodigo, enrolledUsers])
+  }, [searchName, filterFacultad, filterPrograma, filterCodigo, filterCategory, enrolledUsers])
 
   async function loadGroupData() {
     setLoading(true)
@@ -153,7 +158,12 @@ export default function ManagerGroupPage() {
       filtered = filtered.filter(u => u.programaAcademico === filterPrograma)
     }
 
+    if (filterCategory !== "TODOS") {
+      filtered = filtered.filter(u => userCategories[u.id] === filterCategory)
+    }
+
     setFilteredUsers(filtered)
+    setCurrentPage(1) // Reset a la primera página cuando se filtran
   }
 
   const handleSelectForAttendance = (userId: string) => {
@@ -167,10 +177,16 @@ export default function ManagerGroupPage() {
   }
 
   const handleSelectAllForAttendance = () => {
-    if (selectedForAttendance.size === filteredUsers.length) {
-      setSelectedForAttendance(new Set())
+    if (selectedForAttendance.size === paginatedUsers.length && paginatedUsers.every(u => selectedForAttendance.has(u.id))) {
+      // Deseleccionar todos de la página actual
+      const newSet = new Set(selectedForAttendance)
+      paginatedUsers.forEach(u => newSet.delete(u.id))
+      setSelectedForAttendance(newSet)
     } else {
-      setSelectedForAttendance(new Set(filteredUsers.map(u => u.id)))
+      // Seleccionar todos de la página actual
+      const newSet = new Set(selectedForAttendance)
+      paginatedUsers.forEach(u => newSet.add(u.id))
+      setSelectedForAttendance(newSet)
     }
   }
 
@@ -255,9 +271,16 @@ export default function ManagerGroupPage() {
     setFilterCodigo("")
     setFilterFacultad("")
     setFilterPrograma("")
+    setFilterCategory("TODOS")
   }
 
-  const hasActiveFilters = searchName || filterCodigo || filterFacultad || filterPrograma
+  const hasActiveFilters = searchName || filterCodigo || filterFacultad || filterPrograma || filterCategory !== "TODOS"
+
+  // Paginación
+  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const paginatedUsers = filteredUsers.slice(startIndex, endIndex)
 
   if (loading) {
     return (
@@ -387,6 +410,22 @@ export default function ManagerGroupPage() {
                     value={filterCodigo}
                     onChange={(e) => setFilterCodigo(e.target.value)}
                   />
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Categoría</label>
+                    <Select value={filterCategory} onValueChange={(v) => setFilterCategory(v as GroupCategory | "TODOS")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">Todas las categorías</SelectItem>
+                        <SelectItem value="SEMILLERO">Semillero</SelectItem>
+                        <SelectItem value="PROCESO">Proceso</SelectItem>
+                        <SelectItem value="REPRESENTATIVO">Representativo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <Combobox
                     options={facultades}
                     value={filterFacultad}
@@ -452,10 +491,17 @@ export default function ManagerGroupPage() {
           {/* Lista de Usuarios - Vista Móvil */}
           <div className="space-y-3">
             <div className="flex items-center justify-between px-2">
-              <h3 className="text-lg font-semibold">Usuarios ({filteredUsers.length})</h3>
+              <h3 className="text-lg font-semibold">
+                Usuarios ({filteredUsers.length})
+                {totalPages > 1 && (
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                )}
+              </h3>
             </div>
 
-            {filteredUsers.map((user) => (
+            {paginatedUsers.map((user) => (
               <Card key={user.id} className="overflow-hidden">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
@@ -515,6 +561,37 @@ export default function ManagerGroupPage() {
               <Card>
                 <CardContent className="py-12 text-center text-gray-500">
                   No se encontraron usuarios
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Paginación */}
+            {totalPages > 1 && (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="flex-1"
+                    >
+                      Anterior
+                    </Button>
+                    <div className="text-sm text-gray-600 px-2">
+                      {currentPage} / {totalPages}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="flex-1"
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )}
