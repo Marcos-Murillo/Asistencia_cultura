@@ -5,10 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BarChart3, TrendingUp } from "lucide-react"
-import { Navigation } from "@/components/navigation"
 import { DatePicker } from "@/components/ui/date-picker"
 import { getAttendanceRecords } from "@/lib/storage"
-import type { AttendanceRecord } from "@/lib/types"
+import { getAttendanceRecords as getAttendanceRecordsRouter } from "@/lib/db-router"
+import type { AttendanceRecord, Area } from "@/lib/types"
+import { useArea } from "@/contexts/area-context"
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Line, LineChart } from "recharts"
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, isWithinInterval, eachDayOfInterval, isSameDay } from "date-fns"
@@ -17,6 +18,7 @@ import { es } from "date-fns/locale"
 type TimeFilter = "day" | "week" | "month"
 
 export default function GraficasPage() {
+  const { area } = useArea()
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(true)
   
@@ -32,22 +34,23 @@ export default function GraficasPage() {
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const records = await getAttendanceRecords()
+        console.log("[Graficas] Loading attendance records for area:", area)
+        const records = await getAttendanceRecordsRouter(area)
+        console.log("[Graficas] Loaded", records.length, "attendance records")
         setAllRecords(records)
       } catch (error) {
-        console.error("Error loading stats:", error)
+        console.error("[Graficas] Error loading stats:", error)
       } finally {
         setLoading(false)
       }
     }
 
     loadStats()
-  }, [])
+  }, [area])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Navigation />
         <div className="p-4">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-center h-64">
@@ -209,14 +212,15 @@ export default function GraficasPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Navigation />
       <div className="p-4">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Gráficas de Participación</h1>
-              <p className="text-gray-600 mt-1">Visualización de asistencia a grupos culturales</p>
+              <p className="text-gray-600 mt-1">
+                Visualización de asistencia a grupos {area === 'deporte' ? 'deportivos' : 'culturales'}
+              </p>
             </div>
           </div>
 
@@ -328,9 +332,9 @@ export default function GraficasPage() {
             <CardHeader className="bg-gradient-to-r from-cyan-50 to-blue-50">
               <CardTitle className="flex items-center gap-2 text-cyan-900">
                 <BarChart3 className="w-5 h-5" />
-                Participación Total por Grupo Cultural
+                Participación Total por Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}
               </CardTitle>
-              <CardDescription>Número de participantes por grupo cultural</CardDescription>
+              <CardDescription>Número de participantes por grupo {area === 'deporte' ? 'deportivo' : 'cultural'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
               {/* Filtros de Participación */}

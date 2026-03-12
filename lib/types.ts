@@ -26,8 +26,8 @@ export interface AttendanceRecord {
     | "NINGUNA"
   estamento: "ESTUDIANTE" | "EGRESADO" | "DOCENTE" | "DOCENTE HORA CATEDRA" | "FUNCIONARIO" | "CONTRATISTA" | "INVITADO"
 
-  // Campos condicionales para estudiantes
-  codigoEstudiante?: string
+  // Campos condicionales para estudiantes y egresados
+  codigoEstudiantil?: string
   facultad?: string
   programaAcademico?: string
 
@@ -75,7 +75,7 @@ export interface FormData {
   telefono: string
   sede: string
   estamento: string
-  codigoEstudiante?: string
+  codigoEstudiantil?: string
   facultad?: string
   programaAcademico?: string
   grupoCultural: string
@@ -106,10 +106,12 @@ export interface UserProfile {
     | "ZARZAL"
     | "NINGUNA"
   estamento: "ESTUDIANTE" | "EGRESADO" | "DOCENTE" | "DOCENTE HORA CATEDRA" | "FUNCIONARIO" | "CONTRATISTA" | "INVITADO"
-  codigoEstudiante?: string
+  codigoEstudiantil?: string
   facultad?: string
   programaAcademico?: string
-  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
+  area: 'cultura' | 'deporte'
+  gruposAsignados?: string[]
+  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "SUPER_ADMIN"
   createdAt: Date
   lastAttendance: Date
 }
@@ -211,6 +213,8 @@ export interface AdminUser {
   numeroDocumento: string
   correo: string
   nombres: string
+  area: 'cultura' | 'deporte'
+  password: string
   createdAt: Date
   createdBy: string
 }
@@ -223,7 +227,7 @@ export interface GroupManager {
   assignedBy: string
 }
 
-export type UserRole = "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
+export type UserRole = "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "ADMIN" | "SUPER_ADMIN"
 
 export type GroupCategory = "SEMILLERO" | "PROCESO" | "REPRESENTATIVO"
 

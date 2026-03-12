@@ -30,20 +30,27 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
-import { Navigation } from "@/components/navigation"
 import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search, Edit, Trash, Plus } from "lucide-react"
 import Link from "next/link"
-import { getAllGroupsWithEnrollments, getAllUsers, getAllCulturalGroups, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, type CulturalGroup } from "@/lib/firestore"
-import { assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/auth"
+import { getAllGroupsWithEnrollments, getAllCulturalGroups, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, migrateEnrollmentsToCompositeIds, type CulturalGroup } from "@/lib/firestore"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/db-router"
 import { GRUPOS_CULTURALES } from "@/lib/data"
-import type { GroupWithEnrollments, UserProfile, GroupManager } from "@/lib/types"
+import type { GroupWithEnrollments, UserProfile, GroupManager, UserRole } from "@/lib/types"
+import { useArea } from "@/contexts/area-context"
+import { getRolePermissions, filterGroupsByAssignment, type RolePermissions } from "@/lib/role-manager"
+import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
 
 export default function GruposPage() {
+  const { area } = useArea()
   const [groups, setGroups] = useState<GroupWithEnrollments[]>([])
   const [filteredGroups, setFilteredGroups] = useState<GroupWithEnrollments[]>([])
   const [culturalGroups, setCulturalGroups] = useState<CulturalGroup[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
+  
+  console.log("[Grupos] Component render - area:", area)
+  console.log("[Grupos] localStorage selectedArea:", typeof window !== 'undefined' ? localStorage.getItem('selectedArea') : 'N/A')
+  console.log("[Grupos] sessionStorage adminArea:", typeof window !== 'undefined' ? sessionStorage.getItem('adminArea') : 'N/A')
   const [managerDialogOpen, setManagerDialogOpen] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<string>("")
   const [availableManagers, setAvailableManagers] = useState<UserProfile[]>([])
@@ -56,6 +63,8 @@ export default function GruposPage() {
   const [viewingGroup, setViewingGroup] = useState<string>("")
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("ESTUDIANTE")
+  const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
   
   // Estados para crear/editar/eliminar grupos
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -68,16 +77,98 @@ export default function GruposPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isMigrating, setIsMigrating] = useState(false)
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
+  const [isMigratingIds, setIsMigratingIds] = useState(false)
 
   useEffect(() => {
-    // Verificar si es admin o super admin
-    const adminStatus = sessionStorage.getItem("isAdmin") === "true"
-    const superAdminStatus = sessionStorage.getItem("isSuperAdmin") === "true"
+    // Get user role and permissions
+    const userRole = getCurrentUserRole()
+    const adminStatus = checkIsAdmin()
+    const superAdminStatus = checkIsSuperAdmin()
+    const assignedGroups = getAssignedGroups()
+    
+    console.log("[Grupos] ========== CHECKING ADMIN STATUS ==========")
+    console.log("[Grupos] sessionStorage.userType:", sessionStorage.getItem("userType"))
+    console.log("[Grupos] sessionStorage.isAdmin:", sessionStorage.getItem("isAdmin"))
+    console.log("[Grupos] sessionStorage.isSuperAdmin:", sessionStorage.getItem("isSuperAdmin"))
+    console.log("[Grupos] sessionStorage.userRole:", sessionStorage.getItem("userRole"))
+    console.log("[Grupos] sessionStorage.adminArea:", sessionStorage.getItem("adminArea"))
+    console.log("[Grupos] localStorage.selectedArea:", localStorage.getItem("selectedArea"))
+    console.log("[Grupos] checkIsAdmin() result:", adminStatus)
+    console.log("[Grupos] checkIsSuperAdmin() result:", superAdminStatus)
+    console.log("[Grupos] getCurrentUserRole() result:", userRole)
+    console.log("[Grupos] getAssignedGroups() result:", assignedGroups)
+    console.log("[Grupos] Current area from useArea():", area)
+    console.log("[Grupos] ===============================================")
+    
     setIsAdmin(adminStatus)
     setIsSuperAdmin(superAdminStatus)
+    setCurrentUserRole(userRole)
     
-    loadGroups()
-  }, [])
+    // Get user permissions based on role and assigned groups
+    const permissions = getRolePermissions(userRole, area, assignedGroups)
+    setCurrentUserPermissions(permissions)
+    
+    console.log("[Grupos] ========== PERMISSIONS CALCULATED ==========")
+    console.log("[Grupos] User role:", userRole)
+    console.log("[Grupos] Area:", area)
+    console.log("[Grupos] Assigned groups:", assignedGroups)
+    console.log("[Grupos] Permissions:", JSON.stringify(permissions, null, 2))
+    console.log("[Grupos] canViewAllGroups:", permissions.canViewAllGroups)
+    console.log("[Grupos] ===============================================")
+    
+    // Cargar grupos inmediatamente después de establecer permisos
+    loadGroupsWithPermissions(permissions)
+  }, [area])
+
+  async function loadGroupsWithPermissions(permissions: RolePermissions) {
+    try {
+      setLoading(true)
+      console.log("[Grupos] ========== LOADING GROUPS ==========")
+      console.log("[Grupos] Area:", area)
+      console.log("[Grupos] Permissions:", permissions)
+      
+      // Get groups with enrollment counts from area-aware router
+      const groupsWithCounts = await getGroupsWithEnrollmentCounts(area)
+      console.log("[Grupos] Groups with enrollment counts:", groupsWithCounts.length)
+      console.log("[Grupos] Sample groups:", groupsWithCounts.slice(0, 3))
+      
+      // Get cultural groups for additional data
+      const allCulturalGroups = await getAllCulturalGroupsRouter(area)
+      console.log("[Grupos] All cultural groups:", allCulturalGroups.length)
+      
+      // Apply role-based filtering to cultural groups
+      let filteredCulturalGroups = allCulturalGroups
+      if (permissions && !permissions.canViewAllGroups) {
+        console.log("[Grupos] Applying role-based filtering")
+        filteredCulturalGroups = filterGroupsByAssignment(allCulturalGroups, permissions)
+        console.log("[Grupos] Filtered cultural groups:", filteredCulturalGroups.length)
+      }
+      
+      setCulturalGroups(filteredCulturalGroups)
+      
+      // Filter groups with counts to match filtered cultural groups
+      const filteredGroupNames = new Set(filteredCulturalGroups.map(g => g.nombre))
+      const filteredGroupsWithCounts = groupsWithCounts.filter(g => filteredGroupNames.has(g.nombre))
+      
+      console.log("[Grupos] Final filtered groups with counts:", filteredGroupsWithCounts.length)
+      console.log("[Grupos] =======================================")
+      
+      setGroups(filteredGroupsWithCounts)
+      setFilteredGroups(filteredGroupsWithCounts)
+
+      // Cargar encargados de cada grupo
+      const managersMap: Record<string, (GroupManager & { user: UserProfile })[]> = {}
+      for (const group of filteredCulturalGroups) {
+        const managers = await getGroupManagers(area, group.nombre)
+        managersMap[group.nombre] = managers
+      }
+      setGroupManagers(managersMap)
+    } catch (error) {
+      console.error("[Grupos] Error cargando grupos:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (searchTerm.trim()) {
@@ -91,30 +182,9 @@ export default function GruposPage() {
   }, [searchTerm, groups])
 
   async function loadGroups() {
-    try {
-      const [allGroups, allCulturalGroups] = await Promise.all([
-        getAllGroupsWithEnrollments(),
-        getAllCulturalGroups()
-      ])
-      
-      console.log("[Grupos] Groups with enrollments:", allGroups)
-      console.log("[Grupos] Cultural groups from DB:", allCulturalGroups)
-      
-      setCulturalGroups(allCulturalGroups)
-      setGroups(allGroups)
-
-      // Cargar encargados de cada grupo
-      const managersMap: Record<string, (GroupManager & { user: UserProfile })[]> = {}
-      for (const group of allGroups) {
-        const managers = await getGroupManagers(group.nombre)
-        managersMap[group.nombre] = managers
-      }
-      setGroupManagers(managersMap)
-      setFilteredGroups(allGroups)
-    } catch (error) {
-      console.error("Error cargando grupos:", error)
-    } finally {
-      setLoading(false)
+    // Recargar con los permisos actuales
+    if (currentUserPermissions) {
+      await loadGroupsWithPermissions(currentUserPermissions)
     }
   }
 
@@ -128,11 +198,12 @@ export default function GruposPage() {
     setSelectedGroup(groupName)
     setManagerDialogOpen(true)
     
-    // Cargar usuarios con rol de director o monitor
+    // Cargar usuarios con rol de director o monitor del área actual
     try {
-      const allUsers = await getAllUsers()
+      const allUsers = await getAllUsersRouter(area)
       const managers = allUsers.filter(u => u.rol === "DIRECTOR" || u.rol === "MONITOR")
       setAvailableManagers(managers)
+      console.log("[Grupos] Loaded", managers.length, "managers from area:", area)
     } catch (error) {
       console.error("Error cargando managers:", error)
       setError("Error al cargar la lista de directores y monitores")
@@ -147,7 +218,7 @@ export default function GruposPage() {
     
     try {
       const assignedBy = sessionStorage.getItem("userId") || "admin"
-      await assignGroupManager(selectedManager, selectedGroup, assignedBy)
+      await assignGroupManager(area, selectedManager, selectedGroup, assignedBy)
       setSuccess(`Encargado asignado exitosamente a ${selectedGroup}`)
       await loadGroups()
       setManagerDialogOpen(false)
@@ -174,7 +245,7 @@ export default function GruposPage() {
     }
     
     try {
-      await removeGroupManager(managerId)
+      await removeGroupManager(area, managerId)
       setSuccess("Encargado removido exitosamente")
       await loadGroups()
       setTimeout(() => setSuccess(null), 3000)
@@ -316,6 +387,35 @@ export default function GruposPage() {
     }
   }
 
+  const handleMigrateToCompositeIds = async () => {
+    const confirmed = window.confirm(
+      "¿Migrar inscripciones a IDs compuestos?\n\n" +
+      "Esto previene duplicados a nivel de base de datos usando IDs únicos.\n" +
+      "También eliminará cualquier duplicado existente.\n\n" +
+      "Esta operación es segura y mejora la integridad de los datos."
+    )
+
+    if (!confirmed) return
+
+    setIsMigratingIds(true)
+    try {
+      const result = await migrateEnrollmentsToCompositeIds()
+      setSuccess(
+        `Migración completada: ${result.migrated} inscripción(es) migrada(s), ` +
+        `${result.duplicatesRemoved} duplicado(s) eliminado(s)` +
+        (result.errors > 0 ? `, ${result.errors} error(es)` : "")
+      )
+      await loadGroups()
+      setTimeout(() => setSuccess(null), 5000)
+    } catch (error: any) {
+      setError(error.message || "Error durante la migración")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsMigratingIds(false)
+    }
+  }
+
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -337,7 +437,6 @@ export default function GruposPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Navigation />
         <div className="container mx-auto p-6">
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -349,14 +448,17 @@ export default function GruposPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Navigation />
       <div className="container mx-auto p-6">
         <div className="space-y-6">
           {/* Header */}
           <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Grupos Culturales</h1>
-              <p className="text-gray-600 mt-2">Gestión de inscripciones a grupos culturales</p>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'}
+              </h1>
+              <p className="text-gray-600 mt-2">
+                Gestión de inscripciones a grupos {area === 'deporte' ? 'deportivos' : 'culturales'}
+              </p>
             </div>
             {(isAdmin || isSuperAdmin) && (
               <div className="flex flex-wrap gap-2">
@@ -371,6 +473,14 @@ export default function GruposPage() {
                 )}
                 {isSuperAdmin && (
                   <>
+                    <Button
+                      onClick={handleMigrateToCompositeIds}
+                      disabled={isMigratingIds}
+                      variant="outline"
+                      className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                    >
+                      {isMigratingIds ? "Migrando IDs..." : "Migrar a IDs Únicos"}
+                    </Button>
                     <Button
                       onClick={handleCleanDuplicates}
                       disabled={isCleaningDuplicates}
@@ -502,12 +612,12 @@ export default function GruposPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Music className="w-5 h-5" />
-                Lista de Grupos Culturales
+                Lista de Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'}
               </CardTitle>
               <CardDescription>
                 {searchTerm 
                   ? `${filteredGroups.length} grupo${filteredGroups.length !== 1 ? 's' : ''} encontrado${filteredGroups.length !== 1 ? 's' : ''}`
-                  : "Todos los grupos culturales disponibles y sus inscripciones"
+                  : `Todos los grupos ${area === 'deporte' ? 'deportivos' : 'culturales'} disponibles y sus inscripciones`
                 }
               </CardDescription>
             </CardHeader>
@@ -749,9 +859,11 @@ export default function GruposPage() {
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle className="text-lg md:text-xl">Crear Nuevo Grupo Cultural</DialogTitle>
+                <DialogTitle className="text-lg md:text-xl">
+                  Crear Nuevo Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}
+                </DialogTitle>
                 <DialogDescription className="text-sm">
-                  Ingresa el nombre del nuevo grupo cultural
+                  Ingresa el nombre del nuevo grupo {area === 'deporte' ? 'deportivo' : 'cultural'}
                 </DialogDescription>
               </DialogHeader>
               
@@ -848,7 +960,9 @@ export default function GruposPage() {
           <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
             <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle className="text-lg md:text-xl text-red-600">Eliminar Grupo Cultural</DialogTitle>
+                <DialogTitle className="text-lg md:text-xl text-red-600">
+                  Eliminar Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}
+                </DialogTitle>
                 <DialogDescription className="text-sm">
                   Esta acción no se puede deshacer
                 </DialogDescription>

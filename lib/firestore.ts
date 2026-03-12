@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, where } from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, limit, serverTimestamp } from "firebase/firestore"
 import { db } from "./firebase"
 import type {
   AttendanceRecord,
@@ -47,14 +47,13 @@ export async function saveUserProfile(
   try {
     const userProfile: Omit<UserProfile, "id"> = {
       ...profile,
-      createdAt: new Date(),
-      lastAttendance: new Date(),
+      createdAt: serverTimestamp() as any,
+      lastAttendance: serverTimestamp() as any,
     }
 
     const cleanProfile = filterUndefinedValues(userProfile)
 
     console.log("[v0] Attempting to save user profile to collection:", USERS_COLLECTION)
-    console.log("[v0] Profile data:", cleanProfile)
     const docRef = await addDoc(collection(db, USERS_COLLECTION), cleanProfile)
     console.log("[v0] User profile saved with ID:", docRef.id)
     return docRef.id
@@ -413,7 +412,7 @@ export async function createEvent(eventData: Omit<Event, "id" | "createdAt" | "a
   try {
     const event: Omit<Event, "id"> = {
       ...eventData,
-      createdAt: new Date(),
+      createdAt: serverTimestamp() as any,
       activo: true,
     }
 
@@ -724,13 +723,16 @@ export async function enrollUserToGroup(userId: string, grupoCultural: string): 
   try {
     console.log("[v0] Starting enrollment process for user:", userId, "to group:", grupoCultural)
     
-    // Verificar si ya está inscrito
-    const existingEnrollment = await getUserEnrollments(userId)
-    console.log("[v0] Existing enrollments:", existingEnrollment)
+    // Usar un ID compuesto para garantizar unicidad
+    const enrollmentId = `${userId}_${grupoCultural.replace(/\s+/g, "_")}`
+    const enrollmentRef = doc(db, GROUP_ENROLLMENTS_COLLECTION, enrollmentId)
     
-    if (existingEnrollment.some(e => e.grupoCultural === grupoCultural)) {
-      console.log("[v0] User already enrolled in this group")
-      throw new Error("El usuario ya está inscrito en este grupo")
+    // Verificar si ya existe este documento
+    const existingDoc = await getDoc(enrollmentRef)
+    
+    if (existingDoc.exists()) {
+      console.log("[v0] User already enrolled in this group (document exists)")
+      throw new Error("Ya estás inscrito en este grupo")
     }
 
     const enrollment: Omit<GroupEnrollment, "id"> = {
@@ -741,10 +743,12 @@ export async function enrollUserToGroup(userId: string, grupoCultural: string): 
 
     console.log("[v0] Enrolling user to group with data:", enrollment)
     console.log("[v0] Target collection:", GROUP_ENROLLMENTS_COLLECTION)
+    console.log("[v0] Using composite ID:", enrollmentId)
     
-    const docRef = await addDoc(collection(db, GROUP_ENROLLMENTS_COLLECTION), enrollment)
-    console.log("[v0] User enrolled successfully with ID:", docRef.id)
-    return docRef.id
+    // Usar setDoc con el ID compuesto para garantizar unicidad
+    await setDoc(enrollmentRef, enrollment)
+    console.log("[v0] User enrolled successfully with ID:", enrollmentId)
+    return enrollmentId
   } catch (error: any) {
     console.error("[v0] Error enrolling user to group:", error)
     console.error("[v0] Error code:", error.code)
@@ -938,7 +942,7 @@ export async function createCulturalGroup(nombre: string): Promise<string> {
 
     const group = {
       nombre,
-      createdAt: new Date(),
+      createdAt: serverTimestamp(),
       activo: true,
     }
 
@@ -1190,6 +1194,179 @@ export async function cleanDuplicateEnrollments(): Promise<{ removed: number; ke
     return { removed, kept }
   } catch (error) {
     console.error("[v0] Error cleaning duplicate enrollments:", error)
+    throw error
+  }
+}
+
+// Get all teams with their members (directors and monitors)
+export async function getAllTeamsWithMembers() {
+  try {
+    // Obtener todos los group_managers
+    const managersSnapshot = await getDocs(collection(db, "group_managers"))
+    const managers = managersSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+
+    console.log("[Teams] Total managers:", managers.length)
+
+    // Obtener todas las categorías de grupos
+    const categoriesSnapshot = await getDocs(collection(db, "group_category_assignments"))
+    const categories = categoriesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+
+    // Crear un mapa de categorías por grupo y monitor
+    const categoryMap = new Map()
+    categories.forEach((cat: any) => {
+      const key = `${cat.grupoCultural}_${cat.numeroDocumento || ''}`
+      categoryMap.set(key, cat.categoria)
+    })
+
+    // Construir el array de miembros del equipo buscando cada usuario
+    const teamMembers = []
+    
+    for (const manager of managers) {
+      const managerData = manager as any
+      
+      // Buscar usuario por numeroDocumento
+      const userQuery = query(
+        collection(db, USERS_COLLECTION),
+        where("numeroDocumento", "==", managerData.numeroDocumento),
+        limit(1)
+      )
+      
+      const userSnapshot = await getDocs(userQuery)
+      let userData: any = null
+      
+      if (!userSnapshot.empty) {
+        userData = { id: userSnapshot.docs[0].id, ...userSnapshot.docs[0].data() }
+        console.log(`[Teams] ✅ Usuario encontrado: ${userData.nombres}`)
+      } else {
+        console.log(`[Teams] ⚠️ No se encontró usuario para numeroDocumento: ${managerData.numeroDocumento}`)
+      }
+
+      const categoryKey = `${managerData.grupoCultural}_${managerData.numeroDocumento}`
+      const categoria = categoryMap.get(categoryKey)
+
+      teamMembers.push({
+        id: managerData.id,
+        nombres: userData?.nombres || `Usuario ${managerData.numeroDocumento}`,
+        rol: managerData.rol || "MONITOR",
+        grupoCultural: managerData.grupoCultural,
+        numeroDocumento: managerData.numeroDocumento,
+        correo: userData?.correo,
+        programaAcademico: userData?.programaAcademico,
+        facultad: userData?.facultad,
+        categoria: categoria,
+      })
+    }
+
+    console.log("[Teams] Miembros procesados:", teamMembers.length)
+    if (teamMembers.length > 0) {
+      console.log("[Teams] Primer miembro:", teamMembers[0])
+    }
+
+    return teamMembers
+  } catch (error) {
+    console.error("Error obteniendo equipos:", error)
+    throw error
+  }
+}
+
+// ==================== MIGRACIÓN A IDs COMPUESTOS ====================
+
+/**
+ * Migra las inscripciones existentes a usar IDs compuestos (userId_grupoCultural)
+ * Esto previene duplicados a nivel de base de datos
+ * También elimina duplicados existentes, manteniendo solo la inscripción más reciente
+ */
+export async function migrateEnrollmentsToCompositeIds(): Promise<{
+  migrated: number
+  duplicatesRemoved: number
+  errors: number
+}> {
+  try {
+    console.log("[Migration] Starting migration to composite IDs...")
+    
+    const enrollmentsRef = collection(db, GROUP_ENROLLMENTS_COLLECTION)
+    const snapshot = await getDocs(enrollmentsRef)
+    
+    // Agrupar por userId + grupoCultural
+    const enrollmentsByComposite = new Map<string, any[]>()
+    
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data()
+      const compositeKey = `${data.userId}_${data.grupoCultural.replace(/\s+/g, "_")}`
+      
+      if (!enrollmentsByComposite.has(compositeKey)) {
+        enrollmentsByComposite.set(compositeKey, [])
+      }
+      
+      enrollmentsByComposite.get(compositeKey)!.push({
+        id: docSnap.id,
+        ...data,
+      })
+    })
+    
+    let migrated = 0
+    let duplicatesRemoved = 0
+    let errors = 0
+    
+    // Procesar cada grupo de inscripciones
+    const entries = Array.from(enrollmentsByComposite.entries())
+    for (const [compositeId, enrollments] of entries) {
+      try {
+        // Ordenar por fecha (más reciente primero)
+        enrollments.sort((a: any, b: any) => {
+          const dateA = timestampToDate(a.fechaInscripcion)
+          const dateB = timestampToDate(b.fechaInscripcion)
+          return dateB.getTime() - dateA.getTime()
+        })
+        
+        const mostRecent = enrollments[0]
+        const duplicates = enrollments.slice(1)
+        
+        // Si el ID actual ya es el compuesto, solo eliminar duplicados
+        if (mostRecent.id === compositeId) {
+          // Eliminar duplicados
+          for (const dup of duplicates) {
+            await deleteDoc(doc(db, GROUP_ENROLLMENTS_COLLECTION, dup.id))
+            duplicatesRemoved++
+          }
+        } else {
+          // Crear nuevo documento con ID compuesto
+          const newEnrollmentRef = doc(db, GROUP_ENROLLMENTS_COLLECTION, compositeId)
+          await setDoc(newEnrollmentRef, {
+            userId: mostRecent.userId,
+            grupoCultural: mostRecent.grupoCultural,
+            fechaInscripcion: mostRecent.fechaInscripcion,
+          })
+          
+          // Eliminar todos los documentos antiguos (incluyendo el más reciente)
+          for (const enrollment of enrollments) {
+            await deleteDoc(doc(db, GROUP_ENROLLMENTS_COLLECTION, enrollment.id))
+          }
+          
+          migrated++
+          duplicatesRemoved += duplicates.length
+        }
+      } catch (error) {
+        console.error(`[Migration] Error processing ${compositeId}:`, error)
+        errors++
+      }
+    }
+    
+    console.log("[Migration] Migration completed:", {
+      migrated,
+      duplicatesRemoved,
+      errors,
+    })
+    
+    return { migrated, duplicatesRemoved, errors }
+  } catch (error) {
+    console.error("[Migration] Error during migration:", error)
     throw error
   }
 }

@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs, setDoc, query, where, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from "./firebase"
+import { getFirestoreForArea, type Area } from './firebase-config'
 import type { AdminUser, GroupManager, UserProfile, UserRole } from "./types"
 
 const ADMIN_USERS_COLLECTION = "admin_users"
@@ -13,8 +14,11 @@ const SUPER_ADMIN = {
 }
 
 // Verificar super admin
-export function verifySuperAdmin(usuario: string, password: string): boolean {
-  return usuario === SUPER_ADMIN.usuario && password === SUPER_ADMIN.password
+export function verifySuperAdmin(usuario: string, password: string): UserRole | null {
+  if (usuario === SUPER_ADMIN.usuario && password === SUPER_ADMIN.password) {
+    return "SUPER_ADMIN"
+  }
+  return null
 }
 
 // Crear usuario admin
@@ -22,14 +26,19 @@ export async function createAdminUser(
   numeroDocumento: string,
   correo: string,
   nombres: string,
+  password: string,
+  area: Area,
   createdBy: string,
 ): Promise<void> {
   try {
+    const db = getFirestoreForArea(area)
     const adminRef = doc(collection(db, ADMIN_USERS_COLLECTION))
     await setDoc(adminRef, {
       numeroDocumento,
       correo,
       nombres,
+      password,
+      area,
       createdAt: new Date(),
       createdBy,
     })
@@ -39,11 +48,66 @@ export async function createAdminUser(
   }
 }
 
-// Verificar si es admin
-export async function verifyAdmin(numeroDocumento: string, correo: string): Promise<AdminUser | null> {
+// Actualizar usuario admin
+export async function updateAdminUser(
+  adminId: string,
+  originalArea: Area,
+  updates: {
+    nombres?: string
+    correo?: string
+    password?: string
+    area?: Area
+  }
+): Promise<void> {
   try {
+    // Si el área cambió, necesitamos mover el documento
+    if (updates.area && updates.area !== originalArea) {
+      // Obtener el documento original
+      const originalDb = getFirestoreForArea(originalArea)
+      const originalRef = doc(originalDb, ADMIN_USERS_COLLECTION, adminId)
+      const originalDoc = await getDoc(originalRef)
+      
+      if (!originalDoc.exists()) {
+        throw new Error("Admin no encontrado")
+      }
+      
+      // Crear en la nueva área
+      const newDb = getFirestoreForArea(updates.area)
+      const newRef = doc(collection(newDb, ADMIN_USERS_COLLECTION))
+      await setDoc(newRef, {
+        ...originalDoc.data(),
+        ...updates,
+      })
+      
+      // Eliminar de la área original
+      await deleteDoc(originalRef)
+    } else {
+      // Actualizar en la misma área
+      const db = getFirestoreForArea(originalArea)
+      const adminRef = doc(db, ADMIN_USERS_COLLECTION, adminId)
+      await updateDoc(adminRef, updates)
+    }
+  } catch (error) {
+    console.error("Error updating admin user:", error)
+    throw error
+  }
+}
+
+// Verificar si es admin con contraseña
+export async function verifyAdminWithPassword(
+  area: Area,
+  numeroDocumento: string,
+  password: string
+): Promise<AdminUser | null> {
+  try {
+    const db = getFirestoreForArea(area)
     const adminsRef = collection(db, ADMIN_USERS_COLLECTION)
-    const q = query(adminsRef, where("numeroDocumento", "==", numeroDocumento), where("correo", "==", correo))
+    const q = query(
+      adminsRef,
+      where("numeroDocumento", "==", numeroDocumento),
+      where("password", "==", password),
+      where("area", "==", area)
+    )
     const snapshot = await getDocs(q)
 
     if (snapshot.empty) return null
@@ -60,17 +124,81 @@ export async function verifyAdmin(numeroDocumento: string, correo: string): Prom
   }
 }
 
-// Obtener todos los admins
-export async function getAllAdmins(): Promise<AdminUser[]> {
+// Verificar si es admin
+export async function verifyAdmin(area: Area, numeroDocumento: string, correo: string): Promise<AdminUser | null> {
   try {
+    const db = getFirestoreForArea(area)
     const adminsRef = collection(db, ADMIN_USERS_COLLECTION)
-    const snapshot = await getDocs(adminsRef)
+    const q = query(
+      adminsRef,
+      where("numeroDocumento", "==", numeroDocumento),
+      where("correo", "==", correo),
+      where("area", "==", area)
+    )
+    const snapshot = await getDocs(q)
 
-    return snapshot.docs.map((doc) => ({
+    if (snapshot.empty) return null
+
+    const doc = snapshot.docs[0]
+    return {
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toDate() || new Date(),
-    })) as AdminUser[]
+    } as AdminUser
+  } catch (error) {
+    console.error("Error verifying admin:", error)
+    return null
+  }
+}
+
+// Verificar admin en ambas áreas (para login)
+export async function verifyAdminAnyArea(numeroDocumento: string, password: string): Promise<{ admin: AdminUser; area: Area } | null> {
+  try {
+    // Intentar en cultura primero
+    const culturaAdmin = await verifyAdminWithPassword('cultura', numeroDocumento, password)
+    if (culturaAdmin) {
+      return { admin: culturaAdmin, area: 'cultura' }
+    }
+    
+    // Intentar en deporte
+    const deporteAdmin = await verifyAdminWithPassword('deporte', numeroDocumento, password)
+    if (deporteAdmin) {
+      return { admin: deporteAdmin, area: 'deporte' }
+    }
+    
+    return null
+  } catch (error) {
+    console.error("Error verifying admin in any area:", error)
+    return null
+  }
+}
+
+// Obtener todos los admins de ambas áreas
+export async function getAllAdmins(): Promise<(AdminUser & { areaLabel: string })[]> {
+  try {
+    const culturaDb = getFirestoreForArea('cultura')
+    const deporteDb = getFirestoreForArea('deporte')
+    
+    const [culturaSnapshot, deporteSnapshot] = await Promise.all([
+      getDocs(collection(culturaDb, ADMIN_USERS_COLLECTION)),
+      getDocs(collection(deporteDb, ADMIN_USERS_COLLECTION))
+    ])
+
+    const culturaAdmins = culturaSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      areaLabel: 'Cultura',
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+    })) as (AdminUser & { areaLabel: string })[]
+    
+    const deporteAdmins = deporteSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      areaLabel: 'Deporte',
+      createdAt: doc.data().createdAt?.toDate() || new Date(),
+    })) as (AdminUser & { areaLabel: string })[]
+
+    return [...culturaAdmins, ...deporteAdmins]
   } catch (error) {
     console.error("Error getting admins:", error)
     return []
@@ -157,10 +285,13 @@ export async function getGroupManagers(grupoCultural: string): Promise<(GroupMan
 
 // Verificar si usuario es encargado de un grupo
 export async function verifyGroupManager(
+  area: Area,
   numeroDocumento: string,
   correo: string,
 ): Promise<{ user: UserProfile; grupoCultural: string } | null> {
   try {
+    const db = getFirestoreForArea(area)
+    
     // Buscar usuario
     const usersRef = collection(db, USERS_COLLECTION)
     const userQuery = query(usersRef, where("numeroDocumento", "==", numeroDocumento), where("correo", "==", correo))
@@ -194,6 +325,31 @@ export async function verifyGroupManager(
     }
   } catch (error) {
     console.error("Error verifying group manager:", error)
+    return null
+  }
+}
+
+// Verificar group manager en ambas áreas (para login)
+export async function verifyGroupManagerAnyArea(
+  numeroDocumento: string,
+  correo: string,
+): Promise<{ user: UserProfile; grupoCultural: string; area: Area } | null> {
+  try {
+    // Intentar en cultura primero
+    const culturaManager = await verifyGroupManager('cultura', numeroDocumento, correo)
+    if (culturaManager) {
+      return { ...culturaManager, area: 'cultura' }
+    }
+    
+    // Intentar en deporte
+    const deporteManager = await verifyGroupManager('deporte', numeroDocumento, correo)
+    if (deporteManager) {
+      return { ...deporteManager, area: 'deporte' }
+    }
+    
+    return null
+  } catch (error) {
+    console.error("Error verifying group manager in any area:", error)
     return null
   }
 }

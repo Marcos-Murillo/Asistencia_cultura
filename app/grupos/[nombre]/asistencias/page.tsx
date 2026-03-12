@@ -9,13 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DatePicker } from "@/components/ui/date-picker"
-import { Navigation } from "@/components/navigation"
-import { getGroupTracking } from "@/lib/firestore"
+import { getGroupTracking } from "@/lib/db-router"
 import type { GroupTracking } from "@/lib/types"
 import { Calendar, ChevronLeft, ChevronRight, ArrowLeft, Users } from "lucide-react"
 import Link from "next/link"
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, format } from "date-fns"
 import { es } from "date-fns/locale"
+import { useArea } from "@/contexts/area-context"
 
 type TimeFilter = "day" | "week" | "month"
 const ITEMS_PER_PAGE = 15
@@ -23,6 +23,7 @@ const ITEMS_PER_PAGE = 15
 export default function GrupoAsistenciasPage() {
   const params = useParams()
   const groupName = decodeURIComponent(params.nombre as string)
+  const { area } = useArea()
   
   const [groupData, setGroupData] = useState<GroupTracking | null>(null)
   const [loading, setLoading] = useState(true)
@@ -32,15 +33,17 @@ export default function GrupoAsistenciasPage() {
 
   useEffect(() => {
     loadGroupData()
-  }, [groupName])
+  }, [groupName, area])
 
   async function loadGroupData() {
     try {
-      const tracking = await getGroupTracking()
+      console.log("[GrupoAsistencias] Loading data for group:", groupName, "in area:", area)
+      const tracking = await getGroupTracking(area)
       const group = tracking.find(g => g.groupName === groupName)
+      console.log("[GrupoAsistencias] Found group:", !!group, "with", group?.participants.length || 0, "participants")
       setGroupData(group || null)
     } catch (error) {
-      console.error("Error loading group data:", error)
+      console.error("[GrupoAsistencias] Error loading group data:", error)
     } finally {
       setLoading(false)
     }
@@ -78,7 +81,6 @@ export default function GrupoAsistenciasPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Navigation />
         <div className="container mx-auto p-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-lg text-gray-600">Cargando asistencias...</div>
@@ -91,7 +93,6 @@ export default function GrupoAsistenciasPage() {
   if (!groupData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Navigation />
         <div className="container mx-auto p-6">
           <Card>
             <CardContent className="py-12">
@@ -121,7 +122,6 @@ export default function GrupoAsistenciasPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Navigation />
       <div className="container mx-auto p-6">
         <div className="space-y-6">
           {/* Header */}

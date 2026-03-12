@@ -2,6 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
+import { GlobalHeader } from "@/components/global-header"
+import { AreaProviderWrapper } from "@/components/providers/area-provider-wrapper"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -26,7 +28,12 @@ html {
 }
         `}</style>
       </head>
-      <body>{children}</body>
+      <body>
+        <AreaProviderWrapper>
+          <GlobalHeader />
+          {children}
+        </AreaProviderWrapper>
+      </body>
     </html>
   )
 }

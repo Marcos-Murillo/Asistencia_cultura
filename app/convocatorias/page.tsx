@@ -10,7 +10,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { Navigation } from "@/components/navigation"
 import { User, CheckCircle, AlertCircle, Calendar } from "lucide-react"
 import {
   GENEROS,
@@ -27,10 +26,11 @@ import {
   getActiveEvents,
   saveEventAttendance,
   getUserEventEnrollments,
-} from "@/lib/firestore"
+} from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
 export default function ConvocatoriasPage() {
+  const area = 'cultura' // Área hardcoded para cultura
   const { toast } = useToast()
   const [formData, setFormData] = useState<FormData>({
     nombres: "",
@@ -43,7 +43,7 @@ export default function ConvocatoriasPage() {
     telefono: "",
     sede: "",
     estamento: "",
-    codigoEstudiante: "",
+    codigoEstudiantil: "",
     facultad: "",
     programaAcademico: "",
     grupoCultural: "",
@@ -66,7 +66,7 @@ export default function ConvocatoriasPage() {
 
   useEffect(() => {
     loadActiveEvents()
-  }, [])
+  }, [area])
 
   useEffect(() => {
     const checkSimilarity = async () => {
@@ -79,6 +79,7 @@ export default function ConvocatoriasPage() {
         setIsCheckingSimilarity(true)
         try {
           const similar = await findSimilarUsers(
+            area,
             formData.nombres,
             formData.correo,
             formData.numeroDocumento,
@@ -99,7 +100,7 @@ export default function ConvocatoriasPage() {
 
     const timeoutId = setTimeout(checkSimilarity, 500)
     return () => clearTimeout(timeoutId)
-  }, [formData.nombres, formData.correo, formData.numeroDocumento, formData.telefono])
+  }, [formData.nombres, formData.correo, formData.numeroDocumento, formData.telefono, area])
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => {
@@ -110,13 +111,13 @@ export default function ConvocatoriasPage() {
       }
 
       if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO") {
-        newData.codigoEstudiante = ""
+        newData.codigoEstudiantil = ""
         newData.facultad = ""
         newData.programaAcademico = ""
       }
 
       if (field === "estamento" && value === "EGRESADO") {
-        newData.codigoEstudiante = ""
+        // Egresados también tienen código estudiantil
       }
 
       return newData
@@ -136,7 +137,7 @@ export default function ConvocatoriasPage() {
       telefono: user.telefono,
       sede: user.sede,
       estamento: user.estamento,
-      codigoEstudiante: user.codigoEstudiante || "",
+      codigoEstudiantil: user.codigoEstudiantil || "",
       facultad: user.facultad || "",
       programaAcademico: user.programaAcademico || "",
       grupoCultural: "",
@@ -146,7 +147,7 @@ export default function ConvocatoriasPage() {
     setCurrentStep(1)
 
     // Cargar eventos en los que ya está inscrito
-    const enrolledEvents = await getUserEventEnrollments(user.id)
+    const enrolledEvents = await getUserEventEnrollments(area, user.id)
     setUserEventEnrollments(enrolledEvents)
 
     toast({
@@ -181,7 +182,7 @@ export default function ConvocatoriasPage() {
         return !!(formData.sede && formData.estamento)
       case 3:
         if (formData.estamento === "ESTUDIANTE") {
-          return !!(formData.codigoEstudiante && formData.facultad && formData.programaAcademico)
+          return !!(formData.codigoEstudiantil && formData.facultad && formData.programaAcademico)
         }
         if (formData.estamento === "EGRESADO") {
           return !!(formData.facultad && formData.programaAcademico)
@@ -212,7 +213,7 @@ export default function ConvocatoriasPage() {
 
   async function loadActiveEvents() {
     try {
-      const events = await getActiveEvents()
+      const events = await getActiveEvents(area)
       setActiveEvents(events)
     } catch (error) {
       console.error("Error cargando eventos activos:", error)
@@ -235,6 +236,7 @@ export default function ConvocatoriasPage() {
         userId = selectedUser.id
       } else {
         const userProfile = {
+          area,
           nombres: formData.nombres,
           correo: formData.correo,
           genero: formData.genero as any,
@@ -246,8 +248,8 @@ export default function ConvocatoriasPage() {
           sede: formData.sede as any,
           estamento: formData.estamento as any,
           ...(formData.estamento === "ESTUDIANTE" &&
-            formData.codigoEstudiante && {
-              codigoEstudiante: formData.codigoEstudiante,
+            formData.codigoEstudiantil && {
+              codigoEstudiantil: formData.codigoEstudiantil,
             }),
           ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
             formData.facultad && {
@@ -260,12 +262,12 @@ export default function ConvocatoriasPage() {
         }
 
         console.log("[Convocatorias] Creating new user profile:", userProfile)
-        userId = await saveUserProfile(userProfile)
+        userId = await saveUserProfile(area, userProfile)
         console.log("[Convocatorias] New user created with ID:", userId)
       }
 
       console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-      await saveEventAttendance(userId, formData.eventoId)
+      await saveEventAttendance(area, userId, formData.eventoId)
       console.log("[Convocatorias] Event attendance saved successfully")
 
       setSuccess(true)
@@ -281,7 +283,7 @@ export default function ConvocatoriasPage() {
           telefono: "",
           sede: "",
           estamento: "",
-          codigoEstudiante: "",
+          codigoEstudiantil: "",
           facultad: "",
           programaAcademico: "",
           grupoCultural: "",
@@ -525,13 +527,13 @@ export default function ConvocatoriasPage() {
         if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              {formData.estamento === "ESTUDIANTE" && (
+              {(formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") && (
                 <div className="space-y-2">
-                  <Label htmlFor="codigoEstudiante">Código del Estudiante *</Label>
+                  <Label htmlFor="codigoEstudiantil">Código Estudiantil *</Label>
                   <Input
-                    id="codigoEstudiante"
-                    value={formData.codigoEstudiante}
-                    onChange={(e) => handleInputChange("codigoEstudiante", e.target.value)}
+                    id="codigoEstudiantil"
+                    value={formData.codigoEstudiantil}
+                    onChange={(e) => handleInputChange("codigoEstudiantil", e.target.value)}
                     placeholder="Código estudiantil"
                   />
                 </div>
@@ -693,13 +695,14 @@ export default function ConvocatoriasPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100">
-      <Navigation />
       <div className="p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
             <CardHeader className="text-center">
               <CardTitle className="text-2xl font-bold text-gray-900">Inscripción a Convocatorias</CardTitle>
-              <CardDescription className="text-lg">Eventos Culturales - Universidad del Valle</CardDescription>
+              <CardDescription className="text-lg">
+                Eventos Culturales - Universidad del Valle
+              </CardDescription>
               {!selectedUser && (
                 <>
                   <div className="flex justify-center mt-4">

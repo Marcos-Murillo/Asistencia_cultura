@@ -7,18 +7,22 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { TrendingUp, TrendingDown, Minus, Eye, Music } from "lucide-react"
-import { getGroupTracking } from "@/lib/firestore"
+import { getGroupTracking } from "@/lib/db-router"
 import type { GroupTracking } from "@/lib/types"
 import Link from "next/link"
+import { useArea } from "@/contexts/area-context"
 
 export function GroupTrackingTable() {
+  const { area } = useArea()
   const [groupTracking, setGroupTracking] = useState<GroupTracking[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadGroupTracking = async () => {
       try {
-        const tracking = await getGroupTracking()
+        console.log("[GroupTrackingTable] Loading tracking for area:", area)
+        const tracking = await getGroupTracking(area)
+        console.log("[GroupTrackingTable] Loaded", tracking.length, "groups")
         setGroupTracking(tracking)
       } catch (error) {
         console.error("Error loading group tracking:", error)
@@ -28,7 +32,7 @@ export function GroupTrackingTable() {
     }
 
     loadGroupTracking()
-  }, [])
+  }, [area])
 
   if (loading) {
     return (
@@ -36,7 +40,7 @@ export function GroupTrackingTable() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Music className="w-5 h-5" />
-            Seguimiento de Grupos Culturales
+            Seguimiento de Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'}
           </CardTitle>
           <CardDescription>Cargando datos de seguimiento...</CardDescription>
         </CardHeader>
@@ -55,7 +59,7 @@ export function GroupTrackingTable() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Music className="w-5 h-5" />
-            Seguimiento de Grupos Culturales
+            Seguimiento de Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'}
           </CardTitle>
           <CardDescription>Resumen de asistencia por grupo</CardDescription>
         </CardHeader>
@@ -106,7 +110,7 @@ export function GroupTrackingTable() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Music className="w-5 h-5" />
-          Seguimiento de Grupos Culturales
+          Seguimiento de Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'}
         </CardTitle>
         <CardDescription>Resumen de asistencia y tendencias por grupo</CardDescription>
       </CardHeader>

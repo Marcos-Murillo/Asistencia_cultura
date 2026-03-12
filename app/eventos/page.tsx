@@ -17,13 +17,14 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Navigation } from "@/components/navigation"
-import { createEvent, getAllEvents, deleteEvent, toggleEventActive } from "@/lib/firestore"
+import { getAllEvents, createEvent, deleteEvent, toggleEventActive } from "@/lib/db-router"
 import type { Event } from "@/lib/types"
 import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search } from "lucide-react"
 import Link from "next/link"
+import { useArea } from "@/contexts/area-context"
 
 export default function EventosPage() {
+  const { area } = useArea()
   const [events, setEvents] = useState<Event[]>([])
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -42,7 +43,7 @@ export default function EventosPage() {
 
   useEffect(() => {
     loadEvents()
-  }, [])
+  }, [area])
 
   useEffect(() => {
     if (searchTerm.trim() === "") {
@@ -59,7 +60,9 @@ export default function EventosPage() {
   async function loadEvents() {
     try {
       setLoading(true)
-      const eventsData = await getAllEvents()
+      console.log("[Eventos] Loading events for area:", area)
+      const eventsData = await getAllEvents(area)
+      console.log("[Eventos] Loaded", eventsData.length, "events")
       setEvents(eventsData)
       setFilteredEvents(eventsData)
     } catch (error) {
@@ -86,7 +89,7 @@ export default function EventosPage() {
         return
       }
 
-      await createEvent({
+      await createEvent(area, {
         nombre: formData.nombre,
         hora: formData.hora,
         lugar: formData.lugar,
@@ -122,7 +125,7 @@ export default function EventosPage() {
     }
 
     try {
-      await deleteEvent(eventId)
+      await deleteEvent(area, eventId)
       setSuccess("Evento eliminado exitosamente")
       await loadEvents()
     } catch (error) {
@@ -133,7 +136,7 @@ export default function EventosPage() {
 
   async function handleToggleActive(eventId: string, currentState: boolean) {
     try {
-      await toggleEventActive(eventId, !currentState)
+      await toggleEventActive(area, eventId, !currentState)
       setSuccess(`Evento ${!currentState ? "activado" : "desactivado"} exitosamente`)
       await loadEvents()
     } catch (error) {
@@ -149,8 +152,6 @@ export default function EventosPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-      <Navigation />
-
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
