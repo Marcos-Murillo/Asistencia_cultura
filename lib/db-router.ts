@@ -791,6 +791,55 @@ export async function getUserEnrollments(area: Area, userId: string): Promise<Ar
   }
 }
 
+// Get users enrolled in a specific group (optimized for managers)
+export async function getGroupEnrolledUsersRouter(area: Area, grupoCultural: string): Promise<UserProfile[]> {
+  validateAreaSpecified(area)
+  
+  try {
+    const db = getFirestoreForArea(area)
+    
+    // Get all enrollments for this group
+    const enrollmentsRef = collection(db, "group_enrollments")
+    const enrollmentQuery = query(enrollmentsRef, where("grupoCultural", "==", grupoCultural))
+    const enrollmentSnapshot = await getDocs(enrollmentQuery)
+    
+    if (enrollmentSnapshot.empty) {
+      console.log("[db-router] No enrollments found for group:", grupoCultural, "in area:", area)
+      return []
+    }
+    
+    // Get unique user IDs
+    const userIds = Array.from(new Set(enrollmentSnapshot.docs.map(doc => doc.data().userId)))
+    console.log("[db-router] Found", userIds.length, "unique users enrolled in group:", grupoCultural)
+    
+    // Fetch all users in batch
+    const usersRef = collection(db, USERS_COLLECTION)
+    const users: UserProfile[] = []
+    
+    // Firestore 'in' query limit is 10, so we batch
+    for (let i = 0; i < userIds.length; i += 10) {
+      const batch = userIds.slice(i, i + 10)
+      const userQuery = query(usersRef, where("__name__", "in", batch))
+      const userSnapshot = await getDocs(userQuery)
+      
+      userSnapshot.docs.forEach(doc => {
+        users.push({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: timestampToDate(doc.data().createdAt),
+          lastAttendance: timestampToDate(doc.data().lastAttendance),
+        } as UserProfile)
+      })
+    }
+    
+    console.log("[db-router] Retrieved", users.length, "user profiles for group:", grupoCultural, "in area:", area)
+    return users
+  } catch (error) {
+    console.error("[db-router] Error getting group enrolled users:", error)
+    throw error
+  }
+}
+
 // Update user role (area-aware)
 export async function updateUserRole(area: Area, userId: string, role: string): Promise<void> {
   validateAreaSpecified(area)

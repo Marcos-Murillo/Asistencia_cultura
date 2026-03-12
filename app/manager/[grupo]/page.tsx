@@ -40,7 +40,7 @@ import {
 import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } from "@/lib/firestore"
 import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
 import { getAttendanceRecords } from "@/lib/storage"
-import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter } from "@/lib/db-router"
+import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
 
@@ -127,20 +127,8 @@ export default function ManagerGroupPage() {
     try {
       console.log("[Manager] Loading group data for area:", currentArea, "group:", groupName)
       
-      // Get all users from the area
-      const allUsers = await getAllUsers(currentArea)
-      console.log("[Manager] Total users in area:", allUsers.length)
-      
-      // Filter users enrolled in this group by checking their enrollments
-      const enrolledUsersList: UserProfile[] = []
-      
-      for (const user of allUsers) {
-        const userEnrollments = await getUserEnrollments(currentArea, user.id)
-        const isEnrolled = userEnrollments.some(e => e.grupoCultural === groupName)
-        if (isEnrolled) {
-          enrolledUsersList.push(user)
-        }
-      }
+      // Get users enrolled in this specific group directly (optimized)
+      const enrolledUsersList = await getGroupEnrolledUsersRouter(currentArea, groupName)
       
       console.log("[Manager] Users enrolled in group:", enrolledUsersList.length)
       setEnrolledUsers(enrolledUsersList)
@@ -155,7 +143,7 @@ export default function ManagerGroupPage() {
       }
       setUserCategories(categories)
 
-      // Load attendance stats
+      // Load attendance stats for this group only
       const allAttendances = await getAttendanceRecordsRouter(currentArea)
       console.log("[Manager] Total attendance records:", allAttendances.length)
       
@@ -166,7 +154,6 @@ export default function ManagerGroupPage() {
           a => a.numeroDocumento === user.numeroDocumento && a.grupoCultural === groupName
         )
         stats[user.id] = userAttendances.length
-        console.log("[Manager] User:", user.nombres, "Attendances:", userAttendances.length)
       })
       setAttendanceStats(stats)
 
