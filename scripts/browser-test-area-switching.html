@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Area Switching - Browser</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .user-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .user-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .user-item:last-child {
+            border-bottom: none;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge-cultura {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .badge-deporte {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        .badge-no-area {
+            background: #ffebee;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Area Switching - Browser Console</h1>
+    
+    <div class="card">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Open your application in another tab: <a href="http://localhost:3000/test-area-switch" target="_blank">http://localhost:3000/test-area-switch</a></li>
+            <li>Open the browser console (F12) in that tab</li>
+            <li>Switch between "Cultura" and "Deporte" using the area selector</li>
+            <li>Watch the console logs for detailed information</li>
+            <li>Come back to this page to see the summary</li>
+        </ol>
+    </div>
+
+    <div class="card">
+        <h2>What to Look For</h2>
+        <div class="status info">
+            <strong>✓ Expected Behavior:</strong>
+            <ul>
+                <li>When you switch to "Cultura", you should see 3 users (Mariana, Jose David, Tobías)</li>
+                <li>When you switch to "Deporte", you should see 1 user (Marcos Amilkar)</li>
+                <li>The "Load Count" should increase each time you switch</li>
+                <li>Console should show: "useEffect triggered!" and "Loaded X users"</li>
+            </ul>
+        </div>
+        
+        <div class="status warning">
+            <strong>⚠ Possible Issues:</strong>
+            <ul>
+                <li>If Load Count doesn't increase: useEffect is not triggering</li>
+                <li>If users don't change: Database routing is not working</li>
+                <li>If you see "INVALID_ARGUMENT" error: Field filtering issue (should be fixed now)</li>
+                <li>If you see 0 users: Check if migration was successful</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Console Commands to Test</h2>
+        <p>Copy and paste these commands in the browser console of your app:</p>
+        <pre style="background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto;">
+// Test 1: Check current area
+console.log('Current area:', localStorage.getItem('selectedArea'))
+
+// Test 2: Manually trigger area change
+// (This simulates what happens when you use the selector)
+window.dispatchEvent(new StorageEvent('storage', {
+  key: 'selectedArea',
+  newValue: 'deporte',
+  oldValue: 'cultura'
+}))
+
+// Test 3: Check if AreaContext is working
+// (Run this in the React DevTools console)
+// Look for AreaProvider in the component tree
+        </pre>
+    </div>
+
+    <div class="card">
+        <h2>Database Configuration Check</h2>
+        <div class="status info">
+            <strong>Cultura Database:</strong>
+            <ul>
+                <li>Project ID: cultuaraasistencia</li>
+                <li>Expected users: 3 (all with area: 'cultura')</li>
+            </ul>
+        </div>
+        <div class="status info">
+            <strong>Deporte Database:</strong>
+            <ul>
+                <li>Project ID: cdudemo-94ab9</li>
+                <li>Expected users: 1 (with area: 'deporte')</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Recent Changes</h2>
+        <div class="status success">
+            <strong>✓ Fixed Issues:</strong>
+            <ul>
+                <li>Removed invalid area filters from attendance_records collection</li>
+                <li>Removed invalid area filters from cultural_groups collection</li>
+                <li>Fixed dynamic imports that could cause issues</li>
+                <li>Users collection now properly filters by area field</li>
+                <li>Database separation provides primary isolation</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Next Steps if Still Not Working</h2>
+        <ol>
+            <li><strong>Clear browser cache:</strong> Ctrl+Shift+Delete, clear everything</li>
+            <li><strong>Restart dev server:</strong> Stop and restart <code>npm run dev</code></li>
+            <li><strong>Check React DevTools:</strong> Verify AreaProvider is wrapping the app</li>
+            <li><strong>Check Network tab:</strong> Look for Firestore requests when switching areas</li>
+            <li><strong>Verify localStorage:</strong> Check if 'selectedArea' is being updated</li>
+        </ol>
+    </div>
+
+    <script>
+        console.log('%c🧪 Area Switching Test Page Loaded', 'color: blue; font-size: 16px; font-weight: bold;')
+        console.log('Open your app in another tab and follow the instructions above')
+    </script>
+</body>
+</html>

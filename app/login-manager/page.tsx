@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Users } from "lucide-react"
-import { verifyGroupManager } from "@/lib/auth"
+import { verifyGroupManagerAnyArea } from "@/lib/auth"
 
 export default function LoginManagerPage() {
   const router = useRouter()
@@ -22,13 +22,14 @@ export default function LoginManagerPage() {
     setLoading(true)
 
     try {
-      const result = await verifyGroupManager(documento, correo)
+      const result = await verifyGroupManagerAnyArea(documento, correo)
       
       if (result) {
         sessionStorage.setItem("userType", "manager")
         sessionStorage.setItem("userId", result.user.id)
         sessionStorage.setItem("userName", result.user.nombres)
         sessionStorage.setItem("userRole", result.user.rol || "")
+        sessionStorage.setItem("userArea", result.area)
         sessionStorage.setItem("grupoCultural", result.grupoCultural)
         
         router.push(`/manager/${encodeURIComponent(result.grupoCultural)}`)

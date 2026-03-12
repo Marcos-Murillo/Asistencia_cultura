@@ -22,14 +22,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Navigation } from "@/components/navigation"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
-import { getEventById, getEventAttendees } from "@/lib/firestore"
+import { getEventByIdRouter, getEventAttendeesRouter } from "@/lib/db-router"
 import { FACULTADES_PROGRAMAS } from "@/lib/data"
 import type { Event, UserProfile } from "@/lib/types"
 import { ArrowLeft, Download, Search, Users, Calendar, MapPin, Clock } from "lucide-react"
 import Link from "next/link"
 import * as XLSX from "xlsx"
+import { useArea } from "@/contexts/area-context"
 
 interface EventAttendee extends UserProfile {
   fechaAsistencia: Date
@@ -38,6 +38,7 @@ interface EventAttendee extends UserProfile {
 export default function EventoAsistentesPage() {
   const params = useParams()
   const eventId = params.id as string
+  const { area } = useArea()
   
   const [event, setEvent] = useState<Event | null>(null)
   const [attendees, setAttendees] = useState<EventAttendee[]>([])
@@ -54,19 +55,25 @@ export default function EventoAsistentesPage() {
 
   useEffect(() => {
     loadData()
-  }, [eventId])
+  }, [eventId, area])
 
   async function loadData() {
     try {
       setLoading(true)
+      console.log("[EventoAsistentes] Loading data for event:", eventId, "in area:", area)
+      
       const [eventData, attendeesData] = await Promise.all([
-        getEventById(eventId),
-        getEventAttendees(eventId),
+        getEventByIdRouter(area, eventId),
+        getEventAttendeesRouter(area, eventId),
       ])
+      
+      console.log("[EventoAsistentes] Event data:", eventData)
+      console.log("[EventoAsistentes] Attendees count:", attendeesData.length)
+      
       setEvent(eventData)
       setAttendees(attendeesData)
     } catch (error) {
-      console.error("Error cargando datos:", error)
+      console.error("[EventoAsistentes] Error cargando datos:", error)
     } finally {
       setLoading(false)
     }
@@ -123,7 +130,7 @@ export default function EventoAsistentesPage() {
     { key: "edad", label: "Edad" },
     { key: "sede", label: "Sede" },
     { key: "estamento", label: "Estamento" },
-    { key: "codigoEstudiante", label: "Código" },
+    { key: "codigoEstudiantil", label: "Código" },
     { key: "facultad", label: "Facultad" },
     { key: "programaAcademico", label: "Programa" },
     { key: "fechaAsistencia", label: "Fecha Asistencia" },
@@ -166,8 +173,8 @@ export default function EventoAsistentesPage() {
           case "estamento":
             row["Estamento"] = a.estamento
             break
-          case "codigoEstudiante":
-            row["Código"] = a.codigoEstudiante || "N/A"
+          case "codigoEstudiantil":
+            row["Código"] = a.codigoEstudiantil || "N/A"
             break
           case "facultad":
             row["Facultad"] = a.facultad || "N/A"
@@ -197,7 +204,6 @@ export default function EventoAsistentesPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-        <Navigation />
         <div className="container mx-auto px-4 py-8">
           <Card>
             <CardContent className="py-12">
@@ -212,7 +218,6 @@ export default function EventoAsistentesPage() {
   if (!event) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-        <Navigation />
         <div className="container mx-auto px-4 py-8">
           <Card>
             <CardContent className="py-12">
@@ -231,8 +236,6 @@ export default function EventoAsistentesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-      <Navigation />
-
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">

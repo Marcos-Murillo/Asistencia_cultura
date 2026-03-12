@@ -1,17 +1,31 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import type { AttendanceStats, EventStats, AttendanceRecord, EventAttendanceEntry, UserProfile } from "./types"
+import type { Area } from "./firebase-config"
 
 export async function generatePDFReport(
   stats: AttendanceStats,
   attendanceRecords: AttendanceRecord[],
   eventRecords: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
+  area: Area,
   eventStats?: EventStats,
 ) {
+  console.log("[PDF] ========== GENERATING PDF REPORT ==========")
+  console.log("[PDF] Area:", area)
+  console.log("[PDF] Attendance records received:", attendanceRecords.length)
+  console.log("[PDF] Event records received:", eventRecords.length)
+  console.log("[PDF] Stats total participants:", stats.totalParticipants)
+  console.log("[PDF] Event stats total:", eventStats?.totalParticipants || 0)
+  
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   let currentY = 20
+
+  // Determinar terminología según el área
+  const areaLabel = area === 'deporte' ? 'Deportivos' : 'Culturales'
+  const grupoLabel = area === 'deporte' ? 'Grupo Deportivo' : 'Grupo Cultural'
+  const gruposLabel = area === 'deporte' ? 'Grupos Deportivos' : 'Grupos Culturales'
 
   // Título del informe
   doc.setFontSize(20)
@@ -21,7 +35,7 @@ export async function generatePDFReport(
   currentY += 10
   doc.setFontSize(14)
   doc.setFont("helvetica", "normal")
-  doc.text("Grupos Culturales - Universidad del Valle", pageWidth / 2, currentY, { align: "center" })
+  doc.text(`${gruposLabel} - Universidad del Valle`, pageWidth / 2, currentY, { align: "center" })
 
   currentY += 5
   doc.setFontSize(10)
@@ -53,7 +67,7 @@ export async function generatePDFReport(
 
   const summaryData = [
     ["Total de usuarios", allUniqueUsers.toString()],
-    ["Participaciones en Grupos Culturales", totalGruposCulturales.toString()],
+    [`Participaciones en ${gruposLabel}`, totalGruposCulturales.toString()],
     ["Participaciones en Eventos", totalEventos.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
@@ -73,7 +87,7 @@ export async function generatePDFReport(
 
   doc.setFontSize(14)
   doc.setFont("helvetica", "bold")
-  doc.text("USUARIOS ÚNICOS POR GRUPO CULTURAL", 14, currentY)
+  doc.text(`USUARIOS ÚNICOS POR ${grupoLabel.toUpperCase()}`, 14, currentY)
   currentY += 7
 
   const usersByGroup: Record<string, Set<string>> = {}
@@ -96,7 +110,7 @@ export async function generatePDFReport(
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Grupo Cultural", "Usuarios Únicos", "Total Participaciones"]],
+    head: [[grupoLabel, "Usuarios Únicos", "Total Participaciones"]],
     body: uniqueUsersByGroup,
     theme: "grid",
     headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
@@ -125,10 +139,10 @@ export async function generatePDFReport(
 
   doc.setFontSize(18)
   doc.setFont("helvetica", "bold")
-  doc.text("GRUPOS CULTURALES", 14, currentY)
+  doc.text(gruposLabel.toUpperCase(), 14, currentY)
   currentY += 15
 
-  // 1. TABLA: Total de Participaciones por Género (Grupos Culturales)
+  // 1. TABLA: Total de Participaciones por Género
   doc.setFontSize(14)
   doc.setFont("helvetica", "bold")
   doc.text("1. TOTAL DE PARTICIPACIONES POR GÉNERO", 14, currentY)
@@ -192,10 +206,10 @@ export async function generatePDFReport(
     currentY = 20
   }
 
-  // 2. TABLA: Total de Participaciones por Grupo Cultural
+  // 2. TABLA: Total de Participaciones por Grupo
   doc.setFontSize(14)
   doc.setFont("helvetica", "bold")
-  doc.text("2. TOTAL DE PARTICIPACIONES POR GRUPO CULTURAL", 14, currentY)
+  doc.text(`2. TOTAL DE PARTICIPACIONES POR ${grupoLabel.toUpperCase()}`, 14, currentY)
   currentY += 7
 
   const culturalGroupData = Object.entries(stats.byCulturalGroup)
@@ -204,7 +218,7 @@ export async function generatePDFReport(
 
   autoTable(doc, {
     startY: currentY,
-    head: [["Grupo Cultural", "Cantidad"]],
+    head: [[grupoLabel, "Cantidad"]],
     body: culturalGroupData,
     theme: "grid",
     headStyles: { fillColor: [59, 130, 246], fontStyle: "bold" },
@@ -219,14 +233,14 @@ export async function generatePDFReport(
     currentY = 20
   }
 
-  // Gráfico de grupos culturales (top 5)
+  // Gráfico de grupos (top 5)
   const topGroups = Object.entries(stats.byCulturalGroup)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
 
   doc.setFontSize(10)
   doc.setFont("helvetica", "italic")
-  doc.text("Top 5 Grupos Culturales:", 14, currentY)
+  doc.text(`Top 5 ${gruposLabel}:`, 14, currentY)
   currentY += 7
 
   const maxCultural = Math.max(...topGroups.map(([, count]) => count))
@@ -624,7 +638,8 @@ export async function generatePDFReport(
     doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
   }
 
-  // Guardar el PDF
-  const fileName = `Informe_Asistencia_${new Date().toISOString().split("T")[0]}.pdf`
+  // Guardar el PDF con nombre que incluye el área
+  const areaFileName = area === 'deporte' ? 'Deporte' : 'Cultura'
+  const fileName = `Informe_Asistencia_${areaFileName}_${new Date().toISOString().split("T")[0]}.pdf`
   doc.save(fileName)
 }

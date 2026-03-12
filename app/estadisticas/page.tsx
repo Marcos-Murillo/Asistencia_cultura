@@ -8,16 +8,18 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
-import { Navigation } from "@/components/navigation"
 import { GroupTrackingTable } from "@/components/group-tracking-table"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
-import { generateStats, getAttendanceRecords } from "@/lib/storage"
-import { getEventAttendanceRecords } from "@/lib/event-storage"
+import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter } from "@/lib/db-router"
 import { generateEventStats } from "@/lib/event-stats"
-import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile } from "@/lib/types"
+import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
 import { generatePDFReport } from "@/lib/pdf-generator"
+import { useArea } from "@/contexts/area-context"
+import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
+import { getCurrentUserRole, getAssignedGroups } from "@/lib/auth-helpers"
 
 export default function EstadisticasPage() {
+  const { area } = useArea()
   const [stats, setStats] = useState<AttendanceStats | null>(null)
   const [eventStats, setEventStats] = useState<EventStats | null>(null)
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([])
@@ -29,32 +31,155 @@ export default function EstadisticasPage() {
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
   const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
+  const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
+
+  // Helper function to generate stats from records
+  const generateStatsFromRecords = (records: AttendanceRecord[]): AttendanceStats => {
+    console.log("[Estadisticas] generateStatsFromRecords:")
+    console.log("[Estadisticas] - Total records received:", records.length)
+    console.log("[Estadisticas] - Sample records:", records.slice(0, 3))
+    
+    const stats: AttendanceStats = {
+      totalParticipants: records.length,
+      byGender: {
+        mujer: 0,
+        hombre: 0,
+        otro: 0,
+      },
+      byProgram: {},
+      byFaculty: {},
+      byCulturalGroup: {},
+      byMonth: {},
+    }
+
+    records.forEach((record) => {
+      // Estadísticas por género
+      const gender = record.genero.toLowerCase() as "mujer" | "hombre" | "otro"
+      stats.byGender[gender]++
+
+      // Estadísticas por programa académico
+      if (record.programaAcademico) {
+        if (!stats.byProgram[record.programaAcademico]) {
+          stats.byProgram[record.programaAcademico] = {
+            mujer: 0,
+            hombre: 0,
+            otro: 0,
+            total: 0,
+          }
+        }
+        stats.byProgram[record.programaAcademico][gender]++
+        stats.byProgram[record.programaAcademico].total++
+      }
+
+      // Estadísticas por facultad
+      if (record.facultad) {
+        if (!stats.byFaculty[record.facultad]) {
+          stats.byFaculty[record.facultad] = {
+            mujer: 0,
+            hombre: 0,
+            otro: 0,
+            total: 0,
+          }
+        }
+        stats.byFaculty[record.facultad][gender]++
+        stats.byFaculty[record.facultad].total++
+      }
+
+      // Estadísticas por grupo cultural
+      if (!stats.byCulturalGroup[record.grupoCultural]) {
+        stats.byCulturalGroup[record.grupoCultural] = 0
+      }
+      stats.byCulturalGroup[record.grupoCultural]++
+
+      // Estadísticas por mes
+      const monthKey = record.timestamp.toISOString().slice(0, 7) // YYYY-MM
+      if (!stats.byMonth[monthKey]) {
+        stats.byMonth[monthKey] = {}
+      }
+      if (!stats.byMonth[monthKey][record.grupoCultural]) {
+        stats.byMonth[monthKey][record.grupoCultural] = 0
+      }
+      stats.byMonth[monthKey][record.grupoCultural]++
+    })
+
+    console.log("[Estadisticas] Stats calculated:")
+    console.log("[Estadisticas] - Total participants:", stats.totalParticipants)
+    console.log("[Estadisticas] - By gender:", stats.byGender)
+    console.log("[Estadisticas] - By cultural group:", Object.keys(stats.byCulturalGroup).length, "groups")
+
+    return stats
+  }
+
+  // Set up user permissions
+  useEffect(() => {
+    const userRole = getCurrentUserRole()
+    const assignedGroups = getAssignedGroups()
+    
+    // Get user permissions based on role and assigned groups
+    const permissions = getRolePermissions(userRole, area, assignedGroups)
+    setCurrentUserPermissions(permissions)
+    
+    console.log("[Estadisticas] User role:", userRole, "Area:", area, "Assigned groups:", assignedGroups)
+    console.log("[Estadisticas] Permissions:", permissions)
+  }, [area])
 
   useEffect(() => {
     const loadData = async () => {
+      if (!currentUserPermissions) {
+        console.log("[Estadisticas] Waiting for permissions...")
+        return
+      }
+
       setLoading(true)
       try {
-        const records = await getAttendanceRecords()
-        const eventRecordsData = await getEventAttendanceRecords()
+        console.log("[Estadisticas] ========== LOADING DATA ==========")
+        console.log("[Estadisticas] Area:", area)
+        console.log("[Estadisticas] Permissions:", currentUserPermissions)
+        console.log("[Estadisticas] Timestamp:", new Date().toISOString())
+        
+        // Load attendance records from area-aware db-router
+        const records = await getAttendanceRecordsRouter(area)
+        console.log("[Estadisticas] ✓ Loaded", records.length, "attendance records from", area)
+        console.log("[Estadisticas] Sample records:", records.slice(0, 2))
+        
+        // Apply role-based filtering to attendance records
+        let filteredAttendanceRecords = records
+        if (!currentUserPermissions.canViewAllGroups) {
+          console.log("[Estadisticas] ⚠️ Applying role-based filtering")
+          console.log("[Estadisticas] Permissions:", currentUserPermissions)
+          filteredAttendanceRecords = filterAttendanceByAssignment(records, currentUserPermissions)
+          console.log("[Estadisticas] ✓ Filtered to", filteredAttendanceRecords.length, "attendance records")
+        } else {
+          console.log("[Estadisticas] ✓ User can view all groups, no filtering applied")
+        }
 
-        setAllAttendanceRecords(records)
+        // Load event records from area-aware db-router
+        const eventRecordsData = await getEventAttendanceRecordsRouter(area)
+        console.log("[Estadisticas] Loaded", eventRecordsData.length, "event records from area:", area)
+
+        setAllAttendanceRecords(filteredAttendanceRecords)
         setAllEventRecords(eventRecordsData)
-        setAllRecords(records)
+        setAllRecords(filteredAttendanceRecords)
 
-        const calculatedStats = await generateStats()
+        // Generate stats from filtered records
+        const calculatedStats = generateStatsFromRecords(filteredAttendanceRecords)
         setStats(calculatedStats)
+        console.log("[Estadisticas] Stats generated:", calculatedStats.totalParticipants, "participants")
 
         const calculatedEventStats = generateEventStats(eventRecordsData)
         setEventStats(calculatedEventStats)
+        
+        console.log("[Estadisticas] ========== DATA LOADED SUCCESSFULLY ==========")
       } catch (error) {
-        console.error("[v0] Error loading data:", error)
+        console.error("[Estadisticas] ========== ERROR LOADING DATA ==========")
+        console.error("[Estadisticas] Error:", error)
       } finally {
         setLoading(false)
       }
     }
 
     loadData()
-  }, [])
+  }, [area, currentUserPermissions])
 
   const handleFiltersChange = (filters: FilterState) => {
     let filtered = allRecords
@@ -101,9 +226,18 @@ export default function EstadisticasPage() {
 
     setIsGeneratingPDF(true)
     try {
-      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, eventStats || undefined)
+      console.log("[Estadisticas] ========== GENERATING PDF ==========")
+      console.log("[Estadisticas] Area:", area)
+      console.log("[Estadisticas] Attendance records:", allAttendanceRecords.length)
+      console.log("[Estadisticas] Event records:", allEventRecords.length)
+      console.log("[Estadisticas] Stats total participants:", stats.totalParticipants)
+      console.log("[Estadisticas] Event stats total:", eventStats?.totalParticipants || 0)
+      console.log("[Estadisticas] Sample attendance record:", allAttendanceRecords[0])
+      console.log("[Estadisticas] Sample event record:", allEventRecords[0])
+      
+      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, area, eventStats || undefined)
     } catch (error) {
-      console.error("[v0] Error generating PDF:", error)
+      console.error("[Estadisticas] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
     } finally {
       setIsGeneratingPDF(false)
@@ -113,7 +247,6 @@ export default function EstadisticasPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Navigation />
         <div className="p-4">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-center h-64">
@@ -128,7 +261,6 @@ export default function EstadisticasPage() {
   if (!stats) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Navigation />
         <div className="p-4">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-center h-64">
@@ -142,13 +274,12 @@ export default function EstadisticasPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Navigation />
       <div className="p-4">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Estadísticas de Asistencia</h1>
-              <p className="text-gray-600 mt-1">Grupos Culturales - Universidad del Valle</p>
+              <p className="text-gray-600 mt-1">Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'} - Universidad del Valle</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
               <Button
@@ -212,7 +343,7 @@ export default function EstadisticasPage() {
                           <TableHead>Estamento</TableHead>
                           <TableHead>Facultad</TableHead>
                           <TableHead>Programa</TableHead>
-                          <TableHead>Grupo Cultural</TableHead>
+                          <TableHead>Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</TableHead>
                           <TableHead>Fecha</TableHead>
                         </TableRow>
                       </TableHeader>

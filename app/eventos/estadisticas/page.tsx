@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Navigation } from "@/components/navigation"
 import { getEventStats } from "@/lib/firestore"
 import type { EventStats } from "@/lib/types"
 import { Users, Calendar } from "lucide-react"
@@ -31,7 +30,6 @@ export default function EventStatisticsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-        <Navigation />
         <div className="container mx-auto px-4 py-8">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
@@ -45,7 +43,6 @@ export default function EventStatisticsPage() {
   if (!stats) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-        <Navigation />
         <div className="container mx-auto px-4 py-8">
           <Card>
             <CardContent className="py-12">
@@ -59,8 +56,6 @@ export default function EventStatisticsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50">
-      <Navigation />
-
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900">Estadísticas de Eventos</h1>

@@ -10,7 +10,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { Navigation } from "@/components/navigation"
 import { User, CheckCircle, AlertCircle } from "lucide-react"
 import {
   GENEROS,
@@ -20,18 +19,20 @@ import {
   ESTAMENTOS,
   FACULTADES,
   PROGRAMAS_POR_FACULTAD,
-  GRUPOS_CULTURALES,
 } from "@/lib/data"
 import {
   saveUserProfile,
   findSimilarUsers,
   getUserEnrollments,
   enrollUserToGroup,
-} from "@/lib/firestore"
+  getAllCulturalGroups as getAllCulturalGroupsRouter,
+} from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, GroupEnrollment } from "@/lib/types"
 
 export default function RegistroAsistencia() {
   const { toast } = useToast()
+  const [gruposCulturales, setGruposCulturales] = useState<string[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(true)
   const [formData, setFormData] = useState<FormData>({
     nombres: "",
     correo: "",
@@ -43,7 +44,7 @@ export default function RegistroAsistencia() {
     telefono: "",
     sede: "",
     estamento: "",
-    codigoEstudiante: "",
+    codigoEstudiantil: "",
     facultad: "",
     programaAcademico: "",
     grupoCultural: "",
@@ -66,6 +67,34 @@ export default function RegistroAsistencia() {
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
 
+  // Cargar grupos culturales desde la base de datos
+  useEffect(() => {
+    const loadGroups = async () => {
+      try {
+        setLoadingGroups(true)
+        console.log("[RegistroAsistencia] Loading groups from database for area: cultura")
+        const groups = await getAllCulturalGroupsRouter('cultura')
+        const groupNames = groups
+          .filter(g => g.activo) // Solo grupos activos
+          .map(g => g.nombre)
+          .sort()
+        console.log("[RegistroAsistencia] Loaded", groupNames.length, "active groups")
+        setGruposCulturales(groupNames)
+      } catch (error) {
+        console.error("[RegistroAsistencia] Error loading groups:", error)
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los grupos culturales. Por favor recarga la página.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoadingGroups(false)
+      }
+    }
+
+    loadGroups()
+  }, [])
+
   useEffect(() => {
     const checkSimilarity = async () => {
       if (
@@ -77,6 +106,7 @@ export default function RegistroAsistencia() {
         setIsCheckingSimilarity(true)
         try {
           const similar = await findSimilarUsers(
+            'cultura',
             formData.nombres,
             formData.correo,
             formData.numeroDocumento,
@@ -109,13 +139,13 @@ export default function RegistroAsistencia() {
       }
 
       if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO") {
-        newData.codigoEstudiante = ""
+        newData.codigoEstudiantil = ""
         newData.facultad = ""
         newData.programaAcademico = ""
       }
 
       if (field === "estamento" && value === "EGRESADO") {
-        newData.codigoEstudiante = ""
+        // Egresados también tienen código estudiantil
       }
 
       return newData
@@ -135,7 +165,7 @@ export default function RegistroAsistencia() {
       telefono: user.telefono,
       sede: user.sede,
       estamento: user.estamento,
-      codigoEstudiante: user.codigoEstudiante || "",
+      codigoEstudiantil: user.codigoEstudiantil || "",
       facultad: user.facultad || "",
       programaAcademico: user.programaAcademico || "",
       grupoCultural: "",
@@ -179,10 +209,10 @@ export default function RegistroAsistencia() {
         return !!(formData.sede && formData.estamento)
       case 3:
         if (formData.estamento === "ESTUDIANTE") {
-          return !!(formData.codigoEstudiante && formData.facultad && formData.programaAcademico)
+          return !!(formData.codigoEstudiantil && formData.facultad && formData.programaAcademico)
         }
         if (formData.estamento === "EGRESADO") {
-          return !!(formData.facultad && formData.programaAcademico)
+          return !!(formData.codigoEstudiantil && formData.facultad && formData.programaAcademico)
         }
         return true
       case 4:
@@ -211,7 +241,7 @@ export default function RegistroAsistencia() {
   // Cargar inscripciones del usuario cuando se selecciona uno
   async function loadUserEnrollments(userId: string) {
     try {
-      const enrollments = await getUserEnrollments(userId)
+      const enrollments = await getUserEnrollments('cultura', userId)
       setUserEnrollments(enrollments)
     } catch (error) {
       console.error("Error cargando inscripciones:", error)
@@ -225,7 +255,7 @@ export default function RegistroAsistencia() {
 
     setIsEnrolling(true)
     try {
-      await enrollUserToGroup(selectedUser.id, selectedGroupToEnroll)
+      await enrollUserToGroup('cultura', selectedUser.id, selectedGroupToEnroll)
       await loadUserEnrollments(selectedUser.id)
       setShowEnrollmentForm(false)
       setSelectedGroupToEnroll("")
@@ -266,6 +296,7 @@ export default function RegistroAsistencia() {
         console.log("[v0] Using existing user ID:", userId)
       } else {
         const userProfile = {
+          area: 'cultura' as const,
           nombres: formData.nombres,
           correo: formData.correo,
           genero: formData.genero as any,
@@ -276,9 +307,9 @@ export default function RegistroAsistencia() {
           telefono: formData.telefono,
           sede: formData.sede as any,
           estamento: formData.estamento as any,
-          ...(formData.estamento === "ESTUDIANTE" &&
-            formData.codigoEstudiante && {
-              codigoEstudiante: formData.codigoEstudiante,
+          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
+            formData.codigoEstudiantil && {
+              codigoEstudiantil: formData.codigoEstudiantil,
             }),
           ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
             formData.facultad && {
@@ -291,13 +322,13 @@ export default function RegistroAsistencia() {
         }
 
         console.log("[v0] Creating new user profile:", userProfile)
-        userId = await saveUserProfile(userProfile)
+        userId = await saveUserProfile('cultura', userProfile)
         console.log("[v0] New user created with ID:", userId)
       }
 
       // Solo inscribir al grupo, no registrar asistencia
       console.log("[v0] Enrolling user to group:", userId, "group:", formData.grupoCultural)
-      await enrollUserToGroup(userId, formData.grupoCultural)
+      await enrollUserToGroup('cultura', userId, formData.grupoCultural)
       console.log("[v0] User enrolled successfully")
 
       setSuccess(true)
@@ -318,7 +349,7 @@ export default function RegistroAsistencia() {
           telefono: "",
           sede: "",
           estamento: "",
-          codigoEstudiante: "",
+          codigoEstudiantil: "",
           facultad: "",
           programaAcademico: "",
           grupoCultural: "",
@@ -579,14 +610,14 @@ export default function RegistroAsistencia() {
         if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              {/* Solo mostrar código estudiante para ESTUDIANTE */}
-              {formData.estamento === "ESTUDIANTE" && (
+              {/* Código Estudiantil para ESTUDIANTE y EGRESADO */}
+              {(formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") && (
                 <div className="space-y-2">
-                  <Label htmlFor="codigoEstudiante">Código del Estudiante *</Label>
+                  <Label htmlFor="codigoEstudiantil">Código Estudiantil *</Label>
                   <Input
-                    id="codigoEstudiante"
-                    value={formData.codigoEstudiante}
-                    onChange={(e) => handleInputChange("codigoEstudiante", e.target.value)}
+                    id="codigoEstudiantil"
+                    value={formData.codigoEstudiantil}
+                    onChange={(e) => handleInputChange("codigoEstudiantil", e.target.value)}
                     placeholder="Código estudiantil"
                   />
                 </div>
@@ -675,7 +706,7 @@ export default function RegistroAsistencia() {
 
     // Si está mostrando el formulario de inscripción
     if (isRecognizedUser && showEnrollmentForm) {
-      const availableGroups = GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g))
+      const availableGroups = gruposCulturales.filter((g: string) => !enrolledGroups.includes(g))
       
       return (
         <div className="space-y-6">
@@ -725,21 +756,21 @@ export default function RegistroAsistencia() {
           <Label htmlFor="grupoCultural">
             {isRecognizedUser && hasEnrollments ? "Selecciona el grupo al que deseas inscribirte" : "Grupo Cultural *"}
           </Label>
-          <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)}>
+          <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)} disabled={loadingGroups}>
             <SelectTrigger>
-              <SelectValue placeholder="Selecciona el grupo cultural" />
+              <SelectValue placeholder={loadingGroups ? "Cargando grupos..." : "Selecciona el grupo cultural"} />
             </SelectTrigger>
             <SelectContent>
               {isRecognizedUser ? (
                 // Para usuarios reconocidos, mostrar solo grupos disponibles (no inscritos)
-                GRUPOS_CULTURALES.filter(g => !enrolledGroups.includes(g)).map((grupo) => (
+                gruposCulturales.filter((g: string) => !enrolledGroups.includes(g)).map((grupo) => (
                   <SelectItem key={grupo} value={grupo}>
                     {grupo}
                   </SelectItem>
                 ))
               ) : (
                 // Para usuarios nuevos, mostrar todos los grupos
-                GRUPOS_CULTURALES.map((grupo) => (
+                gruposCulturales.map((grupo) => (
                   <SelectItem key={grupo} value={grupo}>
                     {grupo}
                   </SelectItem>
@@ -790,7 +821,6 @@ export default function RegistroAsistencia() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Navigation />
       <div className="p-3 md:p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">

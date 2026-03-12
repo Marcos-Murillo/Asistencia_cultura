@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BarChart3, FileText, Home, Users, Calendar, UsersRound, Megaphone, Settings, Shield } from "lucide-react"
+import { BarChart3, FileText, Home, Users, Calendar, UsersRound, Megaphone, Settings, Shield, MessageSquare } from "lucide-react"
 
 export function Navigation() {
   const pathname = usePathname()
@@ -96,6 +96,16 @@ export function Navigation() {
                     >
                       <Users className="w-4 h-4" />
                       Usuarios
+                    </Button>
+                  </Link>
+                  <Link href="/equipos">
+                    <Button
+                      variant={pathname === "/equipos" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex items-center gap-2"
+                    >
+                      <UsersRound className="w-4 h-4" />
+                      Equipos
                     </Button>
                   </Link>
                 </>
@@ -215,17 +225,39 @@ export function Navigation() {
                     <span className="hidden lg:inline">Usuarios</span>
                   </Button>
                 </Link>
+                <Link href="/equipos">
+                  <Button
+                    variant={pathname === "/equipos" ? "default" : "ghost"}
+                    size="sm"
+                    className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
+                  >
+                    <UsersRound className="w-3 h-3 md:w-4 md:h-4" />
+                    <span className="hidden lg:inline">Equipos</span>
+                  </Button>
+                </Link>
                 {isSuperAdmin && (
-                  <Link href="/super-admin">
-                    <Button
-                      variant={pathname === "/super-admin" ? "default" : "ghost"}
-                      size="sm"
-                      className="flex items-center gap-1 md:gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
-                    >
-                      <Settings className="w-3 h-3 md:w-4 md:h-4" />
-                      <span className="hidden xl:inline">Panel</span>
-                    </Button>
-                  </Link>
+                  <>
+                    <Link href="/super-admin">
+                      <Button
+                        variant={pathname === "/super-admin" ? "default" : "ghost"}
+                        size="sm"
+                        className="flex items-center gap-1 md:gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
+                      >
+                        <Settings className="w-3 h-3 md:w-4 md:h-4" />
+                        <span className="hidden xl:inline">Panel</span>
+                      </Button>
+                    </Link>
+                    <Link href="/chat">
+                      <Button
+                        variant={pathname === "/chat" ? "default" : "ghost"}
+                        size="sm"
+                        className="flex items-center gap-1 md:gap-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
+                      >
+                        <MessageSquare className="w-3 h-3 md:w-4 md:h-4" />
+                        <span className="hidden xl:inline">Chat IA</span>
+                      </Button>
+                    </Link>
+                  </>
                 )}
               </>
             )}

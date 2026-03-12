@@ -1,0 +1,1261 @@
+import { NextRequest, NextResponse } from "next/server"
+import { collection, query, where, getDocs, orderBy, limit, Timestamp, doc, getDoc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import Groq from "groq-sdk"
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js"
+
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY || "",
+})
+
+const elevenlabs = new ElevenLabsClient({
+  apiKey: process.env.ELEVENLABS_API_KEY || "",
+})
+
+// 🌟 PROMPT DE TONO NATURAL (Daniela, asistente cultural)
+const NATURAL_TONE_INSTRUCTIONS = `
+🗣️ PERSONALIDAD: Eres Daniela, asistente del Área Cultural de Univalle.
+Hablas como colega cercana, amigable pero profesional.
+
+✅ ESTILO CONVERSACIONAL OBLIGATORIO:
+- Saludo natural: "¡Listo!", "Te tengo", "Aquí va", "Perfecto"
+- Entusiasmo sutil: "¡Salsa va brutal!", "Excelente participación"
+- Emojis sutiles: ✅, 🎯, 🥇, 🥈, 🥉, ⚠️, 📊
+- Total primero: "Encontré 5 monitores", "Hoy: 45 asistencias"
+- Listas numeradas claras: "1. Juan - Salsa"
+- Cierre útil: "¿Necesitas más detalles?", "¿Algo más?"
+
+❌ EVITAR (ROBÓTICO):
+- "Se encontraron 3 registros"
+- "Los datos muestran que..."
+- "A continuación se presenta..."
+- Formato excesivamente formal
+
+✅ EJEMPLOS CORRECTOS:
+"¡Te encontré 4 monitores activos!"
+"Salsa va increíble esta semana: 89 asistencias"
+"Aquí tienes los más fieles del grupo:"
+"Esta semana: 234 asistencias. ¡Un 15% más que la anterior!"
+
+🎯 ESTRUCTURA DE RESPUESTA:
+1. Saludo/confirmación: "¡Listo!"
+2. Total/resumen: "Encontré X resultados"
+3. Detalles: Lista numerada o datos clave
+4. Insight opcional: "Tendencia positiva", "Grupo muy activo"
+5. Cierre: "¿Necesitas algo más?"
+`
+
+// Esquema COMPLETO de Firestore con CONTEXTO ULTRA-RICO y EJEMPLOS REALES
+const FIRESTORE_SCHEMA = `
+🔥 COLECCIONES FIRESTORE DISPONIBLES:
+
+1. user_profiles: {
+  id: string (ID del documento)
+  nombres: string
+  correo: string
+  numeroDocumento: string
+  telefono: string
+  genero: "MUJER" | "HOMBRE" | "OTRO"
+  etnia: string
+  tipoDocumento: string
+  edad: number
+  sede: string
+  estamento: "ESTUDIANTE" | "EGRESADO" | "DOCENTE" | "DOCENTE HORA CATEDRA" | "FUNCIONARIO" | "CONTRATISTA" | "INVITADO"
+  codigoEstudiante?: string
+  facultad?: string
+  programaAcademico?: string
+  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
+  createdAt: Date
+  lastAttendance: Date
+}
+
+2. attendance_records: {
+  id: string
+  userId: string (referencia a user_profiles)
+  grupoCultural: string (nombre del grupo)
+  timestamp: Date (fecha y hora de asistencia)
+}
+
+3. group_enrollments: {
+  id: string
+  userId: string (referencia a user_profiles)
+  grupoCultural: string (nombre del grupo)
+  fechaInscripcion: Date
+}
+
+4. cultural_groups: {
+  id: string
+  nombre: string
+  activo: boolean
+  createdAt: Date
+}
+
+5. events: {
+  id: string
+  nombre: string
+  hora: string
+  lugar: string
+  fechaApertura: Date
+  fechaVencimiento: Date
+  createdAt: Date
+  activo: boolean
+}
+
+6. event_attendance_records: {
+  id: string
+  userId: string (referencia a user_profiles)
+  eventId: string (referencia a events)
+  timestamp: Date
+}
+
+7. admin_users: {
+  id: string
+  numeroDocumento: string
+  rol: "ADMIN"
+}
+
+8. group_managers: {
+  id: string
+  numeroDocumento: string (referencia a user_profiles)
+  grupoCultural: string
+  rol: "MANAGER"
+}
+
+9. group_category_assignments: {
+  id: string
+  grupoCultural: string
+  categoria: "SEMILLERO" | "PROCESO" | "REPRESENTATIVO"
+}
+
+🧑‍🏫 INSTRUCCIONES ESPECÍFICAS UNIVALLE (CASOS REALES):
+
+## 1. MONITORES (PREGUNTA CLAVE):
+Pregunta: "monitores", "lista de monitores", "quiénes son monitores"
+→ Buscar en user_profiles WHERE rol == "MONITOR"
+→ JOIN con group_enrollments para ver sus grupos
+→ Resultado esperado: "1. Juan Pérez (123456) - Salsa\n2. María García (789012) - Danza"
+
+## 2. ASISTENCIAS COMPLETAS:
+Pregunta: "asistencias ayer", "cuántas asistencias hoy"
+→ attendance_records WHERE timestamp >= [fecha]
+→ CONTAR totales por grupo
+→ Calcular porcentaje vs inscritos
+→ Resultado: "Hoy: 45 asistencias. Top: Salsa (15), Danza (12), Teatro (10)"
+
+## 3. USUARIOS EN MÚLTIPLES GRUPOS:
+Pregunta: "usuarios en varios grupos", "quién está en más de un grupo"
+→ group_enrollments
+→ Agrupar por userId, contar grupos
+→ Filtrar COUNT > 1
+→ JOIN user_profiles para nombres
+→ Resultado: "5 estudiantes en múltiples grupos: Juan (Salsa + Teatro)..."
+
+## 4. TOP GRUPOS:
+Pregunta: "top 5 grupos", "grupos más activos"
+→ attendance_records WHERE timestamp >= [período]
+→ Agrupar por grupoCultural
+→ Ordenar por COUNT desc
+→ Limitar a 5
+→ Resultado: "Top 5 esta semana:\n1. Salsa - 89 asistencias\n2. Danza - 67..."
+
+## 5. PERFIL COMPLETO:
+Pregunta: "perfil de Juan", "información de María García"
+→ user_profiles WHERE nombres contiene [nombre]
+→ JOIN attendance_records (últimas asistencias)
+→ JOIN group_enrollments (grupos inscritos)
+→ Resultado: "Juan Pérez, Ingeniería. Grupos: Salsa, Teatro. 15 asistencias este mes"
+
+## 6. REPORTE SEMANAL:
+Pregunta: "reporte semanal", "resumen de la semana", "cómo va esta semana"
+→ attendance_records WHERE timestamp >= this_week
+→ Calcular: total, promedio diario, top grupos, nuevos inscritos
+→ Resultado: "Esta semana: 234 asistencias (47/día). Top: Salsa (89). 12 nuevos inscritos"
+
+## 7. ESTUDIANTES POR PROGRAMA:
+Pregunta: "estudiantes de comunicación social", "cuántos de ingeniería"
+→ user_profiles WHERE programaAcademico contiene [programa]
+→ Opcionalmente JOIN group_enrollments si preguntan por grupo específico
+→ Resultado: "45 estudiantes de Comunicación Social. 12 en grupos culturales"
+
+## 8. GRUPOS INACTIVOS:
+Pregunta: "grupos sin asistencias", "grupos inactivos"
+→ cultural_groups
+→ LEFT JOIN attendance_records WHERE timestamp >= [período]
+→ Filtrar los que NO tienen registros
+→ Resultado: "3 grupos sin asistencias esta semana: Poesía, Muralismo, Capoeira"
+
+## 9. USUARIOS INACTIVOS:
+Pregunta: "quién no ha asistido", "usuarios inactivos"
+→ group_enrollments (inscritos)
+→ LEFT JOIN attendance_records WHERE timestamp >= [período]
+→ Filtrar los que NO tienen asistencias
+→ Resultado: "23 inscritos sin asistencias esta semana"
+
+## 10. COMPARATIVAS TEMPORALES:
+Pregunta: "esta semana vs semana pasada", "evolución de asistencias"
+→ attendance_records WHERE timestamp >= this_week (grupo 1)
+→ attendance_records WHERE timestamp >= last_week AND < this_week (grupo 2)
+→ Comparar totales
+→ Resultado: "Esta semana: 234 (+15% vs semana pasada: 203)"
+
+📊 CAPACIDADES OBLIGATORIAS DEL CHATBOT:
+
+1. CONTAR Y ESTADÍSTICAS:
+   - Totales, promedios, porcentajes, rankings
+   - Top N (top 5, top 10, etc.)
+   - Comparativas (esta semana vs semana pasada)
+   - Tendencias (subiendo/bajando)
+
+2. FILTROS AVANZADOS:
+   - Por fecha: "hoy", "ayer", "esta semana", "este mes", "semana pasada"
+   - Por programa académico, facultad, estamento, género
+   - Por grupo cultural, evento
+   - Combinaciones múltiples
+
+3. JOINS AUTOMÁTICOS:
+   - attendance_records + user_profiles (para nombres y datos)
+   - group_enrollments + user_profiles (para inscritos)
+   - event_attendance_records + user_profiles + events
+   - group_category_assignments + cultural_groups
+   - user_profiles (rol MONITOR) + group_enrollments
+
+4. ANÁLISIS TEMPORAL:
+   - Asistencias por día de la semana
+   - Horarios pico (día/hora más concurrido)
+   - Evolución temporal (mes a mes)
+   - Comparativas de períodos
+
+5. BÚSQUEDAS FLEXIBLES:
+   - Nombres parciales: "Juan" encuentra "Juan Pérez", "Juan Carlos"
+   - Grupos parciales: "Salsa" encuentra "SELECCIÓN SALSA, BACHATA..."
+   - Programas parciales: "Ingeniería" encuentra todos los de ingeniería
+
+6. ALERTAS Y ANOMALÍAS:
+   - Grupos con caída de asistencia
+   - Usuarios inactivos
+   - Monitores sin registrar asistencias
+   - Grupos con 0 asistencias
+
+7. RELACIONES COMPLEJAS:
+   - Usuarios en múltiples grupos
+   - Monitores que también son estudiantes
+   - Estudiantes que cambiaron de grupo
+   - Usuarios en eventos Y grupos
+
+🗓️ FECHAS INTELIGENTES (CONVERSIÓN AUTOMÁTICA):
+- "hoy" → fecha actual (00:00:00)
+- "ayer" → fecha actual - 1 día
+- "esta semana" → lunes de esta semana
+- "semana pasada" → lunes de semana anterior
+- "este mes" → día 1 del mes actual
+- "mes pasado" → día 1 del mes anterior
+
+📝 SINÓNIMOS DE PROGRAMAS ACADÉMICOS:
+"comunicación social" | "comunicacion social" | "periodismo" → "COMUNICACIÓN SOCIAL - PERIODISMO (3553)"
+"ingeniería de sistemas" | "ingenieria de sistemas" | "sistemas" → "INGENIERÍA DE SISTEMAS (3743)"
+"ingeniería civil" | "civil" → "INGENIERÍA CIVIL (3747)"
+"ingeniería industrial" | "industrial" → "INGENIERÍA INDUSTRIAL (3751)"
+"derecho" → "DERECHO"
+"medicina" → "MEDICINA Y CIRUGÍA (3660)"
+"psicología" | "psicologia" → "PSICOLOGÍA (3461)"
+"administración" | "administracion" → "ADMINISTRACIÓN DE EMPRESAS (3845)"
+"contaduría" | "contaduria" → "CONTADURÍA PÚBLICA (3841)"
+"economía" | "economia" → "ECONOMÍA (3340)"
+"arquitectura" → "ARQUITECTURA (3545)"
+"enfermería" | "enfermeria" → "ENFERMERÍA (3645)"
+"odontología" | "odontologia" → "ODONTOLOGÍA (3661)"
+
+🎭 SINÓNIMOS DE GRUPOS CULTURALES:
+"salsa" | "bachata" → "SELECCIÓN SALSA, BACHATA Y RITMOS LATINOS DE LA UNIVERSIDAD DEL VALLE"
+"danza contemporánea" | "danza contemporanea" → "GRUPO DE DANZA CONTEMPORÁNEA DE LA UNIVERSIDAD DEL VALLE"
+"danza arabe" | "danza árabe" → "GRUPO DE DANZA ARABE, ORIENTAL Y TRIBAL DE LA UNIVERSIDAD DEL VALLE"
+"danza urbana" | "breaking" → "GRUPO DE DANZA URBANA Y BREACKING DE LA UNIVERSIDAD DEL VALLE"
+"teatro" → "GRUPO DE TEATRO BIENESTAR UNIVERSITARIO DE LA UNIVERSIDAD DEL VALLE"
+"coro" → "CORO MAGNO DE LA UNIVERSIDAD DEL VALLE"
+"orquesta" → "ORQUESTA DE SALSA Y MÚSICA LATINA DE LA UNIVERSIDAD DEL VALLE"
+"estudiantina" → "ESTUDIANTINA DE LA UNIVERSIDAD DEL VALLE"
+"capoeira" → "GRUPO CAPOEIRA DE LA UNIVERSIDAD DEL VALLE"
+"poesía" | "poesia" → "GRUPO DE POESÍA DE LA UNIVERSIDAD DEL VALLE"
+"muralismo" → "GRUPO DE MURALISMO LA UNIVERSIDAD DEL VALLE"
+
+🏛️ SINÓNIMOS DE FACULTADES:
+"artes" → "FACULTAD DE ARTES INTEGRADAS"
+"administración" | "administracion" → "FACULTAD DE CIENCIAS DE LA ADMINISTRACIÓN"
+"ciencias naturales" → "FACULTAD DE CIENCIAS NATURALES Y EXACTAS"
+"ciencias sociales" → "FACULTAD DE CIENCIAS SOCIALES Y ECONÓMICO"
+"derecho" → "FACULTAD DE DERECHO Y CIENCIAS POLÍTICAS"
+"educación" | "educacion" → "FACULTAD DE EDUCACIÓN Y PEDAGOGÍA"
+"humanidades" → "FACULTAD DE HUMANIDADES"
+"ingeniería" | "ingenieria" → "FACULTAD DE INGENIERÍA"
+"psicología" | "psicologia" → "FACULTAD DE PSICOLOGÍA"
+"salud" → "FACULTAD DE SALUD"
+
+⚡ REGLAS CRÍTICAS:
+1. SIEMPRE intenta responder, aunque sea aproximado
+2. Para preguntas complejas: divide en subconsultas
+3. Muestra totales + detalles + insights
+4. Usa búsquedas parciales para nombres y grupos
+5. Convierte fechas relativas a absolutas
+6. Usa JOINS cuando necesites datos de usuarios
+7. Limita resultados a 100 máximo
+8. Para rankings usa orderBy + limit
+9. Para conteos NO necesitas traer todos los datos
+10. Para análisis temporal agrupa por fecha
+
+🎯 EJEMPLOS DE CONSULTAS COMPLEJAS CON RESULTADOS ESPERADOS:
+
+Ejemplo 1: "Lista de monitores"
+→ Query: user_profiles WHERE rol == "MONITOR"
+→ Respuesta: "¡Te encontré 4 monitores activos:\n✅ 1. Juan Pérez - Salsa\n✅ 2. María García - Danza\n✅ 3. Carlos López - Teatro\n✅ 4. Ana Rodríguez - Coro"
+
+Ejemplo 2: "Top 5 grupos esta semana"
+→ Query: attendance_records WHERE timestamp >= this_week, agrupar por grupo
+→ Respuesta: "Top 5 grupos esta semana:\n🥇 1. Salsa - 89 asistencias\n🥈 2. Danza - 67 asistencias\n🥉 3. Teatro - 54 asistencias\n4. Coro - 43 asistencias\n5. Capoeira - 38 asistencias"
+
+Ejemplo 3: "Estudiantes de Ingeniería en Salsa"
+→ Query: group_enrollments WHERE grupo == "Salsa" + JOIN user_profiles
+→ Filtrar: programaAcademico contiene "INGENIERÍA"
+→ Respuesta: "Encontré 12 estudiantes de Ingeniería en Salsa:\n1. Juan Pérez - Ingeniería de Sistemas\n2. María García - Ingeniería Civil\n...y 10 más"
+
+Ejemplo 4: "Perfil de Juan Pérez"
+→ Query: user_profiles WHERE nombres == "Juan" + JOINs
+→ Respuesta: "Juan Pérez es estudiante de Ingeniería de Sistemas. Está inscrito en 2 grupos: Salsa y Teatro. Ha asistido 15 veces este mes. Última asistencia: hace 2 días"
+
+Ejemplo 5: "Reporte semanal"
+→ Query: attendance_records WHERE timestamp >= this_week
+→ Respuesta: "Esta semana hubo 234 asistencias (promedio 47/día). Top grupos: Salsa (89), Danza (67), Teatro (54). 12 estudiantes nuevos se inscribieron. Tendencia: +15% vs semana pasada"
+
+Ejemplo 6: "Usuarios en múltiples grupos"
+→ Query: group_enrollments, agrupar por userId, COUNT > 1
+→ Respuesta: "5 estudiantes están en múltiples grupos:\n1. Juan Pérez - Salsa + Teatro\n2. María García - Danza + Coro\n3. Carlos López - Salsa + Orquesta\n...y 2 más"
+
+Ejemplo 7: "Grupos inactivos esta semana"
+→ Query: cultural_groups LEFT JOIN attendance_records
+→ Respuesta: "3 grupos sin asistencias esta semana:\n⚠️ Poesía\n⚠️ Muralismo\n⚠️ Capoeira"
+
+Ejemplo 8: "Asistencias ayer"
+→ Query: attendance_records WHERE timestamp >= yesterday
+→ Respuesta: "Ayer hubo 42 asistencias. Distribución:\n• Salsa: 15\n• Danza: 12\n• Teatro: 10\n• Coro: 5"
+`
+🔥 COLECCIONES FIRESTORE DISPONIBLES:
+
+1. user_profiles: {
+  id: string (ID del documento)
+  nombres: string
+  correo: string
+  numeroDocumento: string
+  telefono: string
+  genero: "MUJER" | "HOMBRE" | "OTRO"
+  etnia: string
+  tipoDocumento: string
+  edad: number
+  sede: string
+  estamento: "ESTUDIANTE" | "EGRESADO" | "DOCENTE" | "DOCENTE HORA CATEDRA" | "FUNCIONARIO" | "CONTRATISTA" | "INVITADO"
+  codigoEstudiante?: string
+  facultad?: string
+  programaAcademico?: string
+  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR"
+  createdAt: Date
+  lastAttendance: Date
+}
+
+2. attendance_records: {
+  id: string
+  userId: string (referencia a user_profiles)
+  grupoCultural: string (nombre del grupo)
+  timestamp: Date (fecha y hora de asistencia)
+}
+
+3. group_enrollments: {
+  id: string
+  userId: string (referencia a user_profiles)
+  grupoCultural: string (nombre del grupo)
+  fechaInscripcion: Date
+}
+
+4. cultural_groups: {
+  id: string
+  nombre: string
+  activo: boolean
+  createdAt: Date
+}
+
+5. events: {
+  id: string
+  nombre: string
+  hora: string
+  lugar: string
+  fechaApertura: Date
+  fechaVencimiento: Date
+  createdAt: Date
+  activo: boolean
+}
+
+6. event_attendance_records: {
+  id: string
+  userId: string (referencia a user_profiles)
+  eventId: string (referencia a events)
+  timestamp: Date
+}
+
+7. admin_users: {
+  id: string
+  numeroDocumento: string
+  rol: "ADMIN"
+}
+
+8. group_managers: {
+  id: string
+  numeroDocumento: string
+  grupoCultural: string
+  rol: "MANAGER"
+}
+
+9. group_category_assignments: {
+  id: string
+  grupoCultural: string
+  categoria: "SEMILLERO" | "PROCESO" | "REPRESENTATIVO"
+}
+
+📊 CAPACIDADES OBLIGATORIAS DEL CHATBOT:
+
+1. CONTAR Y ESTADÍSTICAS:
+   - Totales, promedios, porcentajes, rankings
+   - Top N (top 5, top 10, etc.)
+   - Comparativas (esta semana vs semana pasada)
+   - Tendencias (subiendo/bajando)
+
+2. FILTROS AVANZADOS:
+   - Por fecha: "hoy", "ayer", "esta semana", "este mes", "semana pasada"
+   - Por programa académico, facultad, estamento, género
+   - Por grupo cultural, evento
+   - Combinaciones múltiples
+
+3. JOINS AUTOMÁTICOS:
+   - attendance_records + user_profiles (para nombres y datos)
+   - group_enrollments + user_profiles (para inscritos)
+   - event_attendance_records + user_profiles + events
+   - group_category_assignments + cultural_groups
+
+4. ANÁLISIS TEMPORAL:
+   - Asistencias por día de la semana
+   - Horarios pico (día/hora más concurrido)
+   - Evolución temporal (mes a mes)
+   - Comparativas de períodos
+
+5. BÚSQUEDAS FLEXIBLES:
+   - Nombres parciales: "Juan" encuentra "Juan Pérez", "Juan Carlos"
+   - Grupos parciales: "Salsa" encuentra "SELECCIÓN SALSA, BACHATA..."
+   - Programas parciales: "Ingeniería" encuentra todos los de ingeniería
+
+6. ALERTAS Y ANOMALÍAS:
+   - Grupos con caída de asistencia
+   - Usuarios inactivos
+   - Monitores sin registrar asistencias
+   - Grupos con 0 asistencias
+
+7. RELACIONES COMPLEJAS:
+   - Usuarios en múltiples grupos
+   - Monitores que también son estudiantes
+   - Estudiantes que cambiaron de grupo
+   - Usuarios en eventos Y grupos
+
+🗓️ FECHAS INTELIGENTES (CONVERSIÓN AUTOMÁTICA):
+- "hoy" → fecha actual (00:00:00)
+- "ayer" → fecha actual - 1 día
+- "esta semana" → lunes de esta semana
+- "semana pasada" → lunes de semana anterior
+- "este mes" → día 1 del mes actual
+- "mes pasado" → día 1 del mes anterior
+
+📝 SINÓNIMOS DE PROGRAMAS ACADÉMICOS:
+"comunicación social" | "comunicacion social" | "periodismo" → "COMUNICACIÓN SOCIAL - PERIODISMO (3553)"
+"ingeniería de sistemas" | "ingenieria de sistemas" | "sistemas" → "INGENIERÍA DE SISTEMAS (3743)"
+"ingeniería civil" | "civil" → "INGENIERÍA CIVIL (3747)"
+"ingeniería industrial" | "industrial" → "INGENIERÍA INDUSTRIAL (3751)"
+"derecho" → "DERECHO"
+"medicina" → "MEDICINA Y CIRUGÍA (3660)"
+"psicología" | "psicologia" → "PSICOLOGÍA (3461)"
+"administración" | "administracion" → "ADMINISTRACIÓN DE EMPRESAS (3845)"
+"contaduría" | "contaduria" → "CONTADURÍA PÚBLICA (3841)"
+"economía" | "economia" → "ECONOMÍA (3340)"
+"arquitectura" → "ARQUITECTURA (3545)"
+"enfermería" | "enfermeria" → "ENFERMERÍA (3645)"
+"odontología" | "odontologia" → "ODONTOLOGÍA (3661)"
+
+🎭 SINÓNIMOS DE GRUPOS CULTURALES:
+"salsa" | "bachata" → "SELECCIÓN SALSA, BACHATA Y RITMOS LATINOS DE LA UNIVERSIDAD DEL VALLE"
+"danza contemporánea" | "danza contemporanea" → "GRUPO DE DANZA CONTEMPORÁNEA DE LA UNIVERSIDAD DEL VALLE"
+"danza arabe" | "danza árabe" → "GRUPO DE DANZA ARABE, ORIENTAL Y TRIBAL DE LA UNIVERSIDAD DEL VALLE"
+"danza urbana" | "breaking" → "GRUPO DE DANZA URBANA Y BREACKING DE LA UNIVERSIDAD DEL VALLE"
+"teatro" → "GRUPO DE TEATRO BIENESTAR UNIVERSITARIO DE LA UNIVERSIDAD DEL VALLE"
+"coro" → "CORO MAGNO DE LA UNIVERSIDAD DEL VALLE"
+"orquesta" → "ORQUESTA DE SALSA Y MÚSICA LATINA DE LA UNIVERSIDAD DEL VALLE"
+"estudiantina" → "ESTUDIANTINA DE LA UNIVERSIDAD DEL VALLE"
+"capoeira" → "GRUPO CAPOEIRA DE LA UNIVERSIDAD DEL VALLE"
+"poesía" | "poesia" → "GRUPO DE POESÍA DE LA UNIVERSIDAD DEL VALLE"
+"muralismo" → "GRUPO DE MURALISMO LA UNIVERSIDAD DEL VALLE"
+
+🏛️ SINÓNIMOS DE FACULTADES:
+"artes" → "FACULTAD DE ARTES INTEGRADAS"
+"administración" | "administracion" → "FACULTAD DE CIENCIAS DE LA ADMINISTRACIÓN"
+"ciencias naturales" → "FACULTAD DE CIENCIAS NATURALES Y EXACTAS"
+"ciencias sociales" → "FACULTAD DE CIENCIAS SOCIALES Y ECONÓMICO"
+"derecho" → "FACULTAD DE DERECHO Y CIENCIAS POLÍTICAS"
+"educación" | "educacion" → "FACULTAD DE EDUCACIÓN Y PEDAGOGÍA"
+"humanidades" → "FACULTAD DE HUMANIDADES"
+"ingeniería" | "ingenieria" → "FACULTAD DE INGENIERÍA"
+"psicología" | "psicologia" → "FACULTAD DE PSICOLOGÍA"
+"salud" → "FACULTAD DE SALUD"
+
+⚡ REGLAS CRÍTICAS:
+1. SIEMPRE intenta responder, aunque sea aproximado
+2. Para preguntas complejas: divide en subconsultas
+3. Muestra totales + detalles + insights
+4. Usa búsquedas parciales para nombres y grupos
+5. Convierte fechas relativas a absolutas
+6. Usa JOINS cuando necesites datos de usuarios
+7. Limita resultados a 100 máximo
+8. Para rankings usa orderBy + limit
+9. Para conteos NO necesitas traer todos los datos
+10. Para análisis temporal agrupa por fecha
+
+🎯 EJEMPLOS DE CONSULTAS COMPLEJAS:
+
+"Top 5 grupos con más asistencias esta semana"
+→ collection: attendance_records
+→ filters: [timestamp >= esta_semana]
+→ Agrupar por grupoCultural, contar, ordenar desc, limit 5
+
+"Estudiantes de Ingeniería en Salsa"
+→ collection: group_enrollments
+→ filters: [grupoCultural == "Salsa"]
+→ joins: [user_profiles]
+→ Filtrar en memoria por programaAcademico contiene "INGENIERÍA"
+
+"Perfil completo de Juan Pérez"
+→ collection: user_profiles
+→ filters: [nombres contiene "Juan Pérez"]
+→ joins: [attendance_records, group_enrollments]
+
+"Asistencias ayer"
+→ collection: attendance_records
+→ filters: [timestamp >= ayer 00:00, timestamp < hoy 00:00]
+
+"Monitores sin registrar asistencias esta semana"
+→ collection: user_profiles
+→ filters: [rol == "MONITOR"]
+→ joins: [attendance_records con filtro de fecha]
+→ Filtrar los que NO tienen registros
+
+"Reporte semanal completo"
+→ Múltiples consultas:
+  1. Total asistencias esta semana
+  2. Top 5 grupos
+  3. Nuevos inscritos
+  4. Usuarios más activos
+  5. Grupos inactivos
+`
+
+interface QueryPlan {
+  collection: string
+  filters: Array<{ field: string; operator: string; value: any }>
+  orderByField?: string
+  orderDirection?: "asc" | "desc"
+  limitCount?: number
+  joins?: Array<{ collection: string; localField: string; foreignField: string }>
+}
+
+async function generateQueryPlan(userQuestion: string, conversationHistory: any[] = []): Promise<QueryPlan> {
+  // Construir contexto del historial
+  const historyContext = conversationHistory.length > 0
+    ? `\nHISTORIAL DE CONVERSACIÓN (últimos 3 mensajes):\n${conversationHistory.slice(-3).map((msg: any) => 
+        `Usuario: ${msg.user}\nIA: ${msg.ai}`
+      ).join('\n\n')}\n\nNOTA: Si el usuario menciona "esos", "estos", "de esos", "los anteriores", se refiere a los resultados de la conversación previa.\n`
+    : ''
+
+  const prompt = `Eres Daniela, experta en Firebase Firestore y asistente del Área Cultural de Univalle.
+Convierte esta pregunta en un plan de consulta JSON.
+
+${NATURAL_TONE_INSTRUCTIONS}
+
+${FIRESTORE_SCHEMA}
+${historyContext}
+PREGUNTA ACTUAL DEL USUARIO: "${userQuestion}"
+
+🎯 CAPACIDADES QUE DEBES MANEJAR:
+
+1. ESTADÍSTICAS Y CONTEOS:
+   - "¿Cuántas asistencias hoy?" → attendance_records con filtro today
+   - "Top 5 grupos" → attendance_records, agrupar por grupoCultural
+   - "Porcentaje de asistencia" → calcular en base a inscritos vs asistencias
+
+2. FILTROS TEMPORALES:
+   - "hoy" → today
+   - "ayer" → yesterday  
+   - "esta semana" → this_week
+   - "semana pasada" → last_week
+   - "este mes" → this_month
+
+3. BÚSQUEDAS FLEXIBLES:
+   - Nombres parciales: "Juan" busca en nombres
+   - Grupos parciales: "Salsa" busca en grupoCultural
+   - Programas parciales: "Ingeniería" busca en programaAcademico
+
+4. JOINS AUTOMÁTICOS:
+   - Siempre que necesites datos de usuarios, agrega join con user_profiles
+   - Para eventos, join con events
+   - Para categorías, join con group_category_assignments
+
+5. ANÁLISIS COMPLEJOS:
+   - "Perfil de [nombre]" → user_profiles + joins con attendance y enrollments
+   - "Monitores" → user_profiles con rol == "MONITOR"
+   - "Usuarios en múltiples grupos" → group_enrollments agrupado por userId
+   - "Reporte semanal" → múltiples consultas (usa attendance_records como base)
+
+6. RANKINGS Y TOPS:
+   - Usa orderByField + orderDirection + limitCount
+   - Para "top 5" usa limitCount: 5
+
+REGLAS CRÍTICAS:
+1. Devuelve SOLO un objeto JSON válido, sin explicaciones ni markdown
+2. Usa operadores: "==", "!=", ">", "<", ">=", "<=", "array-contains"
+3. Para fechas relativas usa: "today", "yesterday", "this_week", "last_week", "this_month"
+4. SIEMPRE usa JOINS cuando necesites datos de usuarios (nombres, programas, etc.)
+5. Limita resultados a máximo 100 registros
+6. Para búsquedas parciales usa el término corto (ej: "Salsa", "Juan")
+7. Para conteos y estadísticas, trae los datos y se procesarán en memoria
+8. Si la pregunta es ambigua, elige la interpretación más útil
+
+EJEMPLOS COMPLETOS:
+
+Pregunta: "¿Cuántas asistencias hoy?"
+{
+  "collection": "attendance_records",
+  "filters": [{"field": "timestamp", "operator": ">=", "value": "today"}],
+  "limitCount": 1000
+}
+
+Pregunta: "Top 5 grupos con más asistencias esta semana"
+{
+  "collection": "attendance_records",
+  "filters": [{"field": "timestamp", "operator": ">=", "value": "this_week"}],
+  "limitCount": 1000
+}
+
+Pregunta: "Estudiantes de comunicación social en Salsa"
+{
+  "collection": "group_enrollments",
+  "filters": [{"field": "grupoCultural", "operator": "==", "value": "Salsa"}],
+  "limitCount": 100,
+  "joins": [{"collection": "user_profiles", "localField": "userId", "foreignField": "id"}]
+}
+
+Pregunta: "Perfil completo de Juan Pérez"
+{
+  "collection": "user_profiles",
+  "filters": [{"field": "nombres", "operator": "==", "value": "Juan"}],
+  "limitCount": 10,
+  "joins": [
+    {"collection": "attendance_records", "localField": "id", "foreignField": "userId"},
+    {"collection": "group_enrollments", "localField": "id", "foreignField": "userId"}
+  ]
+}
+
+Pregunta: "¿Quiénes son monitores?"
+{
+  "collection": "user_profiles",
+  "filters": [{"field": "rol", "operator": "==", "value": "MONITOR"}],
+  "limitCount": 100
+}
+
+Pregunta: "Asistencias ayer"
+{
+  "collection": "attendance_records",
+  "filters": [{"field": "timestamp", "operator": ">=", "value": "yesterday"}],
+  "orderByField": "timestamp",
+  "orderDirection": "desc",
+  "limitCount": 1000
+}
+
+Pregunta: "Usuarios de Ingeniería"
+{
+  "collection": "user_profiles",
+  "filters": [{"field": "programaAcademico", "operator": "==", "value": "Ingeniería"}],
+  "limitCount": 100
+}
+
+Pregunta: "Reporte semanal" o "Resumen de hoy"
+{
+  "collection": "attendance_records",
+  "filters": [{"field": "timestamp", "operator": ">=", "value": "this_week"}],
+  "limitCount": 1000,
+  "joins": [{"collection": "user_profiles", "localField": "userId", "foreignField": "id"}]
+}
+
+FORMATO DE RESPUESTA (SOLO JSON):
+{
+  "collection": "nombre_coleccion",
+  "filters": [{"field": "campo", "operator": "==", "value": "valor"}],
+  "orderByField": "campo_opcional",
+  "orderDirection": "asc" | "desc",
+  "limitCount": 100,
+  "joins": [{"collection": "otra_coleccion", "localField": "campo", "foreignField": "campo"}]
+}
+
+Responde SOLO con el JSON, sin explicaciones:`
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.1,
+      max_tokens: 1000,
+    })
+
+    const response = completion.choices[0]?.message?.content || "{}"
+    console.log("[Chat] Respuesta LLM:", response)
+    
+    // Extraer JSON del response (puede venir con markdown)
+    const jsonMatch = response.match(/\{[\s\S]*\}/)
+    const jsonStr = jsonMatch ? jsonMatch[0] : response
+    
+    const plan = JSON.parse(jsonStr)
+    
+    // Validar que tenga la estructura mínima
+    if (!plan.collection) {
+      throw new Error("Plan de consulta inválido: falta 'collection'")
+    }
+    
+    // Asegurar que filters sea un array
+    if (!plan.filters) {
+      plan.filters = []
+    }
+    
+    return plan
+  } catch (error: any) {
+    console.error("[Chat] Error generando plan:", error)
+    throw new Error(`Error generando plan de consulta: ${error.message}`)
+  }
+}
+
+function parseSpecialDateValue(value: string): Date {
+  const now = new Date()
+  
+  if (value === "today") {
+    now.setHours(0, 0, 0, 0)
+    return now
+  }
+  
+  if (value === "yesterday") {
+    now.setDate(now.getDate() - 1)
+    now.setHours(0, 0, 0, 0)
+    return now
+  }
+  
+  if (value === "this_week") {
+    const dayOfWeek = now.getDay()
+    const diff = now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) // Lunes
+    const monday = new Date(now.setDate(diff))
+    monday.setHours(0, 0, 0, 0)
+    return monday
+  }
+  
+  if (value === "last_week") {
+    const dayOfWeek = now.getDay()
+    const diff = now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) - 7 // Lunes de semana pasada
+    const lastMonday = new Date(now.setDate(diff))
+    lastMonday.setHours(0, 0, 0, 0)
+    return lastMonday
+  }
+  
+  if (value === "this_month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  }
+  
+  if (value === "last_month") {
+    return new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  }
+  
+  return new Date(value)
+}
+
+async function executeFirestoreQuery(plan: QueryPlan): Promise<any[]> {
+  try {
+    console.log("[Chat] Ejecutando plan:", JSON.stringify(plan, null, 2))
+    
+    const collectionRef = collection(db, plan.collection)
+    
+    // Detectar si es una búsqueda parcial de grupo o nombre
+    const hasPartialGroupSearch = plan.filters.some(f => 
+      f.field === "grupoCultural" && typeof f.value === "string" && f.value.length < 50
+    )
+    
+    const hasPartialNameSearch = plan.filters.some(f => 
+      f.field === "nombres" && typeof f.value === "string"
+    )
+
+    // Si es búsqueda parcial, obtener todos y filtrar en memoria
+    if (hasPartialGroupSearch || hasPartialNameSearch) {
+      console.log("[Chat] Búsqueda parcial detectada, obteniendo todos los documentos...")
+      
+      // Obtener todos los documentos de la colección (con límite de seguridad)
+      let q = query(collectionRef, limit(1000))
+      const snapshot = await getDocs(q)
+      let results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      
+      console.log(`[Chat] Documentos obtenidos: ${results.length}`)
+      
+      // Filtrar en memoria con búsqueda flexible
+      for (const filter of plan.filters) {
+        if (filter.field === "grupoCultural" && typeof filter.value === "string") {
+          const searchTerm = filter.value.toLowerCase()
+          results = results.filter((doc: any) => {
+            const groupName = (doc.grupoCultural || "").toLowerCase()
+            return groupName.includes(searchTerm)
+          })
+          console.log(`[Chat] Filtrado por grupo parcial "${searchTerm}": ${results.length} resultados`)
+        } else if (filter.field === "nombres" && typeof filter.value === "string") {
+          const searchTerm = filter.value.toLowerCase()
+          results = results.filter((doc: any) => {
+            const userName = (doc.nombres || "").toLowerCase()
+            return userName.includes(searchTerm)
+          })
+          console.log(`[Chat] Filtrado por nombre parcial "${searchTerm}": ${results.length} resultados`)
+        } else {
+          // Aplicar otros filtros normalmente
+          results = results.filter((doc: any) => {
+            const docValue = doc[filter.field]
+            switch (filter.operator) {
+              case "==": return docValue === filter.value
+              case "!=": return docValue !== filter.value
+              case ">": return docValue > filter.value
+              case "<": return docValue < filter.value
+              case ">=": return docValue >= filter.value
+              case "<=": return docValue <= filter.value
+              default: return true
+            }
+          })
+        }
+      }
+      
+      // Aplicar ordenamiento si existe
+      if (plan.orderByField) {
+        results.sort((a: any, b: any) => {
+          const aVal = a[plan.orderByField!]
+          const bVal = b[plan.orderByField!]
+          if (plan.orderDirection === "desc") {
+            return bVal > aVal ? 1 : -1
+          }
+          return aVal > bVal ? 1 : -1
+        })
+      }
+      
+      // Aplicar límite
+      const limitCount = plan.limitCount || 100
+      results = results.slice(0, limitCount)
+      
+      // Procesar joins si existen
+      if (plan.joins && plan.joins.length > 0) {
+        console.log("[JOIN] Iniciando proceso de JOINS...")
+        const joinedResults: any[] = []
+        
+        for (const result of results) {
+          const joinedResult: any = { ...result }
+          
+          for (const join of plan.joins) {
+            let localValue = (result as any)[join.localField]
+            
+            // Si es DocumentReference, extraer ID
+            if (localValue?.path) {
+              localValue = localValue.id
+            }
+            
+            if (!localValue) continue
+            
+            // ESTRATEGIA: Buscar directamente por documento ID (como lo hace getGroupEnrolledUsers)
+            try {
+              const docRef = doc(db, join.collection, localValue)
+              const docSnap = await getDoc(docRef)
+              
+              if (docSnap.exists()) {
+                joinedResult[`${join.collection}_data`] = {
+                  id: docSnap.id,
+                  ...docSnap.data()
+                }
+                console.log(`[JOIN] ✅ Encontrado ${join.collection} para userId: ${localValue}`)
+              } else {
+                console.log(`[JOIN] ⚠️ No existe documento ${join.collection}/${localValue}`)
+              }
+            } catch (e) {
+              console.log(`[JOIN] ❌ Error buscando ${join.collection}/${localValue}:`, e)
+            }
+          }
+          
+          joinedResults.push(joinedResult)
+        }
+        
+        results = joinedResults
+        console.log("[JOIN] Completado. Resultados con datos:", 
+          results.filter((r: any) => r.user_profiles_data).length
+        )
+      }
+      
+      return results
+    }
+    
+    // Consulta normal con filtros exactos
+    let q = query(collectionRef)
+
+    // Aplicar filtros
+    if (plan.filters && plan.filters.length > 0) {
+      for (const filter of plan.filters) {
+        let value = filter.value
+        
+        // Convertir valores especiales de fecha
+        if (typeof value === "string" && (value === "today" || value === "this_week" || value === "this_month")) {
+          value = Timestamp.fromDate(parseSpecialDateValue(value))
+        }
+        
+        console.log(`[Chat] Aplicando filtro: ${filter.field} ${filter.operator} ${value}`)
+        q = query(q, where(filter.field, filter.operator as any, value))
+      }
+    }
+
+    // Aplicar ordenamiento
+    if (plan.orderByField) {
+      console.log(`[Chat] Aplicando orden: ${plan.orderByField} ${plan.orderDirection || "asc"}`)
+      q = query(q, orderBy(plan.orderByField, plan.orderDirection || "asc"))
+    }
+
+    // Aplicar límite
+    const limitCount = plan.limitCount || 100
+    console.log(`[Chat] Aplicando límite: ${limitCount}`)
+    q = query(q, limit(limitCount))
+
+    console.log("[Chat] Ejecutando consulta en Firestore...")
+    const snapshot = await getDocs(q)
+    console.log(`[Chat] Documentos obtenidos: ${snapshot.docs.length}`)
+    
+    let results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+    // Si hay joins, obtener datos relacionados
+    if (plan.joins && plan.joins.length > 0) {
+      console.log("[JOIN] Iniciando proceso de JOINS para consulta normal...")
+      const joinedResults: any[] = []
+      
+      for (const result of results) {
+        const joinedResult: any = { ...result }
+        
+        for (const join of plan.joins) {
+          let localValue = (result as any)[join.localField]
+          
+          // Si es DocumentReference, extraer ID
+          if (localValue?.path) {
+            localValue = localValue.id
+          }
+          
+          if (!localValue) continue
+          
+          // ESTRATEGIA: Buscar directamente por documento ID (como lo hace getGroupEnrolledUsers)
+          try {
+            const docRef = doc(db, join.collection, localValue)
+            const docSnap = await getDoc(docRef)
+            
+            if (docSnap.exists()) {
+              joinedResult[`${join.collection}_data`] = {
+                id: docSnap.id,
+                ...docSnap.data()
+              }
+              console.log(`[JOIN] ✅ Encontrado ${join.collection} para userId: ${localValue}`)
+            } else {
+              console.log(`[JOIN] ⚠️ No existe documento ${join.collection}/${localValue}`)
+            }
+          } catch (e) {
+            console.log(`[JOIN] ❌ Error buscando ${join.collection}/${localValue}:`, e)
+          }
+        }
+        
+        joinedResults.push(joinedResult)
+      }
+      
+      results = joinedResults
+      console.log("[JOIN] Completado. Resultados con datos:", 
+        results.filter((r: any) => r.user_profiles_data).length
+      )
+    }
+
+    return results
+  } catch (error: any) {
+    console.error("[Chat] Error ejecutando consulta Firestore:", error)
+    throw new Error(`Error en consulta Firestore: ${error.message}`)
+  }
+}
+
+async function generateNaturalResponse(question: string, results: any[], queryPlan: QueryPlan): Promise<string> {
+  // Si no hay resultados, respuesta corta
+  if (results.length === 0) {
+    return "No se encontraron datos para esta consulta."
+  }
+
+  // Si hay joins, filtrar los resultados por criterios específicos de la pregunta
+  let filteredResults = results
+  
+  if (queryPlan.joins && queryPlan.joins.length > 0) {
+    // Buscar menciones de programas académicos en la pregunta
+    const questionLower = question.toLowerCase()
+    
+    // Lista de programas comunes para detectar
+    const programas = [
+      { keywords: ['comunicación social', 'comunicacion social'], name: 'COMUNICACIÓN SOCIAL' },
+      { keywords: ['ingeniería de sistemas', 'ingenieria de sistemas', 'sistemas'], name: 'INGENIERÍA DE SISTEMAS' },
+      { keywords: ['ingeniería civil', 'ingenieria civil', 'civil'], name: 'INGENIERÍA CIVIL' },
+      { keywords: ['ingeniería industrial', 'ingenieria industrial', 'industrial'], name: 'INGENIERÍA INDUSTRIAL' },
+      { keywords: ['derecho'], name: 'DERECHO' },
+      { keywords: ['medicina'], name: 'MEDICINA' },
+      { keywords: ['psicología', 'psicologia'], name: 'PSICOLOGÍA' },
+      { keywords: ['administración', 'administracion'], name: 'ADMINISTRACIÓN' },
+      { keywords: ['contaduría', 'contaduria'], name: 'CONTADURÍA' },
+      { keywords: ['economía', 'economia'], name: 'ECONOMÍA' },
+    ]
+    
+    for (const programa of programas) {
+      if (programa.keywords.some(keyword => questionLower.includes(keyword))) {
+        filteredResults = results.filter((r: any) => {
+          const userData = r.user_profiles_data
+          if (userData && userData.programaAcademico) {
+            return userData.programaAcademico.toUpperCase().includes(programa.name)
+          }
+          return false
+        })
+        break
+      }
+    }
+    
+    // Si después del filtrado no hay resultados pero había resultados antes
+    if (filteredResults.length === 0 && results.length > 0) {
+      return `No se encontraron estudiantes del programa académico especificado en este grupo. Se encontraron ${results.length} estudiantes en total, pero ninguno coincide con el programa mencionado.`
+    }
+  }
+
+  // Si después del filtrado no hay resultados
+  if (filteredResults.length === 0) {
+    return "No se encontraron datos que coincidan con los criterios especificados."
+  }
+
+  // Preparar datos limpios para la IA (solo información relevante)
+  const cleanResults = filteredResults.slice(0, 20).map((r: any) => {
+    const clean: any = {}
+    
+    // Si tiene datos de usuario del join
+    if (r.user_profiles_data) {
+      clean.nombre = r.user_profiles_data.nombres || "Sin nombre"
+      if (r.user_profiles_data.correo) clean.correo = r.user_profiles_data.correo
+      if (r.user_profiles_data.programaAcademico) clean.programa = r.user_profiles_data.programaAcademico
+      if (r.user_profiles_data.facultad) clean.facultad = r.user_profiles_data.facultad
+      if (r.user_profiles_data.estamento) clean.estamento = r.user_profiles_data.estamento
+      if (r.user_profiles_data.genero) clean.genero = r.user_profiles_data.genero
+      if (r.user_profiles_data.codigoEstudiante) clean.codigo = r.user_profiles_data.codigoEstudiante
+    } else {
+      // Datos directos del documento
+      if (r.nombres) clean.nombre = r.nombres
+      if (r.correo) clean.correo = r.correo
+      if (r.programaAcademico) clean.programa = r.programaAcademico
+      if (r.facultad) clean.facultad = r.facultad
+      if (r.estamento) clean.estamento = r.estamento
+      if (r.genero) clean.genero = r.genero
+      if (r.codigoEstudiante) clean.codigo = r.codigoEstudiante
+    }
+    
+    // Agregar grupo si existe
+    if (r.grupoCultural) clean.grupo = r.grupoCultural
+    
+    // Agregar fecha si existe (manejar diferentes formatos de timestamp)
+    if (r.fechaInscripcion) {
+      if (r.fechaInscripcion.seconds) {
+        clean.fechaInscripcion = new Date(r.fechaInscripcion.seconds * 1000).toLocaleDateString('es-CO')
+      } else if (r.fechaInscripcion.toDate) {
+        clean.fechaInscripcion = r.fechaInscripcion.toDate().toLocaleDateString('es-CO')
+      }
+    }
+    
+    if (r.timestamp) {
+      if (r.timestamp.seconds) {
+        clean.fecha = new Date(r.timestamp.seconds * 1000).toLocaleDateString('es-CO')
+      } else if (r.timestamp.toDate) {
+        clean.fecha = r.timestamp.toDate().toLocaleDateString('es-CO')
+      }
+    }
+    
+    return clean
+  })
+
+  // Verificar si tenemos nombres en los resultados
+  const hasNames = cleanResults.some(r => r.nombre && r.nombre !== "Sin nombre")
+  
+  if (!hasNames) {
+    return `Se encontraron ${filteredResults.length} registros, pero no se pudieron obtener los nombres de los usuarios. Esto puede deberse a que los datos de usuario no están disponibles o no se realizó correctamente la consulta con joins.`
+  }
+
+  const prompt = `${NATURAL_TONE_INSTRUCTIONS}
+
+PREGUNTA: "${question}"
+
+DATOS ENCONTRADOS (${filteredResults.length} total):
+${JSON.stringify(cleanResults, null, 2)}
+
+🎯 GUÍA DE RESPUESTA:
+
+1. SALUDO: "¡Listo!", "Te tengo", "Aquí va"
+2. TOTAL: "Encontré X resultados", "Hoy: X asistencias"
+3. DETALLES: Lista con ✅ o números
+4. INSIGHT: "¡Va increíble!", "+15% vs semana pasada"
+5. CIERRE: "¿Necesitas algo más?"
+
+EJEMPLOS PERFECTOS:
+
+"¿Cuántas asistencias hoy?"
+→ "¡Listo! Hoy: 45 asistencias. ¡Excelente participación!"
+
+"Top 5 grupos"
+→ "¡Aquí va el top 5!
+🥇 1. Salsa - 89
+🥈 2. Danza - 67
+🥉 3. Teatro - 54
+4. Coro - 43
+5. Capoeira - 38"
+
+"Estudiantes de Comunicación en Salsa"
+→ "¡Te encontré 12 estudiantes!
+✅ 1. Juan Pérez - Comunicación Social
+✅ 2. María García - Comunicación Social
+...y 10 más.
+¿Necesitas sus contactos?"
+
+"Lista de monitores"
+→ "¡Te encontré 4 monitores activos!
+✅ 1. Juan Pérez - Salsa
+✅ 2. María García - Danza
+✅ 3. Carlos López - Teatro
+✅ 4. Ana Rodríguez - Coro
+¿Necesitas sus teléfonos?"
+
+Responde ahora como Daniela:`
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.2,
+      max_tokens: 800,
+    })
+
+    let response = completion.choices[0]?.message?.content || "No se pudo generar una respuesta."
+    
+    // Limpiar formato markdown excesivo
+    response = response.replace(/\*\*/g, '') // Quitar negritas
+    response = response.replace(/\*/g, '') // Quitar cursivas
+    response = response.replace(/#{1,6}\s/g, '') // Quitar headers
+    
+    return response
+  } catch (error: any) {
+    console.error("[Chat] Error generando respuesta:", error)
+    return `Se encontraron ${filteredResults.length} resultados, pero hubo un error al formatear la respuesta.`
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { message, isSuperAdmin, conversationHistory = [] } = await req.json()
+
+    // VERIFICACIÓN OBLIGATORIA: Solo Super Admin
+    if (!isSuperAdmin) {
+      return NextResponse.json(
+        { error: "Acceso denegado. Solo Super Admin puede usar esta funcionalidad." },
+        { status: 403 }
+      )
+    }
+
+    if (!message || typeof message !== "string") {
+      return NextResponse.json(
+        { error: "Mensaje inválido" },
+        { status: 400 }
+      )
+    }
+
+    // Paso 1: Generar plan de consulta con LLM (incluir historial)
+    console.log("[Chat] Generando plan de consulta para:", message)
+    const queryPlan = await generateQueryPlan(message, conversationHistory)
+    console.log("[Chat] Plan generado:", JSON.stringify(queryPlan, null, 2))
+
+    // Paso 2: Ejecutar consulta en Firestore
+    console.log("[Chat] Ejecutando consulta en Firestore...")
+    const results = await executeFirestoreQuery(queryPlan)
+    console.log("[Chat] Resultados obtenidos:", results.length)
+    
+    // Debug: Ver si los joins trajeron datos
+    if (results.length > 0) {
+      console.log("[Chat] Primer resultado (sample):", JSON.stringify(results[0], null, 2))
+    }
+
+    // Paso 3: Generar respuesta en lenguaje natural
+    console.log("[Chat] Generando respuesta natural...")
+    const response = await generateNaturalResponse(message, results, queryPlan)
+
+    // 🔊 Paso 4: Generar VOZ ESPAÑOLA con ElevenLabs
+    let audioBase64: string | null = null
+    
+    if (process.env.ELEVENLABS_API_KEY) {
+      try {
+        console.log("[Chat] Generando audio con ElevenLabs...")
+        
+        const audio = await elevenlabs.textToSpeech.convert("cgSgspJ2msm6clMCkdW9", {
+          text: response,
+          modelId: "eleven_multilingual_v2",
+          voiceSettings: {
+            stability: 0.5,
+            similarityBoost: 0.75,
+          },
+        })
+
+        // Convertir stream a buffer
+        const chunks: Buffer[] = []
+        const reader = audio.getReader()
+        
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value) chunks.push(Buffer.from(value))
+        }
+        
+        const audioBuffer = Buffer.concat(chunks)
+        audioBase64 = audioBuffer.toString('base64')
+        
+        console.log("[Chat] Audio generado exitosamente")
+      } catch (audioError: any) {
+        console.error("[Chat] Error generando audio:", audioError)
+        // Continuar sin audio si falla
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      response,
+      audioBase64, // 🔊 VOZ ESPAÑOLA
+      resultsCount: results.length,
+      queryPlan,
+      rawResults: results.slice(0, 20),
+      conversationHistory: [...conversationHistory.slice(-9), { user: message, ai: response }]
+    })
+
+  } catch (error: any) {
+    console.error("[Chat] Error:", error)
+    return NextResponse.json(
+      { 
+        error: "Error procesando la consulta", 
+        details: error.message 
+      },
+      { status: 500 }
+    )
+  }
+}

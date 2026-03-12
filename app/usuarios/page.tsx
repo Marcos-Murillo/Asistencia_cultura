@@ -29,15 +29,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
-import { Navigation } from "@/components/navigation"
 import DeleteUserDialog from "@/components/delete-user-dialog"
-import { getAllUsers, deleteUser, getUserEnrollments, getUserEventEnrollments } from "@/lib/firestore"
+import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager } from "@/lib/db-router"
+import { getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
-import { updateUserRole, assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/auth"
-import { GRUPOS_CULTURALES } from "@/lib/data"
+import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
+import { GRUPOS_CULTURALES, GRUPOS_DEPORTIVOS } from "@/lib/data"
 import { db } from "@/lib/firebase"
+import { getFirestoreForArea } from "@/lib/firebase-config"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
+import { useArea } from "@/contexts/area-context"
+import { getRolePermissions, filterStudentsByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { 
   Users, 
   Search, 
@@ -62,6 +65,7 @@ import {
 const ITEMS_PER_PAGE = 20
 
 export default function UsuariosPage() {
+  const { area } = useArea()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -91,17 +95,35 @@ export default function UsuariosPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("ESTUDIANTE")
+  const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
 
   const loadUsers = async () => {
     try {
-      console.log("[Usuarios] Loading users from Firestore...")
-      const usersList = await getAllUsers()
-      console.log("[Usuarios] Loaded users:", usersList.length)
-      setUsers(usersList)
-      setFilteredUsers(usersList)
+      console.log("[Usuarios] ========== LOADING USERS ==========")
+      console.log("[Usuarios] Current area:", area)
+      console.log("[Usuarios] Timestamp:", new Date().toISOString())
+      
+      const usersList = await getAllUsersRouter(area)
+      console.log("[Usuarios] ✓ Loaded", usersList.length, "users from database")
+      console.log("[Usuarios] Users with area field:", usersList.filter(u => u.area).length)
+      console.log("[Usuarios] Users without area field:", usersList.filter(u => !u.area).length)
+      
+      // Apply role-based filtering
+      let filteredList = usersList
+      if (currentUserPermissions && !currentUserPermissions.canViewAllUsers) {
+        console.log("[Usuarios] Applying role-based filtering with permissions:", currentUserPermissions)
+        filteredList = filterStudentsByAssignment(usersList, currentUserPermissions)
+        console.log("[Usuarios] Filtered users:", filteredList.length)
+      }
+      
+      setUsers(filteredList)
+      setFilteredUsers(filteredList)
       setError(null)
+      console.log("[Usuarios] ========== USERS LOADED SUCCESSFULLY ==========")
     } catch (error) {
-      console.error("[Usuarios] Error loading users:", error)
+      console.error("[Usuarios] ========== ERROR LOADING USERS ==========")
+      console.error("[Usuarios] Error:", error)
       setError("Error al cargar los usuarios. Verifica la conexión a Firebase.")
     } finally {
       setLoading(false)
@@ -109,14 +131,32 @@ export default function UsuariosPage() {
   }
 
   useEffect(() => {
-    // Verificar si es admin o super admin
-    const adminStatus = sessionStorage.getItem("isAdmin") === "true"
-    const superAdminStatus = sessionStorage.getItem("isSuperAdmin") === "true"
+    // Get user role and permissions
+    const userRole = getCurrentUserRole()
+    const adminStatus = checkIsAdmin()
+    const superAdminStatus = checkIsSuperAdmin()
+    const assignedGroups = getAssignedGroups()
+    
     setIsAdmin(adminStatus)
     setIsSuperAdmin(superAdminStatus)
+    setCurrentUserRole(userRole)
     
+    // Get user permissions based on role and assigned groups
+    const permissions = getRolePermissions(userRole, area, assignedGroups)
+    setCurrentUserPermissions(permissions)
+    
+    console.log("[Usuarios] ========== PERMISSIONS CHECK ==========")
+    console.log("[Usuarios] Is Super Admin:", superAdminStatus)
+    console.log("[Usuarios] User role:", userRole)
+    console.log("[Usuarios] Area:", area)
+    console.log("[Usuarios] Assigned groups:", assignedGroups)
+    console.log("[Usuarios] Permissions:", permissions)
+    console.log("[Usuarios] Can view all users:", permissions.canViewAllUsers)
+    console.log("[Usuarios] ==========================================")
+    
+    // Load users immediately after setting permissions
     loadUsers()
-  }, [])
+  }, [area])
 
   useEffect(() => {
     let filtered = users
@@ -162,7 +202,7 @@ export default function UsuariosPage() {
 
   const confirmDeleteUser = async (userId: string) => {
     try {
-      await deleteUser(userId)
+      await deleteUserRouter(area, userId)
       setSuccess("Usuario eliminado exitosamente")
       await loadUsers()
       setTimeout(() => setSuccess(null), 3000)
@@ -179,7 +219,7 @@ export default function UsuariosPage() {
     // Cargar información adicional del usuario
     try {
       const [groups, events, allAttendances] = await Promise.all([
-        getUserEnrollments(user.id),
+        getUserEnrollmentsRouter(area, user.id),
         getUserEventEnrollments(user.id),
         getAttendanceRecords()
       ])
@@ -208,7 +248,7 @@ export default function UsuariosPage() {
 
     setIsAssigningRole(true)
     try {
-      await updateUserRole(userToAssignRole.id, selectedRole)
+      await updateUserRoleRouter(area, userToAssignRole.id, selectedRole)
       setSuccess(`Rol actualizado a ${selectedRole} exitosamente`)
       await loadUsers()
       setRoleDialogOpen(false)
@@ -232,20 +272,26 @@ export default function UsuariosPage() {
     setUserToAssignGroup(user)
     setGroupDialogOpen(true)
     
-    // Verificar si el usuario ya tiene un grupo asignado
+    // Verificar si el usuario ya tiene un grupo asignado en el área actual
     try {
-      const managersRef = collection(db, "group_managers")
+      const areaDb = getFirestoreForArea(area)
+      const managersRef = collection(areaDb, "group_managers")
       const q = query(managersRef, where("userId", "==", user.id))
       const snapshot = await getDocs(q)
+      
+      console.log("[Usuarios] Checking if user has assigned group in area:", area)
+      console.log("[Usuarios] Found", snapshot.size, "assignments")
       
       if (!snapshot.empty) {
         const managerData = snapshot.docs[0].data()
         setUserAssignedGroup(managerData.grupoCultural)
+        console.log("[Usuarios] User is already assigned to:", managerData.grupoCultural)
       } else {
         setUserAssignedGroup(null)
+        console.log("[Usuarios] User has no group assigned")
       }
     } catch (error) {
-      console.error("Error checking user group:", error)
+      console.error("[Usuarios] Error checking user group:", error)
       setUserAssignedGroup(null)
     }
   }
@@ -256,7 +302,7 @@ export default function UsuariosPage() {
     setIsAssigningGroup(true)
     try {
       const assignedBy = sessionStorage.getItem("userId") || "admin"
-      await assignGroupManager(userToAssignGroup.id, selectedGroup, assignedBy)
+      await assignGroupManager(area, userToAssignGroup.id, selectedGroup, assignedBy)
       setSuccess(`${userToAssignGroup.nombres} asignado como encargado de ${selectedGroup}`)
       await loadUsers()
       setGroupDialogOpen(false)
@@ -277,12 +323,16 @@ export default function UsuariosPage() {
 
     setIsAssigningGroup(true)
     try {
-      const managersRef = collection(db, "group_managers")
+      const areaDb = getFirestoreForArea(area)
+      const managersRef = collection(areaDb, "group_managers")
       const q = query(managersRef, where("userId", "==", userToAssignGroup.id))
       const snapshot = await getDocs(q)
       
+      console.log("[Usuarios] Removing group assignment in area:", area)
+      console.log("[Usuarios] Found", snapshot.size, "assignments to remove")
+      
       if (!snapshot.empty) {
-        await removeGroupManager(snapshot.docs[0].id)
+        await removeGroupManager(area, snapshot.docs[0].id)
         setSuccess(`${userToAssignGroup.nombres} removido como encargado`)
         await loadUsers()
         setGroupDialogOpen(false)
@@ -290,7 +340,7 @@ export default function UsuariosPage() {
         setTimeout(() => setSuccess(null), 3000)
       }
     } catch (error) {
-      console.error("Error removing group:", error)
+      console.error("[Usuarios] Error removing group:", error)
       setError("Error al remover como encargado")
       setTimeout(() => setError(null), 3000)
     } finally {
@@ -344,7 +394,7 @@ export default function UsuariosPage() {
           // Mantener el primero (más reciente), eliminar los demás
           for (let i = 1; i < userList.length; i++) {
             try {
-              await deleteUser(userList[i].id)
+              await deleteUserRouter(area, userList[i].id)
               duplicatesDeleted++
             } catch (error) {
               console.error(`Error eliminando usuario duplicado ${userList[i].id}:`, error)
@@ -380,8 +430,8 @@ export default function UsuariosPage() {
     .map(p => ({ value: p!, label: p! }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
-  // Opciones para el selector de grupos
-  const gruposOptions: ComboboxOption[] = GRUPOS_CULTURALES.map((grupo) => ({
+  // Opciones para el selector de grupos según el área
+  const gruposOptions: ComboboxOption[] = (area === 'deporte' ? GRUPOS_DEPORTIVOS : GRUPOS_CULTURALES).map((grupo) => ({
     value: grupo,
     label: grupo,
   }))
@@ -395,7 +445,6 @@ export default function UsuariosPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Navigation />
         <div className="p-4">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-center h-64">
@@ -409,7 +458,6 @@ export default function UsuariosPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Navigation />
       <div className="p-4">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
@@ -553,6 +601,11 @@ export default function UsuariosPage() {
                                 <div>
                                   <div className="font-medium">{user.nombres}</div>
                                   <div className="text-sm text-gray-500">{user.correo}</div>
+                                  {user.area === 'deporte' && user.codigoEstudiantil && (
+                                    <div className="text-xs text-blue-600 mt-1">
+                                      Código: {user.codigoEstudiantil}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
@@ -586,7 +639,7 @@ export default function UsuariosPage() {
                                       {(user.rol === "DIRECTOR" || user.rol === "MONITOR") && (
                                         <DropdownMenuItem onClick={() => handleAssignGroup(user)}>
                                           <UsersRound className="h-4 w-4 mr-2" />
-                                          Asignar como Encargado
+                                          Asignar como {area === 'deporte' ? 'Entrenador' : 'Encargado'}
                                         </DropdownMenuItem>
                                       )}
                                     </>
@@ -732,10 +785,16 @@ export default function UsuariosPage() {
                           <p className="text-xs text-gray-500 font-medium">Sede</p>
                           <p className="font-medium text-gray-900">{selectedUser.sede}</p>
                         </div>
-                        {selectedUser.codigoEstudiante && (
+                        {selectedUser.codigoEstudiantil && (
                           <div>
                             <p className="text-xs text-gray-500 font-medium">Código Estudiante</p>
-                            <p className="font-medium text-gray-900">{selectedUser.codigoEstudiante}</p>
+                            <p className="font-medium text-gray-900">{selectedUser.codigoEstudiantil}</p>
+                          </div>
+                        )}
+                        {selectedUser.area === 'deporte' && selectedUser.codigoEstudiantil && (
+                          <div>
+                            <p className="text-xs text-gray-500 font-medium">Código Estudiantil</p>
+                            <p className="font-medium text-gray-900">{selectedUser.codigoEstudiantil}</p>
                           </div>
                         )}
                       </CardContent>
@@ -878,7 +937,7 @@ export default function UsuariosPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ESTUDIANTE">Estudiante</SelectItem>
-                      <SelectItem value="DIRECTOR">Director</SelectItem>
+                      <SelectItem value="DIRECTOR">{area === 'deporte' ? 'Entrenador' : 'Director'}</SelectItem>
                       <SelectItem value="MONITOR">Monitor</SelectItem>
                     </SelectContent>
                   </Select>
@@ -886,7 +945,7 @@ export default function UsuariosPage() {
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-xs md:text-sm text-blue-800">
-                    <strong>Nota:</strong> Los roles de Director y Monitor permiten gestionar grupos culturales.
+                    <strong>Nota:</strong> Los roles de {area === 'deporte' ? 'Entrenador' : 'Director'} y Monitor permiten gestionar grupos {area === 'deporte' ? 'deportivos' : 'culturales'}.
                   </p>
                 </div>
               </div>
@@ -915,9 +974,9 @@ export default function UsuariosPage() {
           <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
             <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle className="text-lg md:text-xl">Asignar como Encargado de Grupo</DialogTitle>
+                <DialogTitle className="text-lg md:text-xl">Asignar como {area === 'deporte' ? 'Entrenador' : 'Encargado'} de Grupo</DialogTitle>
                 <DialogDescription className="text-sm">
-                  Asigna a {userToAssignGroup?.nombres} como encargado de un grupo cultural
+                  Asigna a {userToAssignGroup?.nombres} como {area === 'deporte' ? 'entrenador' : 'encargado'} de un grupo {area === 'deporte' ? 'deportivo' : 'cultural'}
                 </DialogDescription>
               </DialogHeader>
               
@@ -931,7 +990,7 @@ export default function UsuariosPage() {
                 )}
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Grupo Cultural</label>
+                  <label className="text-sm font-medium">Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</label>
                   <Combobox
                     options={gruposOptions}
                     value={selectedGroup}
@@ -944,7 +1003,7 @@ export default function UsuariosPage() {
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-xs md:text-sm text-blue-800">
-                    <strong>Nota:</strong> Un director/monitor solo puede ser encargado de un grupo a la vez.
+                    <strong>Nota:</strong> Un {area === 'deporte' ? 'entrenador' : 'director'}/monitor solo puede ser {area === 'deporte' ? 'entrenador' : 'encargado'} de un grupo a la vez.
                   </p>
                 </div>
               </div>
@@ -957,7 +1016,7 @@ export default function UsuariosPage() {
                     disabled={isAssigningGroup}
                     className="flex-1 h-10 md:h-11"
                   >
-                    {isAssigningGroup ? "Removiendo..." : "Quitar como Encargado"}
+                    {isAssigningGroup ? "Removiendo..." : `Quitar como ${area === 'deporte' ? 'Entrenador' : 'Encargado'}`}
                   </Button>
                 )}
                 <Button
@@ -977,7 +1036,7 @@ export default function UsuariosPage() {
                   disabled={isAssigningGroup || !selectedGroup}
                   className="flex-1 h-10 md:h-11"
                 >
-                  {isAssigningGroup ? "Asignando..." : "Asignar como Encargado"}
+                  {isAssigningGroup ? "Asignando..." : `Asignar como ${area === 'deporte' ? 'Entrenador' : 'Encargado'}`}
                 </Button>
               </div>
             </DialogContent>

@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Navigation } from "@/components/navigation"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
 import * as XLSX from "xlsx"
 import { 
@@ -24,10 +23,11 @@ import {
   Calendar
 } from "lucide-react"
 import Link from "next/link"
-import { getGroupEnrolledUsers } from "@/lib/firestore"
+import { getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import type { UserProfile } from "@/lib/types"
 import Loading from "./loading"
+import { useArea } from "@/contexts/area-context"
 
 type EnrolledUser = UserProfile & { fechaInscripcion: Date }
 
@@ -36,6 +36,7 @@ const ITEMS_PER_PAGE = 15
 export default function GrupoDetallePage() {
   const params = useParams()
   const groupName = decodeURIComponent(params.nombre as string)
+  const { area } = useArea()
   
   const [users, setUsers] = useState<EnrolledUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,14 +47,16 @@ export default function GrupoDetallePage() {
 
   useEffect(() => {
     loadUsers()
-  }, [groupName])
+  }, [groupName, area])
 
   async function loadUsers() {
     try {
-      const enrolledUsers = await getGroupEnrolledUsers(groupName)
+      console.log("[GrupoDetalle] Loading enrolled users for group:", groupName, "in area:", area)
+      const enrolledUsers = await getGroupEnrolledUsersRouter(area, groupName)
+      console.log("[GrupoDetalle] Loaded", enrolledUsers.length, "enrolled users")
       setUsers(enrolledUsers)
     } catch (error) {
-      console.error("Error cargando usuarios:", error)
+      console.error("[GrupoDetalle] Error cargando usuarios:", error)
     } finally {
       setLoading(false)
     }
@@ -102,7 +105,7 @@ export default function GrupoDetallePage() {
     { key: "edad", label: "Edad" },
     { key: "sede", label: "Sede" },
     { key: "estamento", label: "Estamento" },
-    { key: "codigoEstudiante", label: "Código" },
+    { key: "codigoEstudiantil", label: "Código" },
     { key: "facultad", label: "Facultad" },
     { key: "programaAcademico", label: "Programa" },
     { key: "fechaInscripcion", label: "Fecha Inscripción" },
@@ -145,8 +148,8 @@ export default function GrupoDetallePage() {
           case "estamento":
             row["Estamento"] = user.estamento
             break
-          case "codigoEstudiante":
-            row["Código"] = user.codigoEstudiante || "N/A"
+          case "codigoEstudiantil":
+            row["Código"] = user.codigoEstudiantil || "N/A"
             break
           case "facultad":
             row["Facultad"] = user.facultad || "N/A"
@@ -178,7 +181,6 @@ export default function GrupoDetallePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Navigation />
       <div className="container mx-auto p-6">
         {/* Header */}
         <div className="mb-6">

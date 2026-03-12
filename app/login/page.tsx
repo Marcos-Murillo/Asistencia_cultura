@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Shield, UserCog } from "lucide-react"
-import { verifySuperAdmin, verifyAdmin } from "@/lib/auth"
+import { verifySuperAdmin, verifyAdminAnyArea } from "@/lib/auth"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -29,7 +29,8 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      if (verifySuperAdmin(superUsuario, superPassword)) {
+      const role = verifySuperAdmin(superUsuario, superPassword)
+      if (role === "SUPER_ADMIN") {
         sessionStorage.setItem("userType", "superadmin")
         sessionStorage.setItem("userId", superUsuario)
         sessionStorage.setItem("isSuperAdmin", "true")
@@ -51,16 +52,18 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const admin = await verifyAdmin(adminDocumento, adminCorreo)
-      if (admin) {
+      const result = await verifyAdminAnyArea(adminDocumento, adminCorreo)
+      if (result) {
         sessionStorage.setItem("userType", "admin")
-        sessionStorage.setItem("userId", admin.id)
-        sessionStorage.setItem("userName", admin.nombres)
+        sessionStorage.setItem("userId", result.admin.id)
+        sessionStorage.setItem("userName", result.admin.nombres)
+        sessionStorage.setItem("adminArea", result.area)
         sessionStorage.setItem("isAdmin", "true")
         sessionStorage.setItem("isSuperAdmin", "false")
-        router.push("/estadisticas")
+        localStorage.setItem("selectedArea", result.area)
+        router.push("/usuarios")
       } else {
-        setError("No se encontró un administrador con estas credenciales")
+        setError("Credenciales incorrectas. Verifica tu documento y contraseña.")
       }
     } catch (err) {
       setError("Error al iniciar sesión")
@@ -203,13 +206,13 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="correo">Correo Electrónico</Label>
+              <Label htmlFor="correo">Contraseña</Label>
               <Input
                 id="correo"
-                type="email"
+                type="password"
                 value={adminCorreo}
                 onChange={(e) => setAdminCorreo(e.target.value)}
-                placeholder="Ingresa tu correo"
+                placeholder="Ingresa tu contraseña"
                 required
               />
             </div>

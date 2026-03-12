@@ -40,13 +40,15 @@ import {
 import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } from "@/lib/firestore"
 import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
 import { getAttendanceRecords } from "@/lib/storage"
-import type { UserProfile, GroupCategory } from "@/lib/types"
+import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter } from "@/lib/db-router"
+import type { UserProfile, GroupCategory, Area } from "@/lib/types"
 
 export default function ManagerGroupPage() {
   const params = useParams()
   const router = useRouter()
   const groupName = decodeURIComponent(params.grupo as string)
 
+  const [area, setArea] = useState<Area>("cultura")
   const [enrolledUsers, setEnrolledUsers] = useState<UserProfile[]>([])
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,32 +85,68 @@ export default function ManagerGroupPage() {
     const userType = sessionStorage.getItem("userType")
     const userRole = sessionStorage.getItem("userRole")
     const assignedGroup = sessionStorage.getItem("grupoCultural")
+    const userArea = sessionStorage.getItem("userArea") as Area
+
+    console.log("[Manager] Checking authentication...")
+    console.log("[Manager] User type:", userType)
+    console.log("[Manager] User role:", userRole)
+    console.log("[Manager] Assigned group:", assignedGroup)
+    console.log("[Manager] User area:", userArea)
+    console.log("[Manager] Current group:", groupName)
 
     if (userType !== "manager" || (userRole !== "DIRECTOR" && userRole !== "MONITOR")) {
+      console.log("[Manager] Invalid user type or role, redirecting to login")
       router.push("/login-manager")
       return
     }
 
     if (assignedGroup !== groupName) {
+      console.log("[Manager] Group mismatch, redirecting to login")
       router.push("/login-manager")
       return
     }
 
-    loadGroupData()
+    if (!userArea) {
+      console.log("[Manager] No area found, defaulting to cultura")
+      setArea("cultura")
+    } else {
+      console.log("[Manager] Setting area to:", userArea)
+      setArea(userArea)
+    }
+
+    loadGroupData(userArea || "cultura")
   }, [groupName, router])
 
   useEffect(() => {
     applyFilters()
   }, [searchName, filterFacultad, filterPrograma, filterCodigo, filterCategory, enrolledUsers])
 
-  async function loadGroupData() {
+  async function loadGroupData(currentArea: Area) {
     setLoading(true)
     try {
-      const enrollments = await getGroupEnrollments(groupName)
-      setEnrolledUsers(enrollments)
+      console.log("[Manager] Loading group data for area:", currentArea, "group:", groupName)
+      
+      // Get all users from the area
+      const allUsers = await getAllUsers(currentArea)
+      console.log("[Manager] Total users in area:", allUsers.length)
+      
+      // Filter users enrolled in this group by checking their enrollments
+      const enrolledUsersList: UserProfile[] = []
+      
+      for (const user of allUsers) {
+        const userEnrollments = await getUserEnrollments(currentArea, user.id)
+        const isEnrolled = userEnrollments.some(e => e.grupoCultural === groupName)
+        if (isEnrolled) {
+          enrolledUsersList.push(user)
+        }
+      }
+      
+      console.log("[Manager] Users enrolled in group:", enrolledUsersList.length)
+      setEnrolledUsers(enrolledUsersList)
 
+      // Load categories
       const categories: Record<string, GroupCategory> = {}
-      for (const user of enrollments) {
+      for (const user of enrolledUsersList) {
         const category = await getUserCategory(user.id, groupName)
         if (category) {
           categories[user.id] = category
@@ -116,19 +154,23 @@ export default function ManagerGroupPage() {
       }
       setUserCategories(categories)
 
-      const allAttendances = await getAttendanceRecords()
+      // Load attendance stats
+      const allAttendances = await getAttendanceRecordsRouter(currentArea)
+      console.log("[Manager] Total attendance records:", allAttendances.length)
+      
       const stats: Record<string, number> = {}
       
-      enrollments.forEach(user => {
+      enrolledUsersList.forEach(user => {
         const userAttendances = allAttendances.filter(
           a => a.numeroDocumento === user.numeroDocumento && a.grupoCultural === groupName
         )
         stats[user.id] = userAttendances.length
+        console.log("[Manager] User:", user.nombres, "Attendances:", userAttendances.length)
       })
       setAttendanceStats(stats)
 
     } catch (err) {
-      console.error("Error loading group data:", err)
+      console.error("[Manager] Error loading group data:", err)
       setError("Error al cargar los datos del grupo")
     } finally {
       setLoading(false)
@@ -146,7 +188,7 @@ export default function ManagerGroupPage() {
 
     if (filterCodigo.trim()) {
       filtered = filtered.filter(u =>
-        u.codigoEstudiante?.includes(filterCodigo)
+        u.codigoEstudiantil?.includes(filterCodigo)
       )
     }
 
@@ -199,16 +241,18 @@ export default function ManagerGroupPage() {
 
     setIsMarkingAttendance(true)
     try {
+      console.log("[Manager] Marking attendance for", selectedForAttendance.size, "users in area:", area)
       const promises = Array.from(selectedForAttendance).map(userId =>
-        saveAttendanceEntry(userId, groupName)
+        saveAttendanceEntryRouter(area, userId, groupName)
       )
       await Promise.all(promises)
 
       setSuccess(`Asistencia registrada para ${selectedForAttendance.size} usuario(s)`)
       setSelectedForAttendance(new Set())
-      await loadGroupData()
+      await loadGroupData(area)
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
+      console.error("[Manager] Error marking attendance:", err)
       setError("Error al registrar asistencia")
       setTimeout(() => setError(null), 3000)
     } finally {
@@ -239,7 +283,7 @@ export default function ManagerGroupPage() {
       setSuccess(`${selectedForCategory.size} usuario(s) asignado(s) a ${selectedCategory}`)
       setSelectedForCategory(new Set())
       setShowCategoryDialog(false)
-      await loadGroupData()
+      await loadGroupData(area)
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
       setError("Error al asignar categoría")
@@ -527,7 +571,11 @@ export default function ManagerGroupPage() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-sm md:text-base truncate">{user.nombres}</h4>
-                      <p className="text-xs text-gray-500 truncate">{user.codigoEstudiante || "Sin código"}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {user.area === 'deporte' && user.codigoEstudiantil 
+                          ? user.codigoEstudiantil 
+                          : user.codigoEstudiantil || "Sin código"}
+                      </p>
                       
                       <div className="flex flex-wrap gap-2 mt-2">
                         {userCategories[user.id] && (

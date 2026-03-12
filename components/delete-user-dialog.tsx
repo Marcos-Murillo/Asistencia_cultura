@@ -77,6 +77,12 @@ export default function DeleteUserDialog({ user, open, onOpenChange, onConfirm }
               <strong>Correo:</strong> {user.correo}
               <br />
               <strong>Documento:</strong> {user.numeroDocumento}
+              {user.area === 'deporte' && user.codigoEstudiantil && (
+                <>
+                  <br />
+                  <strong>Código Estudiantil:</strong> {user.codigoEstudiantil}
+                </>
+              )}
             </AlertDescription>
           </Alert>
 
