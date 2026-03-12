@@ -41,7 +41,8 @@ import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } fro
 import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
 import { getAttendanceRecords } from "@/lib/storage"
 import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter } from "@/lib/db-router"
-import type { UserProfile, GroupCategory, Area } from "@/lib/types"
+import type { UserProfile, GroupCategory } from "@/lib/types"
+import type { Area } from "@/lib/firebase-config"
 
 export default function ManagerGroupPage() {
   const params = useParams()

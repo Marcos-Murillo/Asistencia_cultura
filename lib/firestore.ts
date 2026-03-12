@@ -204,7 +204,7 @@ export async function getAttendanceRecords(): Promise<AttendanceRecord[]> {
         telefono: user.telefono,
         sede: user.sede,
         estamento: user.estamento,
-        codigoEstudiante: user.codigoEstudiante,
+        codigoEstudiantil: user.codigoEstudiantil,
         facultad: user.facultad,
         programaAcademico: user.programaAcademico,
         grupoCultural: attendanceData.grupoCultural,

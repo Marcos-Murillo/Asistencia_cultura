@@ -30,7 +30,7 @@ import {
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
 export default function ConvocatoriasPage() {
-  const area = 'cultura' // Área hardcoded para cultura
+  const area: 'cultura' = 'cultura' // Área hardcoded para cultura
   const { toast } = useToast()
   const [formData, setFormData] = useState<FormData>({
     nombres: "",
