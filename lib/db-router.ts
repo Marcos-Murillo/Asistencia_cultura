@@ -319,6 +319,47 @@ export async function getAttendanceRecords(area: Area): Promise<AttendanceRecord
   }
 }
 
+// Get attendance stats for a specific group (OPTIMIZED for managers)
+export async function getGroupAttendanceStats(
+  area: Area, 
+  grupoCultural: string,
+  userIds: string[]
+): Promise<Record<string, number>> {
+  validateAreaSpecified(area)
+  
+  try {
+    const db = getFirestoreForArea(area)
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    
+    // Query only attendance records for this specific group
+    const q = query(attendanceRef, where("grupoCultural", "==", grupoCultural))
+    const snapshot = await getDocs(q)
+    
+    console.log("[db-router] Found", snapshot.size, "attendance records for group:", grupoCultural, "in area:", area)
+    
+    // Count attendances per user
+    const stats: Record<string, number> = {}
+    
+    // Initialize all users with 0
+    userIds.forEach(userId => {
+      stats[userId] = 0
+    })
+    
+    // Count attendances
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      if (stats.hasOwnProperty(data.userId)) {
+        stats[data.userId]++
+      }
+    })
+    
+    return stats
+  } catch (error) {
+    console.error("[db-router] Error getting group attendance stats:", error)
+    return {}
+  }
+}
+
 // Get all events (area-aware)
 export async function getAllEvents(area: Area): Promise<Event[]> {
   // Requirement 13.5: Validate area is specified
@@ -787,55 +828,6 @@ export async function getUserEnrollments(area: Area, userId: string): Promise<Ar
     return enrollments
   } catch (error) {
     console.error("[db-router] Error getting user enrollments:", error)
-    throw error
-  }
-}
-
-// Get users enrolled in a specific group (optimized for managers)
-export async function getGroupEnrolledUsersRouter(area: Area, grupoCultural: string): Promise<UserProfile[]> {
-  validateAreaSpecified(area)
-  
-  try {
-    const db = getFirestoreForArea(area)
-    
-    // Get all enrollments for this group
-    const enrollmentsRef = collection(db, "group_enrollments")
-    const enrollmentQuery = query(enrollmentsRef, where("grupoCultural", "==", grupoCultural))
-    const enrollmentSnapshot = await getDocs(enrollmentQuery)
-    
-    if (enrollmentSnapshot.empty) {
-      console.log("[db-router] No enrollments found for group:", grupoCultural, "in area:", area)
-      return []
-    }
-    
-    // Get unique user IDs
-    const userIds = Array.from(new Set(enrollmentSnapshot.docs.map(doc => doc.data().userId)))
-    console.log("[db-router] Found", userIds.length, "unique users enrolled in group:", grupoCultural)
-    
-    // Fetch all users in batch
-    const usersRef = collection(db, USERS_COLLECTION)
-    const users: UserProfile[] = []
-    
-    // Firestore 'in' query limit is 10, so we batch
-    for (let i = 0; i < userIds.length; i += 10) {
-      const batch = userIds.slice(i, i + 10)
-      const userQuery = query(usersRef, where("__name__", "in", batch))
-      const userSnapshot = await getDocs(userQuery)
-      
-      userSnapshot.docs.forEach(doc => {
-        users.push({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: timestampToDate(doc.data().createdAt),
-          lastAttendance: timestampToDate(doc.data().lastAttendance),
-        } as UserProfile)
-      })
-    }
-    
-    console.log("[db-router] Retrieved", users.length, "user profiles for group:", grupoCultural, "in area:", area)
-    return users
-  } catch (error) {
-    console.error("[db-router] Error getting group enrolled users:", error)
     throw error
   }
 }
@@ -1400,25 +1392,40 @@ export async function getGroupEnrolledUsersRouter(
 
     console.log("[db-router] Found", snapshot.size, "enrollments for group:", grupoCultural, "in area:", area)
 
+    if (snapshot.empty) {
+      return []
+    }
+
+    // Get unique user IDs and enrollment dates
+    const userEnrollments = new Map<string, Date>()
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      userEnrollments.set(data.userId, timestampToDate(data.enrolledAt))
+    })
+
+    const userIds = Array.from(userEnrollments.keys())
     const enrolledUsers: Array<UserProfile & { fechaInscripcion: Date }> = []
 
-    for (const docSnap of snapshot.docs) {
-      const enrollmentData = docSnap.data()
-      const userRef = doc(db, USERS_COLLECTION, enrollmentData.userId)
-      const userSnap = await getDoc(userRef)
-
-      if (userSnap.exists()) {
-        const userData = userSnap.data()
+    // Fetch users in batches (Firestore 'in' limit is 10)
+    const usersRef = collection(db, USERS_COLLECTION)
+    for (let i = 0; i < userIds.length; i += 10) {
+      const batch = userIds.slice(i, i + 10)
+      const userQuery = query(usersRef, where("__name__", "in", batch))
+      const userSnapshot = await getDocs(userQuery)
+      
+      userSnapshot.docs.forEach(doc => {
+        const userData = doc.data()
         enrolledUsers.push({
-          id: userSnap.id,
+          id: doc.id,
           ...userData,
           createdAt: timestampToDate(userData.createdAt),
           lastAttendance: timestampToDate(userData.lastAttendance),
-          fechaInscripcion: timestampToDate(enrollmentData.enrolledAt),
+          fechaInscripcion: userEnrollments.get(doc.id)!,
         } as UserProfile & { fechaInscripcion: Date })
-      }
+      })
     }
 
+    console.log("[db-router] Retrieved", enrolledUsers.length, "user profiles for group:", grupoCultural, "in area:", area)
     return enrolledUsers.sort((a, b) => b.fechaInscripcion.getTime() - a.fechaInscripcion.getTime())
   } catch (error) {
     console.error("[db-router] Error getting group enrolled users:", error)

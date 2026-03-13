@@ -83,3 +83,24 @@ export async function getUserCategory(userId: string, grupoCultural: string): Pr
     return null
   }
 }
+
+// Obtener categorías de todos los usuarios de un grupo (OPTIMIZADO - BATCH)
+export async function getGroupCategoriesBatch(grupoCultural: string): Promise<Record<string, GroupCategory>> {
+  try {
+    const categoriesRef = collection(db, GROUP_CATEGORIES_COLLECTION)
+    const q = query(categoriesRef, where("grupoCultural", "==", grupoCultural))
+    const snapshot = await getDocs(q)
+
+    const categories: Record<string, GroupCategory> = {}
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      categories[data.userId] = data.category as GroupCategory
+    })
+
+    console.log("[group-categories] Retrieved", Object.keys(categories).length, "categories for group:", grupoCultural)
+    return categories
+  } catch (error) {
+    console.error("Error getting group categories batch:", error)
+    return {}
+  }
+}

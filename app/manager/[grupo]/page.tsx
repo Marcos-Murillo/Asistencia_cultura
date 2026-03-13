@@ -37,10 +37,8 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react"
-import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } from "@/lib/firestore"
-import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
-import { getAttendanceRecords } from "@/lib/storage"
-import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter, getGroupEnrolledUsersRouter } from "@/lib/db-router"
+import { assignUsersToCategory, getGroupCategoriesBatch } from "@/lib/group-categories"
+import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
 
@@ -127,36 +125,28 @@ export default function ManagerGroupPage() {
     try {
       console.log("[Manager] Loading group data for area:", currentArea, "group:", groupName)
       
-      // Get users enrolled in this specific group directly (optimized)
-      const enrolledUsersList = await getGroupEnrolledUsersRouter(currentArea, groupName)
+      // Execute all queries in parallel for maximum performance
+      const [enrolledUsersList, categories, stats] = await Promise.all([
+        // 1. Get users enrolled in this specific group (optimized with batch queries)
+        getGroupEnrolledUsersRouter(currentArea, groupName),
+        
+        // 2. Get all categories for this group in one query
+        getGroupCategoriesBatch(groupName),
+        
+        // 3. Get attendance stats filtered by group (will be set after we have user IDs)
+        Promise.resolve({} as Record<string, number>)
+      ])
       
       console.log("[Manager] Users enrolled in group:", enrolledUsersList.length)
       setEnrolledUsers(enrolledUsersList)
-
-      // Load categories
-      const categories: Record<string, GroupCategory> = {}
-      for (const user of enrolledUsersList) {
-        const category = await getUserCategory(user.id, groupName)
-        if (category) {
-          categories[user.id] = category
-        }
-      }
       setUserCategories(categories)
 
-      // Load attendance stats for this group only
-      const allAttendances = await getAttendanceRecordsRouter(currentArea)
-      console.log("[Manager] Total attendance records:", allAttendances.length)
-      
-      const stats: Record<string, number> = {}
-      
-      enrolledUsersList.forEach(user => {
-        const userAttendances = allAttendances.filter(
-          a => a.numeroDocumento === user.numeroDocumento && a.grupoCultural === groupName
-        )
-        stats[user.id] = userAttendances.length
-      })
-      setAttendanceStats(stats)
+      // Now get attendance stats with user IDs
+      const userIds = enrolledUsersList.map(u => u.id)
+      const attendanceStats = await getGroupAttendanceStats(currentArea, groupName, userIds)
+      setAttendanceStats(attendanceStats)
 
+      console.log("[Manager] Data loading complete")
     } catch (err) {
       console.error("[Manager] Error loading group data:", err)
       setError("Error al cargar los datos del grupo")
