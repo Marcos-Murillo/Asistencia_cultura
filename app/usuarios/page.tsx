@@ -34,7 +34,7 @@ import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updat
 import { getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
-import { GRUPOS_CULTURALES, GRUPOS_DEPORTIVOS } from "@/lib/data"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
 import { db } from "@/lib/firebase"
 import { getFirestoreForArea } from "@/lib/firebase-config"
 import { collection, query, where, getDocs } from "firebase/firestore"
@@ -97,6 +97,7 @@ export default function UsuariosPage() {
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("ESTUDIANTE")
   const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
+  const [availableGroups, setAvailableGroups] = useState<string[]>([])
 
   const loadUsers = async () => {
     try {
@@ -156,6 +157,11 @@ export default function UsuariosPage() {
     
     // Load users immediately after setting permissions
     loadUsers()
+
+    // Load groups dynamically from the database
+    getAllCulturalGroupsRouter(area).then(groups => {
+      setAvailableGroups(groups.filter(g => g.activo).map(g => g.nombre).sort())
+    }).catch(err => console.error("[Usuarios] Error loading groups:", err))
   }, [area])
 
   useEffect(() => {
@@ -430,8 +436,8 @@ export default function UsuariosPage() {
     .map(p => ({ value: p!, label: p! }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
-  // Opciones para el selector de grupos según el área
-  const gruposOptions: ComboboxOption[] = (area === 'deporte' ? GRUPOS_DEPORTIVOS : GRUPOS_CULTURALES).map((grupo) => ({
+  // Opciones para el selector de grupos según el área (cargadas dinámicamente)
+  const gruposOptions: ComboboxOption[] = availableGroups.map((grupo) => ({
     value: grupo,
     label: grupo,
   }))

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,11 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Search, X, Filter } from "lucide-react"
-import { FACULTADES, PROGRAMAS_POR_FACULTAD, GRUPOS_CULTURALES } from "@/lib/data"
+import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
+import type { Area } from "@/lib/firebase-config"
 
 interface AttendanceFiltersProps {
   onFiltersChange: (filters: FilterState) => void
   attendanceCount: number
+  area?: Area
 }
 
 export interface FilterState {
@@ -22,15 +25,21 @@ export interface FilterState {
   grupoCultural: string
 }
 
-export default function AttendanceFilters({ onFiltersChange, attendanceCount }: AttendanceFiltersProps) {
+export default function AttendanceFilters({ onFiltersChange, attendanceCount, area = 'cultura' }: AttendanceFiltersProps) {
   const [filters, setFilters] = useState<FilterState>({
     nombre: "",
     facultad: "defaultFacultad",
     programa: "defaultPrograma",
     grupoCultural: "defaultGrupoCultural",
   })
-
+  const [grupos, setGrupos] = useState<string[]>([])
   const [isExpanded, setIsExpanded] = useState(false)
+
+  useEffect(() => {
+    getAllCulturalGroupsRouter(area)
+      .then(groups => setGrupos(groups.filter(g => g.activo).map(g => g.nombre).sort()))
+      .catch(err => console.error("[AttendanceFilters] Error loading groups:", err))
+  }, [area])
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     const newFilters = { ...filters, [key]: value }
@@ -143,14 +152,14 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount }: 
 
           {/* Grupo Cultural */}
           <div className="space-y-2">
-            <Label>Grupo Cultural</Label>
+            <Label>Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</Label>
             <Select value={filters.grupoCultural} onValueChange={(value) => handleFilterChange("grupoCultural", value)}>
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar grupo" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="defaultGrupoCultural">Todos los grupos</SelectItem>
-                {GRUPOS_CULTURALES.map((grupo) => (
+                {grupos.map((grupo) => (
                   <SelectItem key={grupo} value={grupo}>
                     {grupo}
                   </SelectItem>
