@@ -28,6 +28,7 @@ import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import type { UserProfile } from "@/lib/types"
 import Loading from "./loading"
 import { useArea } from "@/contexts/area-context"
+import { formatNombre } from "@/lib/utils"
 
 type EnrolledUser = UserProfile & { fechaInscripcion: Date }
 
@@ -119,7 +120,7 @@ export default function GrupoDetallePage() {
       selectedColumns.forEach(key => {
         switch (key) {
           case "nombres":
-            row["Nombres"] = user.nombres
+            row["Nombres"] = formatNombre(user.nombres)
             break
           case "correo":
             row["Correo"] = user.correo
@@ -330,7 +331,7 @@ export default function GrupoDetallePage() {
                               </span>
                             </div>
                             <div>
-                              <p className="font-medium text-gray-900">{user.nombres}</p>
+                              <p className="font-medium text-gray-900">{formatNombre(user.nombres)}</p>
                               <Badge 
                                 variant="outline" 
                                 className={

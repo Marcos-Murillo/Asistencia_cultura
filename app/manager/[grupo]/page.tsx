@@ -41,6 +41,7 @@ import { assignUsersToCategory, getGroupCategoriesBatch } from "@/lib/group-cate
 import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
+import { formatNombre } from "@/lib/utils"
 
 export default function ManagerGroupPage() {
   const params = useParams()
@@ -320,7 +321,15 @@ export default function ManagerGroupPage() {
           <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{groupName}</h1>
             <p className="text-sm md:text-base text-gray-600 mt-1">
-              Panel de Gestión - {sessionStorage.getItem("userRole")}
+              {(() => {
+                const role = sessionStorage.getItem("userRole")
+                const name = sessionStorage.getItem("userName")
+                const roleLabel =
+                  role === "ENTRENADOR" ? "Entrenador" :
+                  role === "DIRECTOR" ? "Director" :
+                  role === "MONITOR" ? "Monitor" : role
+                return `Bienvenido ${roleLabel} ${name}`
+              })()}
             </p>
           </div>
 
@@ -548,7 +557,7 @@ export default function ManagerGroupPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-sm md:text-base truncate">{user.nombres}</h4>
+                      <h4 className="font-semibold text-sm md:text-base truncate">{formatNombre(user.nombres)}</h4>
                       <p className="text-xs text-gray-500 truncate">
                         {user.area === 'deporte' && user.codigoEstudiantil 
                           ? user.codigoEstudiantil 
@@ -639,7 +648,7 @@ export default function ManagerGroupPage() {
                       {index + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{item.user.nombres}</p>
+                      <p className="font-medium text-sm truncate">{formatNombre(item.user.nombres)}</p>
                       <p className="text-xs text-gray-500">{item.count} asistencias</p>
                     </div>
                   </div>

@@ -41,6 +41,7 @@ import { collection, query, where, getDocs } from "firebase/firestore"
 import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterStudentsByAssignment, type RolePermissions } from "@/lib/role-manager"
+import { formatNombre } from "@/lib/utils"
 import { 
   Users, 
   Search, 
@@ -605,7 +606,7 @@ export default function UsuariosPage() {
                                   </AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <div className="font-medium">{user.nombres}</div>
+                                  <div className="font-medium">{formatNombre(user.nombres)}</div>
                                   <div className="text-sm text-gray-500">{user.correo}</div>
                                   {user.area === 'deporte' && user.codigoEstudiantil && (
                                     <div className="text-xs text-blue-600 mt-1">
@@ -726,7 +727,7 @@ export default function UsuariosPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-2">{selectedUser.nombres}</h2>
+                        <h2 className="text-2xl font-bold mb-2">{formatNombre(selectedUser.nombres)}</h2>
                         <div className="flex flex-wrap gap-2 mb-3">
                           <Badge className="bg-white/20 text-white hover:bg-white/30">
                             {selectedUser.genero}

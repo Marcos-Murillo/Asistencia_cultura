@@ -1,15 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Search, X, Filter } from "lucide-react"
+import { Search, X, Filter, ChevronDown } from "lucide-react"
 import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
+import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import type { Area } from "@/lib/firebase-config"
 
 interface AttendanceFiltersProps {
@@ -25,6 +26,84 @@ export interface FilterState {
   grupoCultural: string
 }
 
+// Combobox con búsqueda para grupos
+function GrupoCombobox({
+  grupos,
+  value,
+  onChange,
+  label,
+}: {
+  grupos: string[]
+  value: string
+  onChange: (val: string) => void
+  label: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+
+  const filtered = search.trim()
+    ? grupos.filter(g => g.toLowerCase().includes(search.toLowerCase()))
+    : grupos
+
+  const displayValue = value === "defaultGrupoCultural" ? "" : value
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  return (
+    <div className="relative" ref={ref}>
+      <div
+        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer"
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className={displayValue ? "" : "text-muted-foreground"}>
+          {displayValue || `Todos los grupos`}
+        </span>
+        <ChevronDown className="h-4 w-4 opacity-50" />
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
+          <div className="p-2">
+            <Input
+              autoFocus
+              placeholder={`Buscar ${label.toLowerCase()}...`}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-8"
+            />
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            <div
+              className="px-3 py-2 text-sm cursor-pointer hover:bg-accent"
+              onClick={() => { onChange("defaultGrupoCultural"); setSearch(""); setOpen(false) }}
+            >
+              Todos los grupos
+            </div>
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-sm text-muted-foreground">Sin resultados</div>
+            )}
+            {filtered.map(g => (
+              <div
+                key={g}
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent ${value === g ? "bg-accent font-medium" : ""}`}
+                onClick={() => { onChange(g); setSearch(""); setOpen(false) }}
+              >
+                {g}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AttendanceFilters({ onFiltersChange, attendanceCount, area = 'cultura' }: AttendanceFiltersProps) {
   const [filters, setFilters] = useState<FilterState>({
     nombre: "",
@@ -36,9 +115,13 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
   const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
-    getAllCulturalGroupsRouter(area)
-      .then(groups => setGrupos(groups.filter(g => g.activo).map(g => g.nombre).sort()))
-      .catch(err => console.error("[AttendanceFilters] Error loading groups:", err))
+    if (area === 'deporte') {
+      setGrupos([...GRUPOS_DEPORTIVOS].sort())
+    } else {
+      getAllCulturalGroupsRouter(area)
+        .then(groups => setGrupos(groups.filter(g => g.activo).map(g => g.nombre).sort()))
+        .catch(err => console.error("[AttendanceFilters] Error loading groups:", err))
+    }
   }, [area])
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
@@ -150,22 +233,15 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
             </Select>
           </div>
 
-          {/* Grupo Cultural */}
+          {/* Grupo Cultural / Deportivo */}
           <div className="space-y-2">
             <Label>Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</Label>
-            <Select value={filters.grupoCultural} onValueChange={(value) => handleFilterChange("grupoCultural", value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar grupo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="defaultGrupoCultural">Todos los grupos</SelectItem>
-                {grupos.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <GrupoCombobox
+              grupos={grupos}
+              value={filters.grupoCultural}
+              onChange={(value) => handleFilterChange("grupoCultural", value)}
+              label={area === 'deporte' ? 'grupo deportivo' : 'grupo cultural'}
+            />
           </div>
         </div>
 
