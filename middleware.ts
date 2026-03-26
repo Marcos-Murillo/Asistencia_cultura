@@ -43,7 +43,7 @@ export const middleware: NextMiddleware = (req: NextRequest) => {
   }
 
   // No valid session → redirect to CDR
-  const cdrUrl = process.env.NEXT_PUBLIC_CDR_URL ?? 'http://localhost:3000'
+  const cdrUrl = process.env.CDR_URL ?? process.env.NEXT_PUBLIC_CDR_URL ?? 'https://landingcdr.vercel.app'
   return NextResponse.redirect(new URL(cdrUrl))
 }
 
