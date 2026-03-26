@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     const uid = (payload.uid ?? '') as string
 
     if (role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
-      return NextResponse.redirect(new URL('/', req.url))
+      const cdrUrl = process.env.CDR_URL ?? 'https://cdr-landing-ruddy.vercel.app'
+      return NextResponse.redirect(new URL(cdrUrl))
     }
 
     const sessionValue = buildSession(uid, nombre, role, area)
@@ -48,7 +49,9 @@ export async function GET(req: NextRequest) {
     setCookie(res, sessionValue)
     return res
   } catch {
-    return NextResponse.redirect(new URL('/', req.url))
+    // SSO_SECRET missing or token invalid — redirect to CDR
+    const cdrUrl = process.env.CDR_URL ?? 'https://cdr-landing-ruddy.vercel.app'
+    return NextResponse.redirect(new URL(cdrUrl))
   }
 }
 
