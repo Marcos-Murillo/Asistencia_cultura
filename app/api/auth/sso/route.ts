@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
 
+export const runtime = 'nodejs'
+
 const SSO_SECRET = new TextEncoder().encode(process.env.SSO_SECRET ?? '')
 const SESSION_COOKIE = 'asistencias_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -48,8 +50,10 @@ export async function GET(req: NextRequest) {
     const res = NextResponse.redirect(destination)
     setCookie(res, sessionValue)
     return res
-  } catch {
+  } catch (err) {
     // SSO_SECRET missing or token invalid — redirect to CDR
+    console.error('[sso GET] JWT verify failed:', err instanceof Error ? err.message : err)
+    console.error('[sso GET] SSO_SECRET present:', !!process.env.SSO_SECRET)
     const cdrUrl = process.env.CDR_URL ?? 'https://cdr-landing-ruddy.vercel.app'
     return NextResponse.redirect(new URL(cdrUrl))
   }
