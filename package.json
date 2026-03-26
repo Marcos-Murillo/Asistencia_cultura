@@ -33,6 +33,7 @@
     "firebase": "^12.1.0",
     "geist": "^1.4.2",
     "groq-sdk": "^0.37.0",
+    "jose": "^6.2.2",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.539.0",
