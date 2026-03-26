@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     const res = NextResponse.json({ ok: true, role, area })
     res.cookies.set(SESSION_COOKIE, sessionValue, {
-      httpOnly: true,
+      httpOnly: false,   // readable by client guards via document.cookie
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_TTL_MS / 1000,
