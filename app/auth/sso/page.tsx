@@ -1,9 +1,10 @@
 "use client"
 
+import { Suspense } from "react"
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-export default function SSOPage() {
+function SSOContent() {
   const router = useRouter()
   const params = useSearchParams()
   const [error, setError] = useState("")
@@ -29,7 +30,6 @@ export default function SSOPage() {
           return
         }
 
-        // Sync sessionStorage so existing pages work without changes
         const role: string = data.role
         const area: string = data.area
 
@@ -67,5 +67,17 @@ export default function SSOPage() {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <p style={{ color: "#6b7280", fontSize: 15 }}>Autenticando...</p>
     </div>
+  )
+}
+
+export default function SSOPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "#6b7280", fontSize: 15 }}>Cargando...</p>
+      </div>
+    }>
+      <SSOContent />
+    </Suspense>
   )
 }
