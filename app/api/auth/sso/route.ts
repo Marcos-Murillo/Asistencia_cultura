@@ -3,9 +3,56 @@ import { jwtVerify } from 'jose'
 
 const SSO_SECRET = new TextEncoder().encode(process.env.SSO_SECRET ?? '')
 const SESSION_COOKIE = 'asistencias_session'
-// 8 hours in ms
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 
+function buildSession(uid: string, nombre: string, role: string, area: string) {
+  return btoa(JSON.stringify({ uid, nombre, role, area, exp: Date.now() + SESSION_TTL_MS }))
+}
+
+function setCookie(res: NextResponse, value: string) {
+  res.cookies.set(SESSION_COOKIE, value, {
+    httpOnly: false, // readable by client guards
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_TTL_MS / 1000,
+    secure: process.env.NODE_ENV === 'production',
+  })
+}
+
+// GET /api/auth/sso?token=xxx&redirect=/super-admin
+// Called directly by the browser — sets cookie AND redirects in one response
+export async function GET(req: NextRequest) {
+  const { searchParams } = req.nextUrl
+  const token = searchParams.get('token')
+  const redirect = searchParams.get('redirect') ?? '/usuarios'
+
+  if (!token) {
+    return NextResponse.redirect(new URL('/', req.url))
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, SSO_SECRET)
+
+    const role = (payload.role ?? payload.rol) as string
+    const area = (payload.area ?? 'cultura') as string
+    const nombre = (payload.nombre ?? '') as string
+    const uid = (payload.uid ?? '') as string
+
+    if (role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/', req.url))
+    }
+
+    const sessionValue = buildSession(uid, nombre, role, area)
+    const destination = new URL(redirect, req.url)
+    const res = NextResponse.redirect(destination)
+    setCookie(res, sessionValue)
+    return res
+  } catch {
+    return NextResponse.redirect(new URL('/', req.url))
+  }
+}
+
+// POST kept for backward compatibility (returns JSON, used by guards as fallback)
 export async function POST(req: NextRequest) {
   try {
     const { token } = await req.json()
@@ -20,31 +67,13 @@ export async function POST(req: NextRequest) {
     const nombre = (payload.nombre ?? '') as string
     const uid = (payload.uid ?? '') as string
 
-    // Only SUPER_ADMIN and ADMIN are allowed through CDR SSO
     if (role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
       return NextResponse.json({ error: 'Rol no autorizado.' }, { status: 403 })
     }
 
-    // Build a lightweight session payload (no sensitive data)
-    const sessionData = {
-      uid,
-      nombre,
-      role,
-      area,
-      exp: Date.now() + SESSION_TTL_MS,
-    }
-
-    const sessionValue = btoa(JSON.stringify(sessionData))
-
+    const sessionValue = buildSession(uid, nombre, role, area)
     const res = NextResponse.json({ ok: true, role, area })
-    res.cookies.set(SESSION_COOKIE, sessionValue, {
-      httpOnly: false,   // readable by client guards via document.cookie
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_TTL_MS / 1000,
-      // secure: true — enable in production
-    })
-
+    setCookie(res, sessionValue)
     return res
   } catch (err) {
     console.error('[sso-validate]', err)
