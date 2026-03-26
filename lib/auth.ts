@@ -7,14 +7,20 @@ const ADMIN_USERS_COLLECTION = "admin_users"
 const GROUP_MANAGERS_COLLECTION = "group_managers"
 const USERS_COLLECTION = "user_profiles"
 
-// Super Admin credentials
+// Super Admin credentials - MOVED TO ENVIRONMENT VARIABLES
+// Set NEXT_PUBLIC_SUPER_ADMIN_USER and NEXT_PUBLIC_SUPER_ADMIN_PASSWORD in .env.local
 const SUPER_ADMIN = {
-  usuario: "1007260358",
-  password: "romanos812",
+  usuario: process.env.NEXT_PUBLIC_SUPER_ADMIN_USER || "",
+  password: process.env.NEXT_PUBLIC_SUPER_ADMIN_PASSWORD || "",
 }
 
 // Verificar super admin
 export function verifySuperAdmin(usuario: string, password: string): UserRole | null {
+  if (!SUPER_ADMIN.usuario || !SUPER_ADMIN.password) {
+    console.error("Super admin credentials not configured in environment variables")
+    return null
+  }
+  
   if (usuario === SUPER_ADMIN.usuario && password === SUPER_ADMIN.password) {
     return "SUPER_ADMIN"
   }

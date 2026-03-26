@@ -319,6 +319,47 @@ export async function getAttendanceRecords(area: Area): Promise<AttendanceRecord
   }
 }
 
+// Get attendance stats for a specific group (OPTIMIZED for managers)
+export async function getGroupAttendanceStats(
+  area: Area, 
+  grupoCultural: string,
+  userIds: string[]
+): Promise<Record<string, number>> {
+  validateAreaSpecified(area)
+  
+  try {
+    const db = getFirestoreForArea(area)
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    
+    // Query only attendance records for this specific group
+    const q = query(attendanceRef, where("grupoCultural", "==", grupoCultural))
+    const snapshot = await getDocs(q)
+    
+    console.log("[db-router] Found", snapshot.size, "attendance records for group:", grupoCultural, "in area:", area)
+    
+    // Count attendances per user
+    const stats: Record<string, number> = {}
+    
+    // Initialize all users with 0
+    userIds.forEach(userId => {
+      stats[userId] = 0
+    })
+    
+    // Count attendances
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      if (stats.hasOwnProperty(data.userId)) {
+        stats[data.userId]++
+      }
+    })
+    
+    return stats
+  } catch (error) {
+    console.error("[db-router] Error getting group attendance stats:", error)
+    return {}
+  }
+}
+
 // Get all events (area-aware)
 export async function getAllEvents(area: Area): Promise<Event[]> {
   // Requirement 13.5: Validate area is specified
@@ -1351,28 +1392,115 @@ export async function getGroupEnrolledUsersRouter(
 
     console.log("[db-router] Found", snapshot.size, "enrollments for group:", grupoCultural, "in area:", area)
 
+    if (snapshot.empty) {
+      return []
+    }
+
+    // Get unique user IDs and enrollment dates
+    const userEnrollments = new Map<string, Date>()
+    snapshot.docs.forEach(doc => {
+      const data = doc.data()
+      userEnrollments.set(data.userId, timestampToDate(data.enrolledAt))
+    })
+
+    const userIds = Array.from(userEnrollments.keys())
     const enrolledUsers: Array<UserProfile & { fechaInscripcion: Date }> = []
 
-    for (const docSnap of snapshot.docs) {
-      const enrollmentData = docSnap.data()
-      const userRef = doc(db, USERS_COLLECTION, enrollmentData.userId)
-      const userSnap = await getDoc(userRef)
-
-      if (userSnap.exists()) {
-        const userData = userSnap.data()
+    // Fetch users in batches (Firestore 'in' limit is 10)
+    const usersRef = collection(db, USERS_COLLECTION)
+    for (let i = 0; i < userIds.length; i += 10) {
+      const batch = userIds.slice(i, i + 10)
+      const userQuery = query(usersRef, where("__name__", "in", batch))
+      const userSnapshot = await getDocs(userQuery)
+      
+      userSnapshot.docs.forEach(doc => {
+        const userData = doc.data()
         enrolledUsers.push({
-          id: userSnap.id,
+          id: doc.id,
           ...userData,
           createdAt: timestampToDate(userData.createdAt),
           lastAttendance: timestampToDate(userData.lastAttendance),
-          fechaInscripcion: timestampToDate(enrollmentData.enrolledAt),
+          fechaInscripcion: userEnrollments.get(doc.id)!,
         } as UserProfile & { fechaInscripcion: Date })
-      }
+      })
     }
 
+    console.log("[db-router] Retrieved", enrolledUsers.length, "user profiles for group:", grupoCultural, "in area:", area)
     return enrolledUsers.sort((a, b) => b.fechaInscripcion.getTime() - a.fechaInscripcion.getTime())
   } catch (error) {
     console.error("[db-router] Error getting group enrolled users:", error)
     return []
+  }
+}
+
+// Update cultural group name (area-aware)
+export async function updateCulturalGroupName(area: Area, groupId: string, oldName: string, newName: string): Promise<void> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+
+    // Check if another group with the new name already exists
+    const existingGroups = await getAllCulturalGroups(area)
+    if (existingGroups.some(g => g.id !== groupId && g.nombre.toLowerCase() === newName.toLowerCase())) {
+      throw new Error("Ya existe un grupo con ese nombre")
+    }
+
+    // Update group name
+    const groupRef = doc(db, CULTURAL_GROUPS_COLLECTION, groupId)
+    await updateDoc(groupRef, { nombre: newName })
+
+    // Update all enrollments referencing the old name
+    const enrollmentsRef = collection(db, "group_enrollments")
+    const enrollmentsQuery = query(enrollmentsRef, where("grupoCultural", "==", oldName))
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+    await Promise.all(enrollmentsSnapshot.docs.map(d => updateDoc(d.ref, { grupoCultural: newName })))
+
+    // Update all attendance records referencing the old name
+    const attendanceRef = collection(db, "attendance_records")
+    const attendanceQuery = query(attendanceRef, where("grupoCultural", "==", oldName))
+    const attendanceSnapshot = await getDocs(attendanceQuery)
+    await Promise.all(attendanceSnapshot.docs.map(d => updateDoc(d.ref, { grupoCultural: newName })))
+
+    // Update group manager assignments
+    const managersRef = collection(db, "group_managers")
+    const managersQuery = query(managersRef, where("grupoCultural", "==", oldName))
+    const managersSnapshot = await getDocs(managersQuery)
+    await Promise.all(managersSnapshot.docs.map(d => updateDoc(d.ref, { grupoCultural: newName })))
+
+    console.log("[db-router] Group name updated from", oldName, "to", newName, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error updating cultural group name:", error)
+    throw error
+  }
+}
+
+// Delete cultural group (area-aware)
+export async function deleteCulturalGroup(area: Area, groupId: string, groupName: string): Promise<void> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+
+    // Delete the group document
+    const groupRef = doc(db, CULTURAL_GROUPS_COLLECTION, groupId)
+    await deleteDoc(groupRef)
+
+    // Delete all enrollments for this group
+    const enrollmentsRef = collection(db, "group_enrollments")
+    const enrollmentsQuery = query(enrollmentsRef, where("grupoCultural", "==", groupName))
+    const enrollmentsSnapshot = await getDocs(enrollmentsQuery)
+    await Promise.all(enrollmentsSnapshot.docs.map(d => deleteDoc(d.ref)))
+
+    // Remove group manager assignments
+    const managersRef = collection(db, "group_managers")
+    const managersQuery = query(managersRef, where("grupoCultural", "==", groupName))
+    const managersSnapshot = await getDocs(managersQuery)
+    await Promise.all(managersSnapshot.docs.map(d => deleteDoc(d.ref)))
+
+    console.log("[db-router] Group deleted:", groupName, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error deleting cultural group:", error)
+    throw error
   }
 }

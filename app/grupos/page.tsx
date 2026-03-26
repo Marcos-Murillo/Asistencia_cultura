@@ -32,9 +32,9 @@ import {
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search, Edit, Trash, Plus } from "lucide-react"
 import Link from "next/link"
-import { getAllGroupsWithEnrollments, getAllCulturalGroups, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, migrateEnrollmentsToCompositeIds, type CulturalGroup } from "@/lib/firestore"
-import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager } from "@/lib/db-router"
-import { GRUPOS_CULTURALES } from "@/lib/data"
+import { getAllGroupsWithEnrollments, getAllCulturalGroups, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, migrateEnrollmentsToCompositeIds } from "@/lib/firestore"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, type CulturalGroup } from "@/lib/db-router"
+
 import type { GroupWithEnrollments, UserProfile, GroupManager, UserRole } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterGroupsByAssignment, type RolePermissions } from "@/lib/role-manager"
@@ -265,7 +265,7 @@ export default function GruposPage() {
 
     setIsProcessing(true)
     try {
-      await createCulturalGroup(newGroupName.trim())
+      await createCulturalGroup(area, newGroupName.trim())
       setSuccess(`Grupo "${newGroupName}" creado exitosamente`)
       setNewGroupName("")
       setCreateDialogOpen(false)
@@ -294,7 +294,7 @@ export default function GruposPage() {
 
     setIsProcessing(true)
     try {
-      await updateCulturalGroupName(editingGroup.id, editingGroup.nombre, editedGroupName.trim())
+      await updateCulturalGroupName(area, editingGroup.id, editingGroup.nombre, editedGroupName.trim())
       setSuccess(`Grupo actualizado exitosamente`)
       setEditDialogOpen(false)
       setEditingGroup(null)
@@ -319,7 +319,7 @@ export default function GruposPage() {
 
     setIsProcessing(true)
     try {
-      await deleteCulturalGroup(deletingGroup.id, deletingGroup.nombre)
+      await deleteCulturalGroup(area, deletingGroup.id, deletingGroup.nombre)
       setSuccess(`Grupo "${deletingGroup.nombre}" eliminado exitosamente`)
       setDeleteDialogOpen(false)
       setDeletingGroup(null)
@@ -425,10 +425,10 @@ export default function GruposPage() {
       .slice(0, 2)
   }
 
-  // Preparar opciones para el Combobox
-  const gruposOptions: ComboboxOption[] = GRUPOS_CULTURALES.map((grupo) => ({
-    value: grupo,
-    label: grupo,
+  // Preparar opciones para el Combobox (usando grupos cargados dinámicamente)
+  const gruposOptions: ComboboxOption[] = culturalGroups.map((grupo) => ({
+    value: grupo.nombre,
+    label: grupo.nombre,
   }))
 
   const totalInscritos = filteredGroups.reduce((sum, g) => sum + g.totalInscritos, 0)

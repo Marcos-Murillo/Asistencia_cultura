@@ -34,13 +34,14 @@ import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updat
 import { getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
-import { GRUPOS_CULTURALES, GRUPOS_DEPORTIVOS } from "@/lib/data"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
 import { db } from "@/lib/firebase"
 import { getFirestoreForArea } from "@/lib/firebase-config"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterStudentsByAssignment, type RolePermissions } from "@/lib/role-manager"
+import { formatNombre } from "@/lib/utils"
 import { 
   Users, 
   Search, 
@@ -97,6 +98,7 @@ export default function UsuariosPage() {
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("ESTUDIANTE")
   const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
+  const [availableGroups, setAvailableGroups] = useState<string[]>([])
 
   const loadUsers = async () => {
     try {
@@ -156,6 +158,11 @@ export default function UsuariosPage() {
     
     // Load users immediately after setting permissions
     loadUsers()
+
+    // Load groups dynamically from the database
+    getAllCulturalGroupsRouter(area).then(groups => {
+      setAvailableGroups(groups.filter(g => g.activo).map(g => g.nombre).sort())
+    }).catch(err => console.error("[Usuarios] Error loading groups:", err))
   }, [area])
 
   useEffect(() => {
@@ -430,8 +437,8 @@ export default function UsuariosPage() {
     .map(p => ({ value: p!, label: p! }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
-  // Opciones para el selector de grupos según el área
-  const gruposOptions: ComboboxOption[] = (area === 'deporte' ? GRUPOS_DEPORTIVOS : GRUPOS_CULTURALES).map((grupo) => ({
+  // Opciones para el selector de grupos según el área (cargadas dinámicamente)
+  const gruposOptions: ComboboxOption[] = availableGroups.map((grupo) => ({
     value: grupo,
     label: grupo,
   }))
@@ -599,7 +606,7 @@ export default function UsuariosPage() {
                                   </AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <div className="font-medium">{user.nombres}</div>
+                                  <div className="font-medium">{formatNombre(user.nombres)}</div>
                                   <div className="text-sm text-gray-500">{user.correo}</div>
                                   {user.area === 'deporte' && user.codigoEstudiantil && (
                                     <div className="text-xs text-blue-600 mt-1">
@@ -720,7 +727,7 @@ export default function UsuariosPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-2">{selectedUser.nombres}</h2>
+                        <h2 className="text-2xl font-bold mb-2">{formatNombre(selectedUser.nombres)}</h2>
                         <div className="flex flex-wrap gap-2 mb-3">
                           <Badge className="bg-white/20 text-white hover:bg-white/30">
                             {selectedUser.genero}

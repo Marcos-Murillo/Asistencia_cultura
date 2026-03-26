@@ -30,7 +30,7 @@ import {
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
 export default function ConvocatoriasDeportePage() {
-  const area = 'deporte' // Área hardcoded para deporte
+  const area: 'deporte' = 'deporte' // Área hardcoded para deporte
   const { toast } = useToast()
   const [formData, setFormData] = useState<FormData>({
     nombres: "",

@@ -37,11 +37,11 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react"
-import { getGroupEnrolledUsers as getGroupEnrollments, saveAttendanceEntry } from "@/lib/firestore"
-import { assignUsersToCategory, getUserCategory } from "@/lib/group-categories"
-import { getAttendanceRecords } from "@/lib/storage"
-import { getUserEnrollments, getAllUsers, saveAttendanceEntry as saveAttendanceEntryRouter, getAttendanceRecords as getAttendanceRecordsRouter } from "@/lib/db-router"
-import type { UserProfile, GroupCategory, Area } from "@/lib/types"
+import { assignUsersToCategory, getGroupCategoriesBatch } from "@/lib/group-categories"
+import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
+import type { UserProfile, GroupCategory } from "@/lib/types"
+import type { Area } from "@/lib/firebase-config"
+import { formatNombre } from "@/lib/utils"
 
 export default function ManagerGroupPage() {
   const params = useParams()
@@ -126,49 +126,28 @@ export default function ManagerGroupPage() {
     try {
       console.log("[Manager] Loading group data for area:", currentArea, "group:", groupName)
       
-      // Get all users from the area
-      const allUsers = await getAllUsers(currentArea)
-      console.log("[Manager] Total users in area:", allUsers.length)
-      
-      // Filter users enrolled in this group by checking their enrollments
-      const enrolledUsersList: UserProfile[] = []
-      
-      for (const user of allUsers) {
-        const userEnrollments = await getUserEnrollments(currentArea, user.id)
-        const isEnrolled = userEnrollments.some(e => e.grupoCultural === groupName)
-        if (isEnrolled) {
-          enrolledUsersList.push(user)
-        }
-      }
+      // Execute all queries in parallel for maximum performance
+      const [enrolledUsersList, categories, stats] = await Promise.all([
+        // 1. Get users enrolled in this specific group (optimized with batch queries)
+        getGroupEnrolledUsersRouter(currentArea, groupName),
+        
+        // 2. Get all categories for this group in one query
+        getGroupCategoriesBatch(groupName),
+        
+        // 3. Get attendance stats filtered by group (will be set after we have user IDs)
+        Promise.resolve({} as Record<string, number>)
+      ])
       
       console.log("[Manager] Users enrolled in group:", enrolledUsersList.length)
       setEnrolledUsers(enrolledUsersList)
-
-      // Load categories
-      const categories: Record<string, GroupCategory> = {}
-      for (const user of enrolledUsersList) {
-        const category = await getUserCategory(user.id, groupName)
-        if (category) {
-          categories[user.id] = category
-        }
-      }
       setUserCategories(categories)
 
-      // Load attendance stats
-      const allAttendances = await getAttendanceRecordsRouter(currentArea)
-      console.log("[Manager] Total attendance records:", allAttendances.length)
-      
-      const stats: Record<string, number> = {}
-      
-      enrolledUsersList.forEach(user => {
-        const userAttendances = allAttendances.filter(
-          a => a.numeroDocumento === user.numeroDocumento && a.grupoCultural === groupName
-        )
-        stats[user.id] = userAttendances.length
-        console.log("[Manager] User:", user.nombres, "Attendances:", userAttendances.length)
-      })
-      setAttendanceStats(stats)
+      // Now get attendance stats with user IDs
+      const userIds = enrolledUsersList.map(u => u.id)
+      const attendanceStats = await getGroupAttendanceStats(currentArea, groupName, userIds)
+      setAttendanceStats(attendanceStats)
 
+      console.log("[Manager] Data loading complete")
     } catch (err) {
       console.error("[Manager] Error loading group data:", err)
       setError("Error al cargar los datos del grupo")
@@ -342,7 +321,15 @@ export default function ManagerGroupPage() {
           <div className="bg-white rounded-lg shadow-sm p-4 md:p-6">
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{groupName}</h1>
             <p className="text-sm md:text-base text-gray-600 mt-1">
-              Panel de Gestión - {sessionStorage.getItem("userRole")}
+              {(() => {
+                const role = sessionStorage.getItem("userRole")
+                const name = sessionStorage.getItem("userName")
+                const roleLabel =
+                  role === "ENTRENADOR" ? "Entrenador" :
+                  role === "DIRECTOR" ? "Director" :
+                  role === "MONITOR" ? "Monitor" : role
+                return `Bienvenido ${roleLabel} ${name}`
+              })()}
             </p>
           </div>
 
@@ -570,7 +557,7 @@ export default function ManagerGroupPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-sm md:text-base truncate">{user.nombres}</h4>
+                      <h4 className="font-semibold text-sm md:text-base truncate">{formatNombre(user.nombres)}</h4>
                       <p className="text-xs text-gray-500 truncate">
                         {user.area === 'deporte' && user.codigoEstudiantil 
                           ? user.codigoEstudiantil 
@@ -661,7 +648,7 @@ export default function ManagerGroupPage() {
                       {index + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{item.user.nombres}</p>
+                      <p className="font-medium text-sm truncate">{formatNombre(item.user.nombres)}</p>
                       <p className="text-xs text-gray-500">{item.count} asistencias</p>
                     </div>
                   </div>

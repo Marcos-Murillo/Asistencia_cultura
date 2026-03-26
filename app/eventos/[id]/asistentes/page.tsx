@@ -30,6 +30,7 @@ import { ArrowLeft, Download, Search, Users, Calendar, MapPin, Clock } from "luc
 import Link from "next/link"
 import * as XLSX from "xlsx"
 import { useArea } from "@/contexts/area-context"
+import { formatNombre } from "@/lib/utils"
 
 interface EventAttendee extends UserProfile {
   fechaAsistencia: Date
@@ -144,7 +145,7 @@ export default function EventoAsistentesPage() {
       selectedColumns.forEach(key => {
         switch (key) {
           case "nombres":
-            row["Nombres"] = a.nombres
+            row["Nombres"] = formatNombre(a.nombres)
             break
           case "correo":
             row["Correo"] = a.correo
@@ -411,7 +412,7 @@ export default function EventoAsistentesPage() {
                     <TableBody>
                       {paginatedAttendees.map((attendee, index) => (
                         <TableRow key={`${attendee.id}-${index}`}>
-                          <TableCell className="font-medium">{attendee.nombres}</TableCell>
+                          <TableCell className="font-medium">{formatNombre(attendee.nombres)}</TableCell>
                           <TableCell>{attendee.numeroDocumento}</TableCell>
                           <TableCell>{attendee.correo}</TableCell>
                           <TableCell>

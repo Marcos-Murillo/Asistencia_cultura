@@ -17,6 +17,7 @@ import { generatePDFReport } from "@/lib/pdf-generator"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { getCurrentUserRole, getAssignedGroups } from "@/lib/auth-helpers"
+import { formatNombre } from "@/lib/utils"
 
 export default function EstadisticasPage() {
   const { area } = useArea()
@@ -319,7 +320,7 @@ export default function EstadisticasPage() {
             </div>
           </div>
 
-          <AttendanceFilters onFiltersChange={handleFiltersChange} attendanceCount={filteredRecords.length} />
+          <AttendanceFilters onFiltersChange={handleFiltersChange} attendanceCount={filteredRecords.length} area={area} />
 
           {hasActiveFilters && (
             <Card>
@@ -353,7 +354,7 @@ export default function EstadisticasPage() {
                           .map((record) => (
                             <TableRow key={record.id}>
                               <TableCell className="font-medium">
-                                {record.nombres} 
+                                {formatNombre(record.nombres)} 
                               </TableCell>
                               <TableCell>
                                 <Badge
