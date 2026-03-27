@@ -220,9 +220,14 @@ export default function ManagerGroupPage() {
 
     setIsMarkingAttendance(true)
     try {
+      const managerId = sessionStorage.getItem("userId") || ""
+      const managerName = sessionStorage.getItem("userName") || ""
+      const managerRole = sessionStorage.getItem("userRole") || ""
+      const markedBy = { id: managerId, nombre: managerName, role: managerRole }
+
       console.log("[Manager] Marking attendance for", selectedForAttendance.size, "users in area:", area)
       const promises = Array.from(selectedForAttendance).map(userId =>
-        saveAttendanceEntryRouter(area, userId, groupName)
+        saveAttendanceEntryRouter(area, userId, groupName, markedBy)
       )
       await Promise.all(promises)
 

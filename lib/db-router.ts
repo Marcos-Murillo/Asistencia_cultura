@@ -1,5 +1,6 @@
-import { collection, addDoc, getDocs, doc, getDoc, updateDoc, Timestamp, serverTimestamp, query, where, setDoc, deleteDoc } from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, getDoc, updateDoc, Timestamp, serverTimestamp, query, where, setDoc, deleteDoc, writeBatch } from "firebase/firestore"
 import { getFirestoreForArea, type Area } from './firebase-config'
+import { GRUPOS_DEPORTIVOS } from './deporte-groups'
 import { 
   logCrossAreaAccess, 
   logRoutingError, 
@@ -223,26 +224,36 @@ export async function getUserById(area: Area, userId: string): Promise<UserProfi
 }
 
 // Save attendance entry (area-aware)
-export async function saveAttendanceEntry(area: Area, userId: string, grupoCultural: string): Promise<void> {
+export async function saveAttendanceEntry(
+  area: Area,
+  userId: string,
+  grupoCultural: string,
+  markedBy?: { id: string; nombre: string; role: string }
+): Promise<void> {
   // Requirement 13.5: Validate area is specified
   validateAreaSpecified(area)
   
   try {
     const db = getFirestoreForArea(area)
     
-    const attendanceEntry = {
+    const attendanceEntry: Record<string, any> = {
       userId,
       grupoCultural,
       timestamp: Timestamp.fromDate(new Date()),
     }
 
+    // Store who marked the attendance (manager info)
+    if (markedBy) {
+      attendanceEntry.markedById = markedBy.id
+      attendanceEntry.markedByNombre = markedBy.nombre
+      attendanceEntry.markedByRole = markedBy.role
+    }
+
     console.log("[db-router] Attempting to save attendance entry to area:", area)
-    console.log("[db-router] Attendance data:", attendanceEntry)
     await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceEntry)
     console.log("[db-router] Attendance entry saved successfully")
 
     // Update user's last attendance
-    console.log("[db-router] Updating user's last attendance for user:", userId)
     const userRef = doc(db, USERS_COLLECTION, userId)
     await updateDoc(userRef, {
       lastAttendance: Timestamp.fromDate(new Date()),
@@ -251,6 +262,93 @@ export async function saveAttendanceEntry(area: Area, userId: string, grupoCultu
   } catch (error) {
     console.error("[db-router] Error in saveAttendanceEntry:", error)
     throw error
+  }
+}
+
+// Get attendance notifications (records marked by managers, area-aware)
+export async function getAttendanceNotifications(area: Area): Promise<Array<{
+  id: string
+  grupoCultural: string
+  timestamp: Date
+  markedById: string
+  markedByNombre: string
+  markedByRole: string
+  userCount: number
+  userNames: string[]
+}>> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+
+    // Only get records that were marked by a manager
+    const q = query(attendanceRef, where("markedById", "!=", null))
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) return []
+
+    // Group by (markedById + grupoCultural + date-hour bucket) to aggregate
+    const buckets = new Map<string, {
+      id: string
+      grupoCultural: string
+      timestamp: Date
+      markedById: string
+      markedByNombre: string
+      markedByRole: string
+      userIds: Set<string>
+    }>()
+
+    // Get user names
+    const userIds = new Set<string>()
+    snapshot.docs.forEach(d => userIds.add(d.data().userId))
+
+    const usersRef = collection(db, USERS_COLLECTION)
+    const userMap = new Map<string, string>()
+    const userIdArray = Array.from(userIds)
+    for (let i = 0; i < userIdArray.length; i += 10) {
+      const batch = userIdArray.slice(i, i + 10)
+      const uq = query(usersRef, where("__name__", "in", batch))
+      const uSnap = await getDocs(uq)
+      uSnap.docs.forEach(d => userMap.set(d.id, d.data().nombres || ""))
+    }
+
+    snapshot.docs.forEach(d => {
+      const data = d.data()
+      const ts: Date = timestampToDate(data.timestamp)
+      // Bucket key: manager + group + YYYY-MM-DD-HH (group by hour)
+      const hourKey = `${ts.getFullYear()}-${ts.getMonth()}-${ts.getDate()}-${ts.getHours()}`
+      const key = `${data.markedById}_${data.grupoCultural}_${hourKey}`
+
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          id: key,
+          grupoCultural: data.grupoCultural,
+          timestamp: ts,
+          markedById: data.markedById,
+          markedByNombre: data.markedByNombre || "Desconocido",
+          markedByRole: data.markedByRole || "",
+          userIds: new Set(),
+        })
+      }
+      buckets.get(key)!.userIds.add(data.userId)
+    })
+
+    const result = Array.from(buckets.values()).map(b => ({
+      id: b.id,
+      grupoCultural: b.grupoCultural,
+      timestamp: b.timestamp,
+      markedById: b.markedById,
+      markedByNombre: b.markedByNombre,
+      markedByRole: b.markedByRole,
+      userCount: b.userIds.size,
+      userNames: Array.from(b.userIds).map(uid => userMap.get(uid) || uid).slice(0, 5),
+    }))
+
+    return result.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting attendance notifications:", error)
+    return []
   }
 }
 

@@ -17,7 +17,8 @@ import {
   UsersRound,
   FileText,
   Megaphone,
-  UserCog
+  UserCog,
+  Bell
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
@@ -56,6 +57,7 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
     { icon: Calendar, label: "Eventos", path: "/eventos" },
     { icon: BarChart3, label: "Estadísticas", path: "/estadisticas" },
     { icon: FileText, label: "Gráficas", path: "/graficas" },
+    { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]
 
   // Páginas exclusivas de Super Admin
