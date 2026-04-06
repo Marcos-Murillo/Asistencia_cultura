@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
       platform: string
     }
 
-    // Only SUPER_ADMIN and ADMIN can enter via CDR SSO
-    if (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN") {
+    // Only SUPER_ADMIN, ADMIN and MONITOR can enter via CDR SSO
+    if (payload.role !== "SUPER_ADMIN" && payload.role !== "ADMIN" && payload.role !== "MONITOR") {
       return NextResponse.json({ error: "Rol no autorizado." }, { status: 403 })
     }
 
