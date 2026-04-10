@@ -905,8 +905,9 @@ export async function enrollUserToGroup(area: Area, userId: string, grupoCultura
     
     console.log("[db-router] Starting enrollment process for user:", userId, "to group:", grupoCultural, "in area:", area)
     
-    // Use composite ID to ensure uniqueness
-    const enrollmentId = `${userId}_${grupoCultural.replace(/\s+/g, "_")}`
+    // Use composite ID to ensure uniqueness — strip all chars invalid in Firestore doc IDs
+    const safeGroupName = grupoCultural.replace(/[\s/\\\.#$\[\]]/g, "_")
+    const enrollmentId = `${userId}_${safeGroupName}`
     const enrollmentRef = doc(db, "group_enrollments", enrollmentId)
     
     // Check if document already exists
