@@ -1,6 +1,11 @@
 // Datos de referencia para el sistema
 
 export const GENEROS = ["MUJER", "HOMBRE", "OTRO"] as const
+export const GENEROS_LABELS: Record<string, string> = {
+  MUJER: "Femenino",
+  HOMBRE: "Masculino",
+  OTRO: "Otro",
+}
 
 export const ETNIAS = [
   "AFRO",

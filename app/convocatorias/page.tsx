@@ -13,6 +13,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { User, CheckCircle, AlertCircle, Calendar } from "lucide-react"
 import {
   GENEROS,
+  GENEROS_LABELS,
   ETNIAS,
   TIPOS_DOCUMENTO,
   SEDES,
@@ -171,6 +172,7 @@ export default function ConvocatoriasPage() {
         return !!(
           formData.nombres &&
           formData.correo &&
+          /^[^\s@]+@correounivalle\.edu\.co$/.test(formData.correo) &&
           formData.genero &&
           formData.etnia &&
           formData.tipoDocumento &&
@@ -182,10 +184,10 @@ export default function ConvocatoriasPage() {
         return !!(formData.sede && formData.estamento)
       case 3:
         if (formData.estamento === "ESTUDIANTE") {
-          return !!(formData.codigoEstudiantil && formData.facultad && formData.programaAcademico)
+          return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
         }
         if (formData.estamento === "EGRESADO") {
-          return !!(formData.facultad && formData.programaAcademico)
+          return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
         }
         return true
       case 4:
@@ -386,14 +388,20 @@ export default function ConvocatoriasPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="correo">Correo Electrónico *</Label>
+                <Label htmlFor="correo">Correo Institucional *</Label>
                 <Input
                   id="correo"
                   type="email"
                   value={formData.correo}
                   onChange={(e) => handleInputChange("correo", e.target.value)}
-                  placeholder="correo@ejemplo.com"
+                  placeholder="usuario@correounivalle.edu.co"
                 />
+                {formData.correo && !/^[^\s@]+@correounivalle\.edu\.co$/.test(formData.correo) && (
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Solo se permite correo @correounivalle.edu.co
+                  </p>
+                )}
               </div>
             </div>
 
@@ -407,7 +415,7 @@ export default function ConvocatoriasPage() {
                   <SelectContent>
                     {GENEROS.map((genero) => (
                       <SelectItem key={genero} value={genero}>
-                        {genero}
+                        {GENEROS_LABELS[genero]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -529,13 +537,27 @@ export default function ConvocatoriasPage() {
             <div className="space-y-4">
               {(formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") && (
                 <div className="space-y-2">
-                  <Label htmlFor="codigoEstudiantil">Código Estudiantil *</Label>
+                  <Label htmlFor="codigoEstudiantil">Código Estudiantil * (9 dígitos, ej: 202625413)</Label>
                   <Input
                     id="codigoEstudiantil"
                     value={formData.codigoEstudiantil}
-                    onChange={(e) => handleInputChange("codigoEstudiantil", e.target.value)}
-                    placeholder="Código estudiantil"
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 9)
+                      handleInputChange("codigoEstudiantil", val)
+                    }}
+                    placeholder="202625413"
+                    maxLength={9}
+                    inputMode="numeric"
                   />
+                  {formData.codigoEstudiantil && formData.codigoEstudiantil.length !== 9 && (
+                    <p className="text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      El código debe tener exactamente 9 dígitos
+                    </p>
+                  )}
+                  {(!formData.codigoEstudiantil || formData.codigoEstudiantil.length === 9) && (
+                    <p className="text-xs text-gray-500">Ingresa el código completo de 9 dígitos</p>
+                  )}
                 </div>
               )}
 
