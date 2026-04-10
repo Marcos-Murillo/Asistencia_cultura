@@ -133,17 +133,33 @@ function filterUndefinedValues(obj: any): any {
   return filtered
 }
 
-// Save user profile (area-aware)
+// Save user profile (area-aware) — validates no duplicate cedula/correo/nombre
 export async function saveUserProfile(
   area: Area,
   profile: Omit<UserProfile, "id" | "createdAt" | "lastAttendance">,
 ): Promise<string> {
-  // Requirement 13.5: Validate area is specified
   validateAreaSpecified(area)
   
   try {
     const db = getFirestoreForArea(area)
-    
+    const usersRef = collection(db, USERS_COLLECTION)
+
+    // Check duplicate by cedula
+    if (profile.numeroDocumento) {
+      const cedulaSnap = await getDocs(query(usersRef, where("numeroDocumento", "==", profile.numeroDocumento)))
+      if (!cedulaSnap.empty) {
+        throw new Error(`Ya existe un usuario registrado con el número de documento ${profile.numeroDocumento}. Si eres tú, selecciónate de la lista de sugerencias.`)
+      }
+    }
+
+    // Check duplicate by correo
+    if (profile.correo) {
+      const correoSnap = await getDocs(query(usersRef, where("correo", "==", profile.correo)))
+      if (!correoSnap.empty) {
+        throw new Error(`Ya existe un usuario registrado con el correo ${profile.correo}. Si eres tú, selecciónate de la lista de sugerencias.`)
+      }
+    }
+
     const userProfile = {
       ...profile,
       createdAt: serverTimestamp(),
@@ -159,6 +175,34 @@ export async function saveUserProfile(
   } catch (error) {
     console.error("[db-router] Error in saveUserProfile:", error)
     throw error
+  }
+}
+
+// Save user profile AND enroll to group atomically.
+// If enrollment fails, the newly created user is deleted to avoid orphan records.
+export async function saveUserProfileAndEnroll(
+  area: Area,
+  profile: Omit<UserProfile, "id" | "createdAt" | "lastAttendance">,
+  grupoCultural: string,
+): Promise<{ userId: string; enrollmentId: string }> {
+  validateAreaSpecified(area)
+
+  const userId = await saveUserProfile(area, profile)
+
+  try {
+    const enrollmentId = await enrollUserToGroup(area, userId, grupoCultural)
+    return { userId, enrollmentId }
+  } catch (enrollError) {
+    // Rollback: delete the user that was just created
+    console.error("[db-router] Enrollment failed after user creation, rolling back user:", userId)
+    try {
+      const db = getFirestoreForArea(area)
+      await deleteDoc(doc(db, USERS_COLLECTION, userId))
+      console.log("[db-router] Rollback successful — user deleted:", userId)
+    } catch (deleteError) {
+      console.error("[db-router] Rollback failed — orphan user may exist:", userId, deleteError)
+    }
+    throw enrollError
   }
 }
 
@@ -1211,13 +1255,26 @@ export async function assignGroupManager(
     console.log("[db-router] Assigning group manager in area:", area)
     console.log("[db-router] User:", userId, "Group:", grupoCultural)
     
-    // Verificar que el usuario no esté encargado de otro grupo
+    // En deporte, ENTRENADOR y MONITOR pueden estar en múltiples grupos
+    // En cultura, un encargado solo puede tener un grupo
     const managersRef = collection(db, GROUP_MANAGERS_COLLECTION)
     const q = query(managersRef, where("userId", "==", userId))
     const snapshot = await getDocs(q)
 
     if (!snapshot.empty) {
-      throw new Error("Este usuario ya está encargado de otro grupo")
+      if (area === 'deporte') {
+        // Verificar que no esté ya asignado a ESTE mismo grupo
+        const alreadyInGroup = snapshot.docs.some(
+          (d) => d.data().grupoCultural === grupoCultural
+        )
+        if (alreadyInGroup) {
+          throw new Error("Este entrenador ya está asignado a este grupo")
+        }
+        // En deporte se permite múltiples grupos — continuar
+      } else {
+        // En cultura: un encargado = un grupo
+        throw new Error("Este usuario ya está encargado de otro grupo")
+      }
     }
 
     const managerRef = doc(collection(db, GROUP_MANAGERS_COLLECTION))

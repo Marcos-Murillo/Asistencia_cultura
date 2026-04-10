@@ -31,10 +31,11 @@ export default function LoginManagerPage() {
         sessionStorage.setItem("userRole", result.user.rol || "")
         sessionStorage.setItem("userArea", result.area)
         sessionStorage.setItem("grupoCultural", result.grupoCultural)
+        sessionStorage.setItem("allGroups", JSON.stringify(result.allGroups))
         
         router.push(`/manager/${encodeURIComponent(result.grupoCultural)}`)
       } else {
-        setError("No se encontró un director o monitor con estas credenciales o no está asignado a ningún grupo")
+        setError("No se encontró un director, monitor o entrenador con estas credenciales o no está asignado a ningún grupo")
       }
     } catch (err) {
       setError("Error al iniciar sesión")

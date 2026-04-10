@@ -23,6 +23,7 @@ import {
 } from "@/lib/data"
 import {
   saveUserProfile,
+  saveUserProfileAndEnroll,
   findSimilarUsers,
   getActiveEvents,
   saveEventAttendance,
@@ -228,6 +229,11 @@ export default function ConvocatoriasDeportePage() {
       return
     }
 
+    if (isSubmitting) {
+      console.log("[Convocatorias] Submit already in progress, ignoring duplicate click")
+      return
+    }
+
     setIsSubmitting(true)
     setError("")
 
@@ -236,6 +242,8 @@ export default function ConvocatoriasDeportePage() {
 
       if (selectedUser) {
         userId = selectedUser.id
+        console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
+        await saveEventAttendance(area, userId, formData.eventoId)
       } else {
         const userProfile = {
           area,
@@ -266,10 +274,11 @@ export default function ConvocatoriasDeportePage() {
         console.log("[Convocatorias] Creating new user profile:", userProfile)
         userId = await saveUserProfile(area, userProfile)
         console.log("[Convocatorias] New user created with ID:", userId)
+
+        console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
+        await saveEventAttendance(area, userId, formData.eventoId)
       }
 
-      console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-      await saveEventAttendance(area, userId, formData.eventoId)
       console.log("[Convocatorias] Event attendance saved successfully")
 
       setSuccess(true)

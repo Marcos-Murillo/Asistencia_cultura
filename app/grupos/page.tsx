@@ -198,10 +198,16 @@ export default function GruposPage() {
     setSelectedGroup(groupName)
     setManagerDialogOpen(true)
     
-    // Cargar usuarios con rol de director o monitor del área actual
+    // Cargar usuarios con rol de encargado del área actual
+    // En deporte: ENTRENADOR y MONITOR pueden tener múltiples grupos
+    // En cultura: DIRECTOR y MONITOR (un grupo cada uno)
     try {
       const allUsers = await getAllUsersRouter(area)
-      const managers = allUsers.filter(u => u.rol === "DIRECTOR" || u.rol === "MONITOR")
+      const managers = allUsers.filter(u =>
+        area === 'deporte'
+          ? u.rol === "ENTRENADOR" || u.rol === "MONITOR"
+          : u.rol === "DIRECTOR" || u.rol === "MONITOR"
+      )
       setAvailableManagers(managers)
       console.log("[Grupos] Loaded", managers.length, "managers from area:", area)
     } catch (error) {

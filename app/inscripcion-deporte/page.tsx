@@ -23,6 +23,7 @@ import {
 } from "@/lib/data"
 import {
   saveUserProfile,
+  saveUserProfileAndEnroll,
   findSimilarUsers,
   enrollUserToGroup,
   getUserEnrollments,
@@ -318,7 +319,6 @@ export default function InscripcionDeporte() {
       return
     }
 
-    // Check if there's a validation error
     if (codigoEstudiantilError) {
       toast({
         title: "Error de validación",
@@ -337,6 +337,8 @@ export default function InscripcionDeporte() {
       if (selectedUser) {
         userId = selectedUser.id
         console.log("[Deporte] Using existing user ID:", userId)
+        console.log("[Deporte] Enrolling user to group:", userId, "group:", formData.grupoCultural)
+        await enrollUserToGroup('deporte', userId, formData.grupoCultural)
       } else {
         const userProfile = {
           nombres: formData.nombres,
@@ -363,14 +365,11 @@ export default function InscripcionDeporte() {
             }),
         }
 
-        console.log("[Deporte] Creating new user profile:", userProfile)
-        userId = await saveUserProfile('deporte', userProfile)
-        console.log("[Deporte] New user created with ID:", userId)
+        console.log("[Deporte] Creating new user profile + enrollment atomically")
+        const result = await saveUserProfileAndEnroll('deporte', userProfile, formData.grupoCultural)
+        userId = result.userId
+        console.log("[Deporte] User created and enrolled with ID:", userId)
       }
-
-      console.log("[Deporte] Enrolling user to group:", userId, "group:", formData.grupoCultural)
-      await enrollUserToGroup('deporte', userId, formData.grupoCultural)
-      console.log("[Deporte] User enrolled successfully")
 
       setSuccess(true)
       toast({

@@ -294,7 +294,7 @@ export async function verifyGroupManager(
   area: Area,
   numeroDocumento: string,
   correo: string,
-): Promise<{ user: UserProfile; grupoCultural: string } | null> {
+): Promise<{ user: UserProfile; grupoCultural: string; allGroups: string[] } | null> {
   try {
     const db = getFirestoreForArea(area)
     
@@ -309,17 +309,17 @@ export async function verifyGroupManager(
     const userData = userDoc.data() as UserProfile
     userData.id = userDoc.id
 
-    // Verificar que tenga rol de director o monitor
-    if (userData.rol !== "DIRECTOR" && userData.rol !== "MONITOR") return null
+    // Verificar que tenga rol de director, monitor o entrenador
+    if (userData.rol !== "DIRECTOR" && userData.rol !== "MONITOR" && userData.rol !== "ENTRENADOR") return null
 
-    // Buscar asignación de grupo
+    // Buscar todas las asignaciones de grupo
     const managersRef = collection(db, GROUP_MANAGERS_COLLECTION)
     const managerQuery = query(managersRef, where("userId", "==", userDoc.id))
     const managerSnapshot = await getDocs(managerQuery)
 
     if (managerSnapshot.empty) return null
 
-    const managerData = managerSnapshot.docs[0].data()
+    const allGroups = managerSnapshot.docs.map(d => d.data().grupoCultural as string)
 
     return {
       user: {
@@ -327,7 +327,8 @@ export async function verifyGroupManager(
         createdAt: userData.createdAt || new Date(),
         lastAttendance: userData.lastAttendance || new Date(),
       },
-      grupoCultural: managerData.grupoCultural,
+      grupoCultural: allGroups[0],
+      allGroups,
     }
   } catch (error) {
     console.error("Error verifying group manager:", error)
@@ -339,15 +340,13 @@ export async function verifyGroupManager(
 export async function verifyGroupManagerAnyArea(
   numeroDocumento: string,
   correo: string,
-): Promise<{ user: UserProfile; grupoCultural: string; area: Area } | null> {
+): Promise<{ user: UserProfile; grupoCultural: string; allGroups: string[]; area: Area } | null> {
   try {
-    // Intentar en cultura primero
     const culturaManager = await verifyGroupManager('cultura', numeroDocumento, correo)
     if (culturaManager) {
       return { ...culturaManager, area: 'cultura' }
     }
     
-    // Intentar en deporte
     const deporteManager = await verifyGroupManager('deporte', numeroDocumento, correo)
     if (deporteManager) {
       return { ...deporteManager, area: 'deporte' }

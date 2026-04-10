@@ -49,6 +49,7 @@ export default function ManagerGroupPage() {
   const groupName = decodeURIComponent(params.grupo as string)
 
   const [area, setArea] = useState<Area>("cultura")
+  const [allGroups, setAllGroups] = useState<string[]>([])
   const [enrolledUsers, setEnrolledUsers] = useState<UserProfile[]>([])
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,6 +87,7 @@ export default function ManagerGroupPage() {
     const userRole = sessionStorage.getItem("userRole")
     const assignedGroup = sessionStorage.getItem("grupoCultural")
     const userArea = sessionStorage.getItem("userArea") as Area
+    const storedGroups = sessionStorage.getItem("allGroups")
 
     console.log("[Manager] Checking authentication...")
     console.log("[Manager] User type:", userType)
@@ -94,27 +96,30 @@ export default function ManagerGroupPage() {
     console.log("[Manager] User area:", userArea)
     console.log("[Manager] Current group:", groupName)
 
-    if (userType !== "manager" || (userRole !== "DIRECTOR" && userRole !== "MONITOR")) {
+    if (userType !== "manager" || (userRole !== "DIRECTOR" && userRole !== "MONITOR" && userRole !== "ENTRENADOR")) {
       console.log("[Manager] Invalid user type or role, redirecting to login")
       router.push("/login-manager")
       return
     }
 
-    if (assignedGroup !== groupName) {
-      console.log("[Manager] Group mismatch, redirecting to login")
-      router.push("/login-manager")
+    // Cargar todos los grupos del entrenador
+    const groups: string[] = storedGroups ? JSON.parse(storedGroups) : (assignedGroup ? [assignedGroup] : [])
+    setAllGroups(groups)
+
+    // Verificar que el grupo actual sea uno de los asignados
+    if (!groups.includes(groupName)) {
+      console.log("[Manager] Group not in assigned list, redirecting to first group")
+      if (groups.length > 0) {
+        router.push(`/manager/${encodeURIComponent(groups[0])}`)
+      } else {
+        router.push("/login-manager")
+      }
       return
     }
 
-    if (!userArea) {
-      console.log("[Manager] No area found, defaulting to cultura")
-      setArea("cultura")
-    } else {
-      console.log("[Manager] Setting area to:", userArea)
-      setArea(userArea)
-    }
-
-    loadGroupData(userArea || "cultura")
+    const currentArea = userArea || "cultura"
+    setArea(currentArea)
+    loadGroupData(currentArea)
   }, [groupName, router])
 
   useEffect(() => {
@@ -336,6 +341,26 @@ export default function ManagerGroupPage() {
                 return `Bienvenido ${roleLabel} ${name}`
               })()}
             </p>
+            {allGroups.length > 1 && (
+              <div className="mt-4">
+                <p className="text-xs text-gray-500 mb-2 font-medium">Cambiar grupo:</p>
+                <div className="flex flex-wrap gap-2">
+                  {allGroups.map((g) => (
+                    <button
+                      key={g}
+                      onClick={() => router.push(`/manager/${encodeURIComponent(g)}`)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        g === groupName
+                          ? "bg-green-600 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-green-100 hover:text-green-700"
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {error && (

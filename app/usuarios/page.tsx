@@ -92,7 +92,8 @@ export default function UsuariosPage() {
   const [userToAssignGroup, setUserToAssignGroup] = useState<UserProfile | null>(null)
   const [selectedGroup, setSelectedGroup] = useState("")
   const [isAssigningGroup, setIsAssigningGroup] = useState(false)
-  const [userAssignedGroup, setUserAssignedGroup] = useState<string | null>(null)
+  const [userAssignedGroups, setUserAssignedGroups] = useState<{ id: string; grupoCultural: string }[]>([])
+  const [loadingAssignedGroups, setLoadingAssignedGroups] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false)
@@ -277,29 +278,29 @@ export default function UsuariosPage() {
     }
     
     setUserToAssignGroup(user)
+    setSelectedGroup("")
+    setUserAssignedGroups([])
     setGroupDialogOpen(true)
+    setLoadingAssignedGroups(true)
     
-    // Verificar si el usuario ya tiene un grupo asignado en el área actual
+    // Cargar todos los grupos asignados al usuario en el área actual
     try {
       const areaDb = getFirestoreForArea(area)
       const managersRef = collection(areaDb, "group_managers")
       const q = query(managersRef, where("userId", "==", user.id))
       const snapshot = await getDocs(q)
       
-      console.log("[Usuarios] Checking if user has assigned group in area:", area)
-      console.log("[Usuarios] Found", snapshot.size, "assignments")
-      
-      if (!snapshot.empty) {
-        const managerData = snapshot.docs[0].data()
-        setUserAssignedGroup(managerData.grupoCultural)
-        console.log("[Usuarios] User is already assigned to:", managerData.grupoCultural)
-      } else {
-        setUserAssignedGroup(null)
-        console.log("[Usuarios] User has no group assigned")
-      }
+      const assignments = snapshot.docs.map(d => ({
+        id: d.id,
+        grupoCultural: d.data().grupoCultural as string,
+      }))
+      setUserAssignedGroups(assignments)
+      console.log("[Usuarios] User has", assignments.length, "group assignments in area:", area)
     } catch (error) {
-      console.error("[Usuarios] Error checking user group:", error)
-      setUserAssignedGroup(null)
+      console.error("[Usuarios] Error checking user groups:", error)
+      setUserAssignedGroups([])
+    } finally {
+      setLoadingAssignedGroups(false)
     }
   }
 
@@ -311,10 +312,14 @@ export default function UsuariosPage() {
       const assignedBy = sessionStorage.getItem("userId") || "admin"
       await assignGroupManager(area, userToAssignGroup.id, selectedGroup, assignedBy)
       setSuccess(`${userToAssignGroup.nombres} asignado como encargado de ${selectedGroup}`)
-      await loadUsers()
-      setGroupDialogOpen(false)
+      // Refrescar lista de grupos asignados
+      const areaDb = getFirestoreForArea(area)
+      const managersRef = collection(areaDb, "group_managers")
+      const q = query(managersRef, where("userId", "==", userToAssignGroup.id))
+      const snapshot = await getDocs(q)
+      setUserAssignedGroups(snapshot.docs.map(d => ({ id: d.id, grupoCultural: d.data().grupoCultural })))
       setSelectedGroup("")
-      setUserAssignedGroup(null)
+      await loadUsers()
       setTimeout(() => setSuccess(null), 3000)
     } catch (error: any) {
       console.error("Error assigning group:", error)
@@ -325,27 +330,16 @@ export default function UsuariosPage() {
     }
   }
 
-  const handleRemoveGroup = async () => {
+  const handleRemoveGroupAssignment = async (managerId: string, groupName: string) => {
     if (!userToAssignGroup) return
 
     setIsAssigningGroup(true)
     try {
-      const areaDb = getFirestoreForArea(area)
-      const managersRef = collection(areaDb, "group_managers")
-      const q = query(managersRef, where("userId", "==", userToAssignGroup.id))
-      const snapshot = await getDocs(q)
-      
-      console.log("[Usuarios] Removing group assignment in area:", area)
-      console.log("[Usuarios] Found", snapshot.size, "assignments to remove")
-      
-      if (!snapshot.empty) {
-        await removeGroupManager(area, snapshot.docs[0].id)
-        setSuccess(`${userToAssignGroup.nombres} removido como encargado`)
-        await loadUsers()
-        setGroupDialogOpen(false)
-        setUserAssignedGroup(null)
-        setTimeout(() => setSuccess(null), 3000)
-      }
+      await removeGroupManager(area, managerId)
+      setUserAssignedGroups(prev => prev.filter(g => g.id !== managerId))
+      setSuccess(`${userToAssignGroup.nombres} removido de ${groupName}`)
+      await loadUsers()
+      setTimeout(() => setSuccess(null), 3000)
     } catch (error) {
       console.error("[Usuarios] Error removing group:", error)
       setError("Error al remover como encargado")
@@ -643,10 +637,10 @@ export default function UsuariosPage() {
                                         <UserCog className="h-4 w-4 mr-2" />
                                         Asignar Rol
                                       </DropdownMenuItem>
-                                      {(user.rol === "DIRECTOR" || user.rol === "MONITOR") && (
+                                      {(user.rol === "DIRECTOR" || user.rol === "MONITOR" || user.rol === "ENTRENADOR") && (
                                         <DropdownMenuItem onClick={() => handleAssignGroup(user)}>
                                           <UsersRound className="h-4 w-4 mr-2" />
-                                          Asignar como {area === 'deporte' ? 'Entrenador' : 'Encargado'}
+                                          {area === 'deporte' ? 'Gestionar Grupos' : 'Asignar como Encargado'}
                                         </DropdownMenuItem>
                                       )}
                                     </>
@@ -978,72 +972,88 @@ export default function UsuariosPage() {
           </Dialog>
 
           {/* Assign Group Dialog */}
-          <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+          <Dialog open={groupDialogOpen} onOpenChange={(open) => {
+            setGroupDialogOpen(open)
+            if (!open) { setSelectedGroup(""); setUserAssignedGroups([]) }
+          }}>
             <DialogContent className="w-[95vw] max-w-md mx-auto">
               <DialogHeader>
-                <DialogTitle className="text-lg md:text-xl">Asignar como {area === 'deporte' ? 'Entrenador' : 'Encargado'} de Grupo</DialogTitle>
+                <DialogTitle className="text-lg md:text-xl">
+                  {area === 'deporte' ? 'Grupos del Entrenador' : `Asignar como Encargado`}
+                </DialogTitle>
                 <DialogDescription className="text-sm">
-                  Asigna a {userToAssignGroup?.nombres} como {area === 'deporte' ? 'entrenador' : 'encargado'} de un grupo {area === 'deporte' ? 'deportivo' : 'cultural'}
+                  {userToAssignGroup?.nombres}
                 </DialogDescription>
               </DialogHeader>
               
-              <div className="space-y-4 py-4">
-                {userAssignedGroup && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <p className="text-xs md:text-sm text-amber-800">
-                      <strong>Grupo actual:</strong> {userAssignedGroup}
+              <div className="space-y-4 py-2">
+                {/* Grupos ya asignados */}
+                {loadingAssignedGroups ? (
+                  <div className="text-center py-4 text-sm text-gray-500">Cargando grupos asignados...</div>
+                ) : userAssignedGroups.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-700">
+                      Grupos asignados ({userAssignedGroups.length})
                     </p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {userAssignedGroups.map((assignment) => (
+                        <div key={assignment.id} className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                          <span className="text-sm text-green-800 font-medium truncate pr-2">{assignment.grupoCultural}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveGroupAssignment(assignment.id, assignment.grupoCultural)}
+                            disabled={isAssigningGroup}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0 shrink-0"
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                    Sin grupos asignados
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</label>
-                  <Combobox
-                    options={gruposOptions}
-                    value={selectedGroup}
-                    onValueChange={setSelectedGroup}
-                    placeholder="Selecciona un grupo"
-                    searchPlaceholder="Buscar grupo..."
-                    emptyText="No se encontró el grupo"
-                  />
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-xs md:text-sm text-blue-800">
-                    <strong>Nota:</strong> Un {area === 'deporte' ? 'entrenador' : 'director'}/monitor solo puede ser {area === 'deporte' ? 'entrenador' : 'encargado'} de un grupo a la vez.
-                  </p>
-                </div>
+                {/* Selector para asignar nuevo grupo */}
+                {!loadingAssignedGroups && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {userAssignedGroups.length > 0
+                        ? `Asignar otro grupo ${area === 'deporte' ? 'deportivo' : 'cultural'}`
+                        : `Asignar grupo ${area === 'deporte' ? 'deportivo' : 'cultural'}`
+                      }
+                    </label>
+                    <Combobox
+                      options={gruposOptions.filter(g => !userAssignedGroups.some(a => a.grupoCultural === g.value))}
+                      value={selectedGroup}
+                      onValueChange={setSelectedGroup}
+                      placeholder="Selecciona un grupo"
+                      searchPlaceholder="Buscar grupo..."
+                      emptyText="No hay más grupos disponibles"
+                    />
+                  </div>
+                )}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3">
-                {userAssignedGroup && (
-                  <Button
-                    variant="destructive"
-                    onClick={handleRemoveGroup}
-                    disabled={isAssigningGroup}
-                    className="flex-1 h-10 md:h-11"
-                  >
-                    {isAssigningGroup ? "Removiendo..." : `Quitar como ${area === 'deporte' ? 'Entrenador' : 'Encargado'}`}
-                  </Button>
-                )}
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setGroupDialogOpen(false)
-                    setSelectedGroup("")
-                    setUserAssignedGroup(null)
-                  }}
+                  onClick={() => { setGroupDialogOpen(false); setSelectedGroup(""); setUserAssignedGroups([]) }}
                   disabled={isAssigningGroup}
-                  className="flex-1 h-10 md:h-11"
+                  className="flex-1 h-10"
                 >
-                  Cancelar
+                  Cerrar
                 </Button>
                 <Button
                   onClick={confirmAssignGroup}
                   disabled={isAssigningGroup || !selectedGroup}
-                  className="flex-1 h-10 md:h-11"
+                  className="flex-1 h-10"
                 >
-                  {isAssigningGroup ? "Asignando..." : `Asignar como ${area === 'deporte' ? 'Entrenador' : 'Encargado'}`}
+                  {isAssigningGroup ? "Asignando..." : "Asignar"}
                 </Button>
               </div>
             </DialogContent>
