@@ -42,7 +42,7 @@ export const GRUPOS_DEPORTIVOS = [
   "Tejo Funcionarios Sintraunicol",
   "Mini Tejo Funcionarios Sintraunicol",
   "Mini Tejo Funcionarios Sintraempuvalle",
-  "Tenis de Campo Representativo Femenino y Masculino / Semillero Femenino y Masculino",
+  "Tenis de Campo Representativo Femenino y Masculino - Semillero Femenino y Masculino",
   "Tenis de Campo Funcionarios",
   "Tenis de Mesa Representativo Femenino y Masculino",
   "Tenis de Mesa Funcionarios",
