@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -199,7 +199,7 @@ export default function RegistroAsistencia() {
         return !!(
           formData.nombres &&
           formData.correo &&
-          /^[^\s@]+@correounivalle\.edu\.co$/.test(formData.correo) &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.correo) &&
           formData.genero &&
           formData.etnia &&
           formData.tipoDocumento &&
@@ -477,12 +477,12 @@ export default function RegistroAsistencia() {
                   type="email"
                   value={formData.correo}
                   onChange={(e) => handleInputChange("correo", e.target.value)}
-                  placeholder="usuario@correounivalle.edu.co"
+                  placeholder="correo@ejemplo.com"
                 />
-                {formData.correo && !/^[^\s@]+@correounivalle\.edu\.co$/.test(formData.correo) && (
+                {formData.correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.correo) && (
                   <p className="text-xs text-red-600 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
-                    Solo se permite correo @correounivalle.edu.co
+                    Ingresa un correo electrónico válido
                   </p>
                 )}
               </div>
