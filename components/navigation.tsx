@@ -78,14 +78,14 @@ export function Navigation() {
                       Grupos
                     </Button>
                   </Link>
-                  <Link href="/eventos">
+                  <Link href="/crear-convocatorias">
                     <Button
-                      variant={pathname.startsWith("/eventos") ? "default" : "ghost"}
+                      variant={pathname.startsWith("/crear-convocatorias") ? "default" : "ghost"}
                       size="sm"
                       className="flex items-center gap-2"
                     >
                       <Calendar className="w-4 h-4" />
-                      Eventos
+                      Convocatorias
                     </Button>
                   </Link>
                   <Link href="/usuarios">
@@ -205,14 +205,14 @@ export function Navigation() {
                     <span className="hidden lg:inline">Grupos</span>
                   </Button>
                 </Link>
-                <Link href="/eventos">
+                <Link href="/crear-convocatorias">
                   <Button
-                    variant={pathname.startsWith("/eventos") ? "default" : "ghost"}
+                    variant={pathname.startsWith("/crear-convocatorias") ? "default" : "ghost"}
                     size="sm"
                     className="flex items-center gap-1 md:gap-2 text-xs md:text-sm px-2 md:px-3 h-8 md:h-9"
                   >
                     <Calendar className="w-3 h-3 md:w-4 md:h-4" />
-                    <span className="hidden lg:inline">Eventos</span>
+                    <span className="hidden lg:inline">Convocatorias</span>
                   </Button>
                 </Link>
                 <Link href="/usuarios">

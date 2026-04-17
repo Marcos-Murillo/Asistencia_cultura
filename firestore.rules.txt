@@ -19,17 +19,25 @@ service cloud.firestore {
       allow read, write: if true;
     }
     
-    // Reglas existentes para events
+    // Convocatorias (antes "events")
     match /events/{eventId} {
       allow read, write: if true;
     }
     
-    // Reglas existentes para event_attendance_records
+    // Asistencias a convocatorias
     match /event_attendance_records/{recordId} {
       allow read, write: if true;
     }
-    
-    // NUEVAS REGLAS - Agregar estas colecciones
+
+    // Eventos reales (nueva colección separada de convocatorias)
+    match /real_events/{eventId} {
+      allow read, write: if true;
+    }
+
+    // Asistencias a eventos reales
+    match /real_event_attendance_records/{recordId} {
+      allow read, write: if true;
+    }
     
     // Usuarios administradores
     match /admin_users/{adminId} {
@@ -60,6 +68,3 @@ service cloud.firestore {
 // 4. Click en la pestaña "Reglas" (Rules)
 // 5. Copia y pega estas reglas
 // 6. Click en "Publicar" (Publish)
-
-// NOTA: Estas reglas permiten acceso completo (allow read, write: if true)
-// Para producción, considera agregar validaciones de autenticación más estrictas

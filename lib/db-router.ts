@@ -1660,3 +1660,158 @@ export async function deleteCulturalGroup(area: Area, groupId: string, groupName
     throw error
   }
 }
+
+// ============================================================================
+// REAL EVENTS (eventos reales, separados de convocatorias)
+// Colección: real_events / real_event_attendance_records
+// ============================================================================
+
+const REAL_EVENTS_COLLECTION = "real_events"
+const REAL_EVENT_ATTENDANCE_COLLECTION = "real_event_attendance_records"
+
+export async function getAllRealEvents(area: Area): Promise<Event[]> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const ref = collection(db, REAL_EVENTS_COLLECTION)
+    const snapshot = await getDocs(ref)
+    const events: Event[] = []
+    snapshot.forEach((d) => {
+      const data = d.data()
+      events.push({
+        id: d.id,
+        ...data,
+        fechaApertura: timestampToDate(data.fechaApertura),
+        fechaVencimiento: timestampToDate(data.fechaVencimiento),
+        createdAt: timestampToDate(data.createdAt),
+      } as Event)
+    })
+    return events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting real events:", error)
+    throw error
+  }
+}
+
+export async function getActiveRealEvents(area: Area): Promise<Event[]> {
+  validateAreaSpecified(area)
+  const all = await getAllRealEvents(area)
+  const now = new Date()
+  return all.filter(e => e.activo && new Date(e.fechaApertura) <= now && new Date(e.fechaVencimiento) >= now)
+}
+
+export async function createRealEvent(area: Area, eventData: Omit<Event, "id" | "createdAt" | "activo">): Promise<string> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const ref = collection(db, REAL_EVENTS_COLLECTION)
+    const docRef = await addDoc(ref, {
+      ...eventData,
+      fechaApertura: Timestamp.fromDate(new Date(eventData.fechaApertura)),
+      fechaVencimiento: Timestamp.fromDate(new Date(eventData.fechaVencimiento)),
+      createdAt: serverTimestamp(),
+      activo: true,
+    })
+    return docRef.id
+  } catch (error) {
+    console.error("[db-router] Error creating real event:", error)
+    throw error
+  }
+}
+
+export async function deleteRealEvent(area: Area, eventId: string): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await deleteDoc(doc(db, REAL_EVENTS_COLLECTION, eventId))
+    // Eliminar asistencias asociadas
+    const attRef = collection(db, REAL_EVENT_ATTENDANCE_COLLECTION)
+    const q = query(attRef, where("eventId", "==", eventId))
+    const snap = await getDocs(q)
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)))
+  } catch (error) {
+    console.error("[db-router] Error deleting real event:", error)
+    throw error
+  }
+}
+
+export async function toggleRealEventActive(area: Area, eventId: string, activo: boolean): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await updateDoc(doc(db, REAL_EVENTS_COLLECTION, eventId), { activo })
+  } catch (error) {
+    console.error("[db-router] Error toggling real event:", error)
+    throw error
+  }
+}
+
+export async function saveRealEventAttendance(area: Area, userId: string, eventId: string): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const attRef = collection(db, REAL_EVENT_ATTENDANCE_COLLECTION)
+    const existing = query(attRef, where("userId", "==", userId), where("eventId", "==", eventId))
+    const snap = await getDocs(existing)
+    if (!snap.empty) throw new Error("Ya estás inscrito en este evento")
+    await addDoc(attRef, { userId, eventId, timestamp: Timestamp.fromDate(new Date()) })
+    await updateDoc(doc(db, USERS_COLLECTION, userId), { lastAttendance: Timestamp.fromDate(new Date()) })
+  } catch (error) {
+    console.error("[db-router] Error saving real event attendance:", error)
+    throw error
+  }
+}
+
+export async function getUserRealEventEnrollments(area: Area, userId: string): Promise<string[]> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const attRef = collection(db, REAL_EVENT_ATTENDANCE_COLLECTION)
+    const q = query(attRef, where("userId", "==", userId))
+    const snap = await getDocs(q)
+    return snap.docs.map(d => d.data().eventId as string)
+  } catch (error) {
+    console.error("[db-router] Error getting user real event enrollments:", error)
+    return []
+  }
+}
+
+export async function getRealEventAttendanceRecords(area: Area): Promise<Array<{
+  entry: { id: string; userId: string; eventId: string; timestamp: Date }
+  user: UserProfile
+  eventName: string
+}>> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const [usersSnap, attSnap, eventsSnap] = await Promise.all([
+      getDocs(collection(db, USERS_COLLECTION)),
+      getDocs(collection(db, REAL_EVENT_ATTENDANCE_COLLECTION)),
+      getDocs(collection(db, REAL_EVENTS_COLLECTION)),
+    ])
+    const users = new Map<string, UserProfile>()
+    usersSnap.forEach(d => {
+      const data = d.data()
+      users.set(d.id, { id: d.id, ...data, createdAt: timestampToDate(data.createdAt), lastAttendance: timestampToDate(data.lastAttendance) } as UserProfile)
+    })
+    const events = new Map<string, string>()
+    eventsSnap.forEach(d => events.set(d.id, d.data().nombre))
+
+    const records: Array<{ entry: { id: string; userId: string; eventId: string; timestamp: Date }; user: UserProfile; eventName: string }> = []
+    attSnap.forEach(d => {
+      const data = d.data()
+      const user = users.get(data.userId)
+      if (user) {
+        records.push({
+          entry: { id: d.id, userId: data.userId, eventId: data.eventId, timestamp: timestampToDate(data.timestamp) },
+          user,
+          eventName: events.get(data.eventId) || "Evento desconocido",
+        })
+      }
+    })
+    return records
+  } catch (error) {
+    console.error("[db-router] Error getting real event attendance records:", error)
+    throw error
+  }
+}

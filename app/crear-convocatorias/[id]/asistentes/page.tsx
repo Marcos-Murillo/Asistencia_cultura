@@ -224,8 +224,8 @@ export default function EventoAsistentesPage() {
             <CardContent className="py-12">
               <div className="text-center text-gray-500">Evento no encontrado</div>
               <div className="text-center mt-4">
-                <Link href="/eventos">
-                  <Button variant="outline">Volver a Eventos</Button>
+                <Link href="/crear-convocatorias">
+                  <Button variant="outline">Volver a Convocatorias</Button>
                 </Link>
               </div>
             </CardContent>
@@ -241,7 +241,7 @@ export default function EventoAsistentesPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
           <div className="flex items-start gap-4">
-            <Link href="/eventos">
+            <Link href="/crear-convocatorias">
               <Button variant="outline" size="icon" className="bg-transparent">
                 <ArrowLeft className="h-4 w-4" />
               </Button>

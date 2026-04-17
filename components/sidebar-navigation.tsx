@@ -32,7 +32,7 @@ export function SidebarNavigation() {
     { icon: Home, label: "Inicio", path: "/" },
     { icon: Users, label: "Usuarios", path: "/usuarios" },
     { icon: Users2, label: "Grupos", path: "/grupos" },
-    { icon: Calendar, label: "Eventos", path: "/eventos" },
+    { icon: Calendar, label: "Convocatorias", path: "/crear-convocatorias" },
     { icon: UsersRound, label: "Equipos", path: "/equipos" },
     { icon: BarChart3, label: "Estadísticas", path: "/estadisticas" },
   ]

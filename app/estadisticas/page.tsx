@@ -1,16 +1,22 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp } from "lucide-react"
+import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp, Filter, X } from "lucide-react"
+import { FACULTADES, PROGRAMAS_POR_FACULTAD, ESTAMENTOS } from "@/lib/data"
+import { getAllCulturalGroups } from "@/lib/db-router"
+import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import Link from "next/link"
 import { GroupTrackingTable } from "@/components/group-tracking-table"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
-import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter } from "@/lib/db-router"
+import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter, getRealEventAttendanceRecords } from "@/lib/db-router"
 import { generateEventStats } from "@/lib/event-stats"
 import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
 import { generatePDFReport } from "@/lib/pdf-generator"
@@ -18,6 +24,51 @@ import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { getCurrentUserRole, getAssignedGroups } from "@/lib/auth-helpers"
 import { formatNombre } from "@/lib/utils"
+
+// Helper function to generate stats from records — fuera del componente para evitar re-renders
+function generateStatsFromRecords(records: AttendanceRecord[]): AttendanceStats {
+  const stats: AttendanceStats = {
+    totalParticipants: records.length,
+    byGender: { mujer: 0, hombre: 0, otro: 0 },
+    byProgram: {},
+    byFaculty: {},
+    byCulturalGroup: {},
+    byMonth: {},
+  }
+
+  records.forEach((record) => {
+    const gender = record.genero.toLowerCase() as "mujer" | "hombre" | "otro"
+    stats.byGender[gender]++
+
+    if (record.programaAcademico) {
+      if (!stats.byProgram[record.programaAcademico]) {
+        stats.byProgram[record.programaAcademico] = { mujer: 0, hombre: 0, otro: 0, total: 0 }
+      }
+      stats.byProgram[record.programaAcademico][gender]++
+      stats.byProgram[record.programaAcademico].total++
+    }
+
+    if (record.facultad) {
+      if (!stats.byFaculty[record.facultad]) {
+        stats.byFaculty[record.facultad] = { mujer: 0, hombre: 0, otro: 0, total: 0 }
+      }
+      stats.byFaculty[record.facultad][gender]++
+      stats.byFaculty[record.facultad].total++
+    }
+
+    if (!stats.byCulturalGroup[record.grupoCultural]) {
+      stats.byCulturalGroup[record.grupoCultural] = 0
+    }
+    stats.byCulturalGroup[record.grupoCultural]++
+
+    const monthKey = record.timestamp.toISOString().slice(0, 7)
+    if (!stats.byMonth[monthKey]) stats.byMonth[monthKey] = {}
+    if (!stats.byMonth[monthKey][record.grupoCultural]) stats.byMonth[monthKey][record.grupoCultural] = 0
+    stats.byMonth[monthKey][record.grupoCultural]++
+  })
+
+  return stats
+}
 
 export default function EstadisticasPage() {
   const { area } = useArea()
@@ -30,86 +81,29 @@ export default function EstadisticasPage() {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
+  const [allRealEventRecords, setAllRealEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
+  const [realEventStats, setRealEventStats] = useState<EventStats | null>(null)
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
   const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
+  const [isEventProgramTableOpen, setIsEventProgramTableOpen] = useState(false)
+  const [isEventFacultyTableOpen, setIsEventFacultyTableOpen] = useState(false)
+  const [isRealEventProgramTableOpen, setIsRealEventProgramTableOpen] = useState(false)
+  const [isRealEventFacultyTableOpen, setIsRealEventFacultyTableOpen] = useState(false)
   const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
+  const [grupos, setGrupos] = useState<string[]>([])
 
-  // Helper function to generate stats from records
-  const generateStatsFromRecords = (records: AttendanceRecord[]): AttendanceStats => {
-    console.log("[Estadisticas] generateStatsFromRecords:")
-    console.log("[Estadisticas] - Total records received:", records.length)
-    console.log("[Estadisticas] - Sample records:", records.slice(0, 3))
-    
-    const stats: AttendanceStats = {
-      totalParticipants: records.length,
-      byGender: {
-        mujer: 0,
-        hombre: 0,
-        otro: 0,
-      },
-      byProgram: {},
-      byFaculty: {},
-      byCulturalGroup: {},
-      byMonth: {},
-    }
+  // Filtros tabla por programa
+  const [progFacultad, setProgFacultad] = useState("all")
+  const [progFechaDesde, setProgFechaDesde] = useState("")
+  const [progFechaHasta, setProgFechaHasta] = useState("")
+  const [progEstamento, setProgEstamento] = useState("all")
+  const [progGrupo, setProgGrupo] = useState("all")
 
-    records.forEach((record) => {
-      // Estadísticas por género
-      const gender = record.genero.toLowerCase() as "mujer" | "hombre" | "otro"
-      stats.byGender[gender]++
-
-      // Estadísticas por programa académico
-      if (record.programaAcademico) {
-        if (!stats.byProgram[record.programaAcademico]) {
-          stats.byProgram[record.programaAcademico] = {
-            mujer: 0,
-            hombre: 0,
-            otro: 0,
-            total: 0,
-          }
-        }
-        stats.byProgram[record.programaAcademico][gender]++
-        stats.byProgram[record.programaAcademico].total++
-      }
-
-      // Estadísticas por facultad
-      if (record.facultad) {
-        if (!stats.byFaculty[record.facultad]) {
-          stats.byFaculty[record.facultad] = {
-            mujer: 0,
-            hombre: 0,
-            otro: 0,
-            total: 0,
-          }
-        }
-        stats.byFaculty[record.facultad][gender]++
-        stats.byFaculty[record.facultad].total++
-      }
-
-      // Estadísticas por grupo cultural
-      if (!stats.byCulturalGroup[record.grupoCultural]) {
-        stats.byCulturalGroup[record.grupoCultural] = 0
-      }
-      stats.byCulturalGroup[record.grupoCultural]++
-
-      // Estadísticas por mes
-      const monthKey = record.timestamp.toISOString().slice(0, 7) // YYYY-MM
-      if (!stats.byMonth[monthKey]) {
-        stats.byMonth[monthKey] = {}
-      }
-      if (!stats.byMonth[monthKey][record.grupoCultural]) {
-        stats.byMonth[monthKey][record.grupoCultural] = 0
-      }
-      stats.byMonth[monthKey][record.grupoCultural]++
-    })
-
-    console.log("[Estadisticas] Stats calculated:")
-    console.log("[Estadisticas] - Total participants:", stats.totalParticipants)
-    console.log("[Estadisticas] - By gender:", stats.byGender)
-    console.log("[Estadisticas] - By cultural group:", Object.keys(stats.byCulturalGroup).length, "groups")
-
-    return stats
-  }
+  // Filtros tabla por facultad
+  const [facFechaDesde, setFacFechaDesde] = useState("")
+  const [facFechaHasta, setFacFechaHasta] = useState("")
+  const [facEstamento, setFacEstamento] = useState("all")
+  const [facGrupo, setFacGrupo] = useState("all")
 
   // Set up user permissions
   useEffect(() => {
@@ -158,8 +152,13 @@ export default function EstadisticasPage() {
         const eventRecordsData = await getEventAttendanceRecordsRouter(area)
         console.log("[Estadisticas] Loaded", eventRecordsData.length, "event records from area:", area)
 
+        // Load real event records
+        const realEventRecordsData = await getRealEventAttendanceRecords(area)
+        console.log("[Estadisticas] Loaded", realEventRecordsData.length, "real event records from area:", area)
+
         setAllAttendanceRecords(filteredAttendanceRecords)
         setAllEventRecords(eventRecordsData)
+        setAllRealEventRecords(realEventRecordsData)
         setAllRecords(filteredAttendanceRecords)
 
         // Generate stats from filtered records
@@ -169,6 +168,9 @@ export default function EstadisticasPage() {
 
         const calculatedEventStats = generateEventStats(eventRecordsData)
         setEventStats(calculatedEventStats)
+
+        const calculatedRealEventStats = generateEventStats(realEventRecordsData)
+        setRealEventStats(calculatedRealEventStats)
         
         console.log("[Estadisticas] ========== DATA LOADED SUCCESSFULLY ==========")
       } catch (error) {
@@ -181,6 +183,59 @@ export default function EstadisticasPage() {
 
     loadData()
   }, [area, currentUserPermissions])
+
+  // Load grupos for filter dropdowns
+  useEffect(() => {
+    if (area === 'deporte') {
+      setGrupos([...GRUPOS_DEPORTIVOS].sort())
+    } else {
+      getAllCulturalGroups(area)
+        .then(gs => setGrupos(gs.filter(g => g.activo).map(g => g.nombre).sort()))
+        .catch(() => {})
+    }
+  }, [area])
+
+  // Filtered records for program table
+  const filteredProgRecords = useMemo(() => {
+    if (!allRecords.length) return allRecords
+    return allRecords.filter(r => {
+      if (progFacultad !== "all" && r.facultad !== progFacultad) return false
+      if (progEstamento !== "all" && r.estamento !== progEstamento) return false
+      if (progGrupo !== "all" && r.grupoCultural !== progGrupo) return false
+      if (progFechaDesde) {
+        const desde = new Date(progFechaDesde)
+        if (new Date(r.timestamp) < desde) return false
+      }
+      if (progFechaHasta) {
+        const hasta = new Date(progFechaHasta)
+        hasta.setHours(23, 59, 59)
+        if (new Date(r.timestamp) > hasta) return false
+      }
+      return true
+    })
+  }, [allRecords, progFacultad, progEstamento, progGrupo, progFechaDesde, progFechaHasta])
+
+  // Filtered records for faculty table
+  const filteredFacRecords = useMemo(() => {
+    if (!allRecords.length) return allRecords
+    return allRecords.filter(r => {
+      if (facEstamento !== "all" && r.estamento !== facEstamento) return false
+      if (facGrupo !== "all" && r.grupoCultural !== facGrupo) return false
+      if (facFechaDesde) {
+        const desde = new Date(facFechaDesde)
+        if (new Date(r.timestamp) < desde) return false
+      }
+      if (facFechaHasta) {
+        const hasta = new Date(facFechaHasta)
+        hasta.setHours(23, 59, 59)
+        if (new Date(r.timestamp) > hasta) return false
+      }
+      return true
+    })
+  }, [allRecords, facEstamento, facGrupo, facFechaDesde, facFechaHasta])
+
+  const progStats = useMemo(() => generateStatsFromRecords(filteredProgRecords), [filteredProgRecords])
+  const facStats = useMemo(() => generateStatsFromRecords(filteredFacRecords), [filteredFacRecords])
 
   const handleFiltersChange = (filters: FilterState) => {
     let filtered = allRecords
@@ -236,7 +291,7 @@ export default function EstadisticasPage() {
       console.log("[Estadisticas] Sample attendance record:", allAttendanceRecords[0])
       console.log("[Estadisticas] Sample event record:", allEventRecords[0])
       
-      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, area, eventStats || undefined)
+      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, area, eventStats || undefined, allRealEventRecords, realEventStats || undefined)
     } catch (error) {
       console.error("[Estadisticas] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
@@ -468,7 +523,62 @@ export default function EstadisticasPage() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <CardContent>
-                  {Object.keys(stats.byProgram).length > 0 ? (
+                  {/* Filtros */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Facultad</Label>
+                      <Select value={progFacultad} onValueChange={setProgFacultad}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Todas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las facultades</SelectItem>
+                          {FACULTADES.map(f => <SelectItem key={f} value={f}>{f.replace("FACULTAD DE ", "")}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</Label>
+                      <Select value={progGrupo} onValueChange={setProgGrupo}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Todos" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los grupos</SelectItem>
+                          {grupos.map(g => <SelectItem key={g} value={g}>{g.length > 40 ? g.slice(0, 40) + "…" : g}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Estamento</Label>
+                      <Select value={progEstamento} onValueChange={setProgEstamento}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Todos" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos</SelectItem>
+                          {ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Rango de fechas</Label>
+                      <div className="flex gap-1">
+                        <Input type="date" value={progFechaDesde} onChange={e => setProgFechaDesde(e.target.value)} className="h-8 text-xs" />
+                        <Input type="date" value={progFechaHasta} onChange={e => setProgFechaHasta(e.target.value)} className="h-8 text-xs" />
+                      </div>
+                    </div>
+                    {(progFacultad !== "all" || progGrupo !== "all" || progEstamento !== "all" || progFechaDesde || progFechaHasta) && (
+                      <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{filteredProgRecords.length} registros filtrados</span>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => { setProgFacultad("all"); setProgGrupo("all"); setProgEstamento("all"); setProgFechaDesde(""); setProgFechaHasta("") }}>
+                          <X className="h-3 w-3 mr-1" /> Limpiar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {Object.keys(progStats.byProgram).length > 0 ? (
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
@@ -481,31 +591,15 @@ export default function EstadisticasPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {Object.entries(stats.byProgram)
+                          {Object.entries(progStats.byProgram)
                             .sort(([, a], [, b]) => b.total - a.total)
                             .map(([programa, data]) => (
                               <TableRow key={programa}>
                                 <TableCell className="font-medium">{programa}</TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-                                    {data.mujer}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                                    {data.hombre}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                    {data.otro}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="default" className="bg-gray-800 text-white">
-                                    {data.total}
-                                  </Badge>
-                                </TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-pink-100 text-pink-800">{data.mujer}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-blue-100 text-blue-800">{data.hombre}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-purple-100 text-purple-800">{data.otro}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="default" className="bg-gray-800 text-white">{data.total}</Badge></TableCell>
                               </TableRow>
                             ))}
                         </TableBody>
@@ -539,7 +633,50 @@ export default function EstadisticasPage() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <CardContent>
-                  {Object.keys(stats.byFaculty).length > 0 ? (
+                  {/* Filtros */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Grupo {area === 'deporte' ? 'Deportivo' : 'Cultural'}</Label>
+                      <Select value={facGrupo} onValueChange={setFacGrupo}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Todos" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los grupos</SelectItem>
+                          {grupos.map(g => <SelectItem key={g} value={g}>{g.length > 40 ? g.slice(0, 40) + "…" : g}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Estamento</Label>
+                      <Select value={facEstamento} onValueChange={setFacEstamento}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Todos" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos</SelectItem>
+                          {ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Rango de fechas</Label>
+                      <div className="flex gap-1">
+                        <Input type="date" value={facFechaDesde} onChange={e => setFacFechaDesde(e.target.value)} className="h-8 text-xs" />
+                        <Input type="date" value={facFechaHasta} onChange={e => setFacFechaHasta(e.target.value)} className="h-8 text-xs" />
+                      </div>
+                    </div>
+                    {(facGrupo !== "all" || facEstamento !== "all" || facFechaDesde || facFechaHasta) && (
+                      <div className="sm:col-span-2 lg:col-span-3 flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{filteredFacRecords.length} registros filtrados</span>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => { setFacGrupo("all"); setFacEstamento("all"); setFacFechaDesde(""); setFacFechaHasta("") }}>
+                          <X className="h-3 w-3 mr-1" /> Limpiar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {Object.keys(facStats.byFaculty).length > 0 ? (
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
@@ -552,31 +689,15 @@ export default function EstadisticasPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {Object.entries(stats.byFaculty)
+                          {Object.entries(facStats.byFaculty)
                             .sort(([, a], [, b]) => b.total - a.total)
                             .map(([facultad, data]) => (
                               <TableRow key={facultad}>
                                 <TableCell className="font-medium">{facultad}</TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-pink-100 text-pink-800">
-                                    {data.mujer}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                                    {data.hombre}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                    {data.otro}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="default" className="bg-gray-800 text-white">
-                                    {data.total}
-                                  </Badge>
-                                </TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-pink-100 text-pink-800">{data.mujer}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-blue-100 text-blue-800">{data.hombre}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="secondary" className="bg-purple-100 text-purple-800">{data.otro}</Badge></TableCell>
+                                <TableCell className="text-center"><Badge variant="default" className="bg-gray-800 text-white">{data.total}</Badge></TableCell>
                               </TableRow>
                             ))}
                         </TableBody>
@@ -590,6 +711,7 @@ export default function EstadisticasPage() {
             </Card>
           </Collapsible>
 
+          {/* ── CONVOCATORIAS ── */}
           <GroupTrackingTable />
         </div>
       </div>

@@ -28,6 +28,9 @@ import {
   getActiveEvents,
   saveEventAttendance,
   getUserEventEnrollments,
+  getActiveRealEvents,
+  saveRealEventAttendance,
+  getUserRealEventEnrollments,
 } from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 
@@ -60,8 +63,10 @@ export default function ConvocatoriasDeportePage() {
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [activeEvents, setActiveEvents] = useState<Event[]>([])
+  const [activeRealEvents, setActiveRealEvents] = useState<Event[]>([])
   const [currentStep, setCurrentStep] = useState(1)
   const [userEventEnrollments, setUserEventEnrollments] = useState<string[]>([])
+  const [userRealEventEnrollments, setUserRealEventEnrollments] = useState<string[]>([])
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
@@ -151,6 +156,8 @@ export default function ConvocatoriasDeportePage() {
     // Cargar eventos en los que ya está inscrito
     const enrolledEvents = await getUserEventEnrollments(area, user.id)
     setUserEventEnrollments(enrolledEvents)
+    const enrolledRealEvents = await getUserRealEventEnrollments(area, user.id)
+    setUserRealEventEnrollments(enrolledRealEvents)
 
     toast({
       title: "Usuario reconocido",
@@ -216,8 +223,12 @@ export default function ConvocatoriasDeportePage() {
 
   async function loadActiveEvents() {
     try {
-      const events = await getActiveEvents(area)
-      setActiveEvents(events)
+      const [convocatorias, eventos] = await Promise.all([
+        getActiveEvents(area),
+        getActiveRealEvents(area),
+      ])
+      setActiveEvents(convocatorias)
+      setActiveRealEvents(eventos)
     } catch (error) {
       console.error("Error cargando eventos activos:", error)
     }
@@ -243,7 +254,12 @@ export default function ConvocatoriasDeportePage() {
       if (selectedUser) {
         userId = selectedUser.id
         console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-        await saveEventAttendance(area, userId, formData.eventoId)
+        const isRealEvent = activeRealEvents.some(e => e.id === formData.eventoId)
+        if (isRealEvent) {
+          await saveRealEventAttendance(area, userId, formData.eventoId)
+        } else {
+          await saveEventAttendance(area, userId, formData.eventoId)
+        }
       } else {
         const userProfile = {
           area,
@@ -276,7 +292,12 @@ export default function ConvocatoriasDeportePage() {
         console.log("[Convocatorias] New user created with ID:", userId)
 
         console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-        await saveEventAttendance(area, userId, formData.eventoId)
+        const isRealEvent2 = activeRealEvents.some(e => e.id === formData.eventoId)
+        if (isRealEvent2) {
+          await saveRealEventAttendance(area, userId, formData.eventoId)
+        } else {
+          await saveEventAttendance(area, userId, formData.eventoId)
+        }
       }
 
       console.log("[Convocatorias] Event attendance saved successfully")
@@ -305,6 +326,7 @@ export default function ConvocatoriasDeportePage() {
         setSelectedUser(null)
         setSimilarUsers([])
         setUserEventEnrollments([])
+        setUserRealEventEnrollments([])
       }, 3000)
     } catch (error: any) {
       console.error("Error saving event attendance:", error)
@@ -624,74 +646,95 @@ export default function ConvocatoriasDeportePage() {
   }
 
   const renderEventSelection = () => {
-    if (activeEvents.length === 0) {
+    const availableConvocatorias = activeEvents.filter(e => !userEventEnrollments.includes(e.id))
+    const enrolledConvocatorias = activeEvents.filter(e => userEventEnrollments.includes(e.id))
+    const availableRealEvents = activeRealEvents.filter(e => !userRealEventEnrollments.includes(e.id))
+    const enrolledRealEvents = activeRealEvents.filter(e => userRealEventEnrollments.includes(e.id))
+
+    const allEnrolled = [...enrolledConvocatorias, ...enrolledRealEvents]
+    const totalAvailable = availableConvocatorias.length + availableRealEvents.length
+
+    if (activeEvents.length === 0 && activeRealEvents.length === 0) {
       return (
         <Alert className="border-amber-200 bg-amber-50">
           <AlertCircle className="h-4 w-4 text-amber-600" />
           <AlertDescription className="text-amber-800">
-            <strong>No hay eventos disponibles en este momento.</strong>
-            <p className="text-sm mt-1">Por favor vuelve más tarde para ver las convocatorias activas.</p>
+            <strong>No hay convocatorias ni eventos disponibles en este momento.</strong>
+            <p className="text-sm mt-1">Por favor vuelve más tarde.</p>
           </AlertDescription>
         </Alert>
       )
     }
 
-    const availableEvents = activeEvents.filter(e => !userEventEnrollments.includes(e.id))
-    const enrolledEvents = activeEvents.filter(e => userEventEnrollments.includes(e.id))
+    const selectedEventInfo = [
+      ...activeEvents.map(e => ({ ...e, _tipo: "convocatoria" as const })),
+      ...activeRealEvents.map(e => ({ ...e, _tipo: "evento" as const })),
+    ].find(e => e.id === formData.eventoId)
 
     return (
       <div className="space-y-4">
-        {enrolledEvents.length > 0 && (
+        {allEnrolled.length > 0 && (
           <Alert className="border-green-200 bg-green-50">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800">
               <strong>Ya estás inscrito en:</strong>
               <ul className="mt-2 space-y-1 text-sm">
-                {enrolledEvents.map((evento) => (
-                  <li key={evento.id}>• {evento.nombre}</li>
-                ))}
+                {allEnrolled.map(e => <li key={e.id}>• {e.nombre}</li>)}
               </ul>
             </AlertDescription>
           </Alert>
         )}
 
-        {availableEvents.length === 0 && enrolledEvents.length > 0 ? (
+        {totalAvailable === 0 && allEnrolled.length > 0 ? (
           <Alert className="border-blue-200 bg-blue-50">
             <AlertCircle className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-800">
-              <strong>Ya estás inscrito en todos los eventos disponibles.</strong>
-              <p className="text-sm mt-1">No hay más eventos disponibles para inscripción en este momento.</p>
+              <strong>Ya estás inscrito en todas las convocatorias y eventos disponibles.</strong>
             </AlertDescription>
           </Alert>
         ) : (
           <>
             <div className="space-y-2">
-              <Label htmlFor="eventoId">Selecciona el Evento *</Label>
+              <Label htmlFor="eventoId">Selecciona la Convocatoria o Evento *</Label>
               <Select value={formData.eventoId} onValueChange={(value) => handleInputChange("eventoId", value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un evento" />
+                  <SelectValue placeholder="Selecciona una opción" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableEvents.map((evento) => (
-                    <SelectItem key={evento.id} value={evento.id}>
-                      {evento.nombre} - {evento.hora} ({evento.lugar})
-                    </SelectItem>
-                  ))}
+                  {availableConvocatorias.length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-purple-600 bg-purple-50">CONVOCATORIAS</div>
+                      {availableConvocatorias.map(e => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.nombre} - {e.hora} ({e.lugar})
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {availableRealEvents.length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50">EVENTOS</div>
+                      {availableRealEvents.map(e => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.nombre} - {e.hora} ({e.lugar})
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
-            {formData.eventoId && (
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            {selectedEventInfo && (
+              <div className={`p-4 rounded-lg border ${selectedEventInfo._tipo === "evento" ? "bg-blue-50 border-blue-200" : "bg-purple-50 border-purple-200"}`}>
                 <div className="flex items-start gap-3">
-                  <Calendar className="h-5 w-5 text-blue-600 mt-0.5" />
-                  <div className="text-sm text-blue-800">
-                    <p className="font-medium">Información del Evento</p>
-                    <p className="mt-1">
-                      {activeEvents.find((e) => e.id === formData.eventoId)?.nombre}
+                  <Calendar className={`h-5 w-5 mt-0.5 ${selectedEventInfo._tipo === "evento" ? "text-blue-600" : "text-purple-600"}`} />
+                  <div className="text-sm">
+                    <p className={`font-medium ${selectedEventInfo._tipo === "evento" ? "text-blue-800" : "text-purple-800"}`}>
+                      {selectedEventInfo._tipo === "evento" ? "Evento" : "Convocatoria"}: {selectedEventInfo.nombre}
                     </p>
-                    <p className="text-xs mt-1 text-blue-600">
-                      Asegúrate de seleccionar el evento correcto antes de confirmar tu inscripción.
+                    <p className="text-xs mt-1 text-gray-500">
+                      Asegúrate de seleccionar la opción correcta antes de confirmar tu inscripción.
                     </p>
                   </div>
                 </div>

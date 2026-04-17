@@ -9,6 +9,8 @@ export async function generatePDFReport(
   eventRecords: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   area: Area,
   eventStats?: EventStats,
+  realEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
+  realEventStats?: EventStats,
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
   console.log("[PDF] Area:", area)
@@ -49,26 +51,25 @@ export async function generatePDFReport(
   currentY += 10
 
   const totalGruposCulturales = stats.totalParticipants
-  const totalEventos = eventStats?.totalParticipants || 0
-  const totalGeneral = totalGruposCulturales + totalEventos
+  const totalConvocatorias = eventStats?.totalParticipants || 0
+  const totalRealEventos = realEventStats?.totalParticipants || 0
+  const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos
 
   const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
     .size
 
-  const uniqueUsersInEvents = new Set(
-    eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
-  ).size
-
-  // Combinar usuarios de grupos y eventos
+  // Combinar usuarios de grupos, convocatorias y eventos reales
   const allUniqueUsers = new Set([
     ...attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`),
     ...eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
+    ...(realEventRecords || []).map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
   ]).size
 
   const summaryData = [
-    ["Total de usuarios", allUniqueUsers.toString()],
-    [`Participaciones en ${gruposLabel}`, totalGruposCulturales.toString()],
-    ["Participaciones en Eventos", totalEventos.toString()],
+    ["Total de usuarios únicos", allUniqueUsers.toString()],
+    [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
+    ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
+    ["Inscripciones en Eventos", totalRealEventos.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
 
@@ -392,16 +393,15 @@ export async function generatePDFReport(
     doc.addPage()
     currentY = 20
 
-    // Título para sección de eventos
     doc.setFontSize(18)
     doc.setFont("helvetica", "bold")
-    doc.text("EVENTOS ESPECIALES", 14, currentY)
+    doc.text("CONVOCATORIAS", 14, currentY)
     currentY += 15
 
-    // 5. TABLA: Total de Participaciones por Género (Eventos)
+    // 5. Género convocatorias
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
-    doc.text("5. PARTICIPACIONES EN EVENTOS POR GÉNERO", 14, currentY)
+    doc.text("5. PARTICIPACIONES EN CONVOCATORIAS POR GÉNERO", 14, currentY)
     currentY += 7
 
     const eventGenderData = [
@@ -458,10 +458,10 @@ export async function generatePDFReport(
       currentY = 20
     }
 
-    // 6. TABLA: Participaciones por Evento
+    // 6. Convocatorias por convocatoria
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
-    doc.text("6. PARTICIPACIONES POR EVENTO", 14, currentY)
+    doc.text("6. INSCRIPCIONES POR CONVOCATORIA", 14, currentY)
     currentY += 7
 
     const eventData = Object.entries(eventStats.byEvent)
@@ -512,10 +512,10 @@ export async function generatePDFReport(
     doc.addPage()
     currentY = 20
 
-    // 7. TABLA: Participaciones en eventos por Facultad
+    // 7. Convocatorias por facultad
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
-    doc.text("7. PARTICIPACIONES EN EVENTOS POR FACULTAD", 14, currentY)
+    doc.text("7. INSCRIPCIONES EN CONVOCATORIAS POR FACULTAD", 14, currentY)
     currentY += 7
 
     const eventFacultyData = Object.entries(eventStats.byFaculty)
@@ -572,10 +572,10 @@ export async function generatePDFReport(
     doc.addPage()
     currentY = 20
 
-    // 8. TABLA: Participaciones en eventos por Programa
+    // 8. Convocatorias por programa
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
-    doc.text("8. PARTICIPACIONES EN EVENTOS POR PROGRAMA", 14, currentY)
+    doc.text("8. INSCRIPCIONES EN CONVOCATORIAS POR PROGRAMA", 14, currentY)
     currentY += 7
 
     const eventProgramData = Object.entries(eventStats.byProgram)
@@ -627,6 +627,97 @@ export async function generatePDFReport(
       doc.text(`${programName}: ${data.total}`, 120, currentY + 4)
       currentY += 9
     })
+  }
+
+  // ── SECCIÓN EVENTOS REALES ──────────────────────────────────────────────
+  if (realEventStats && realEventStats.totalParticipants > 0) {
+    doc.addPage()
+    currentY = 20
+
+    doc.setFontSize(18)
+    doc.setFont("helvetica", "bold")
+    doc.text("EVENTOS", 14, currentY)
+    currentY += 15
+
+    // Género
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("PARTICIPACIONES EN EVENTOS POR GÉNERO", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Género", "Cantidad"]],
+      body: [
+        ["Mujer", realEventStats.byGender.mujer.toString()],
+        ["Hombre", realEventStats.byGender.hombre.toString()],
+        ["Otro", realEventStats.byGender.otro.toString()],
+        ["TOTAL", realEventStats.totalParticipants.toString()],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    // Por evento
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("INSCRIPCIONES POR EVENTO", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Evento", "Cantidad"]],
+      body: Object.entries(realEventStats.byEvent).sort(([,a],[,b]) => b - a).map(([e,c]) => [e, c.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 8 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    // Por facultad
+    doc.addPage(); currentY = 20
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("INSCRIPCIONES EN EVENTOS POR FACULTAD", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Facultad", "Mujer", "Hombre", "Otro", "Total"]],
+      body: Object.entries(realEventStats.byFaculty).sort(([,a],[,b]) => b.total - a.total).map(([f,d]) => [f, d.mujer.toString(), d.hombre.toString(), d.otro.toString(), d.total.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 7 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    // Por programa
+    doc.addPage(); currentY = 20
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("INSCRIPCIONES EN EVENTOS POR PROGRAMA", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Programa Académico", "Mujer", "Hombre", "Otro", "Total"]],
+      body: Object.entries(realEventStats.byProgram).sort(([,a],[,b]) => b.total - a.total).map(([p,d]) => [p, d.mujer.toString(), d.hombre.toString(), d.otro.toString(), d.total.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 6 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
   }
 
   // Pie de página en todas las páginas
