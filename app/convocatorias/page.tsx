@@ -196,7 +196,8 @@ export default function ConvocatoriasPage() {
         if (formData.estamento === "EGRESADO") {
           return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
         }
-        return true
+        // No es estudiante/egresado: paso 3 es selección de evento
+        return !!formData.eventoId
       case 4:
         return !!formData.eventoId
       default:
@@ -833,7 +834,10 @@ export default function ConvocatoriasPage() {
                         disabled={
                           isSubmitting || 
                           !validateStep(currentStep) || 
-                          (!!selectedUser && activeEvents.filter(e => !userEventEnrollments.includes(e.id)).length === 0)
+                          (!!selectedUser && 
+                            activeEvents.filter(e => !userEventEnrollments.includes(e.id)).length === 0 &&
+                            activeRealEvents.filter(e => !userRealEventEnrollments.includes(e.id)).length === 0
+                          )
                         }
                         className="flex-1 bg-purple-600 hover:bg-purple-700"
                       >
