@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { getAllRealEvents, createRealEvent, deleteRealEvent, toggleRealEventActive } from "@/lib/db-router"
+import { getAllRealEvents, createRealEvent, deleteRealEvent, toggleRealEventActive, updateRealEvent } from "@/lib/db-router"
 import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, Users, Search } from "lucide-react"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, Search, Pencil } from "lucide-react"
 import Link from "next/link"
 import { useArea } from "@/contexts/area-context"
 
@@ -32,6 +32,7 @@ export default function CrearEventosPage() {
     nombre: "",
     hora: "",
     lugar: "",
+    fechaEvento: "",
     fechaApertura: "",
     fechaVencimiento: "",
   })
@@ -39,6 +40,16 @@ export default function CrearEventosPage() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    nombre: "",
+    hora: "",
+    lugar: "",
+    fechaEvento: "",
+    fechaApertura: "",
+    fechaVencimiento: "",
+  })
 
   useEffect(() => { loadEvents() }, [area])
 
@@ -83,11 +94,12 @@ export default function CrearEventosPage() {
         nombre: formData.nombre,
         hora: formData.hora,
         lugar: formData.lugar,
+        fechaEvento: formData.fechaEvento ? new Date(formData.fechaEvento) : undefined,
         fechaApertura,
         fechaVencimiento,
       })
       setSuccess("Evento creado exitosamente")
-      setFormData({ nombre: "", hora: "", lugar: "", fechaApertura: "", fechaVencimiento: "" })
+      setFormData({ nombre: "", hora: "", lugar: "", fechaEvento: "", fechaApertura: "", fechaVencimiento: "" })
       setDialogOpen(false)
       await loadEvents()
     } catch (err) {
@@ -124,6 +136,58 @@ export default function CrearEventosPage() {
   function isEventActive(event: Event): boolean {
     const now = new Date()
     return event.activo && new Date(event.fechaApertura) <= now && new Date(event.fechaVencimiento) >= now
+  }
+
+  function toDatetimeLocal(date: Date | string): string {
+    const d = new Date(date)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function handleOpenEdit(event: Event) {
+    setEditingEvent(event)
+    setEditFormData({
+      nombre: event.nombre,
+      hora: event.hora,
+      lugar: event.lugar,
+      fechaEvento: event.fechaEvento ? toDatetimeLocal(event.fechaEvento).slice(0, 10) : "",
+      fechaApertura: toDatetimeLocal(event.fechaApertura),
+      fechaVencimiento: toDatetimeLocal(event.fechaVencimiento),
+    })
+    setEditDialogOpen(true)
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingEvent) return
+    setError("")
+    setIsSubmitting(true)
+    try {
+      const fechaApertura = new Date(editFormData.fechaApertura)
+      const fechaVencimiento = new Date(editFormData.fechaVencimiento)
+      if (fechaVencimiento <= fechaApertura) {
+        setError("La fecha de vencimiento debe ser posterior a la fecha de apertura")
+        setIsSubmitting(false)
+        return
+      }
+      await updateRealEvent(area, editingEvent.id, {
+        nombre: editFormData.nombre,
+        hora: editFormData.hora,
+        lugar: editFormData.lugar,
+        fechaEvento: editFormData.fechaEvento ? new Date(editFormData.fechaEvento) : undefined,
+        fechaApertura,
+        fechaVencimiento,
+      })
+      setSuccess("Evento actualizado exitosamente")
+      setEditDialogOpen(false)
+      setEditingEvent(null)
+      await loadEvents()
+    } catch (err) {
+      console.error("Error actualizando evento:", err)
+      setError("Hubo un problema al actualizar el evento.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -163,6 +227,10 @@ export default function CrearEventosPage() {
                       <Label htmlFor="lugar">Lugar *</Label>
                       <Input id="lugar" value={formData.lugar} onChange={e => setFormData({ ...formData, lugar: e.target.value })} placeholder="Ej: Coliseo Universitario" required />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fechaEvento">Fecha del Evento</Label>
+                    <Input id="fechaEvento" type="date" value={formData.fechaEvento} onChange={e => setFormData({ ...formData, fechaEvento: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -239,18 +307,28 @@ export default function CrearEventosPage() {
                       <div className="flex items-center gap-2 text-gray-600">
                         <MapPin className="h-4 w-4" /><span>{event.lugar}</span>
                       </div>
+                      {event.fechaEvento && (
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Calendar className="h-4 w-4" />
+                          <span className="font-medium">Fecha del evento: {new Date(event.fechaEvento).toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
+                        </div>
+                      )}
                       <div className="flex items-start gap-2 text-gray-600">
                         <Calendar className="h-4 w-4 mt-0.5" />
                         <div className="flex flex-col">
-                          <span className="text-xs text-gray-500">Apertura:</span>
+                          <span className="text-xs text-gray-500">Apertura inscripciones:</span>
                           <span>{new Date(event.fechaApertura).toLocaleString("es-CO")}</span>
-                          <span className="text-xs text-gray-500 mt-1">Vencimiento:</span>
+                          <span className="text-xs text-gray-500 mt-1">Cierre inscripciones:</span>
                           <span>{new Date(event.fechaVencimiento).toLocaleString("es-CO")}</span>
                         </div>
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 pt-4 border-t">
                       <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenEdit(event)} className="flex-1 bg-transparent">
+                          <Pencil className="h-4 w-4 mr-1" />
+                          Editar
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => handleToggleActive(event.id, event.activo)} className="flex-1 bg-transparent">
                           {event.activo ? (<><PowerOff className="h-4 w-4 mr-1" />Desactivar</>) : (<><Power className="h-4 w-4 mr-1" />Activar</>)}
                         </Button>
@@ -266,6 +344,51 @@ export default function CrearEventosPage() {
           </div>
         )}
       </div>
+
+      {/* Dialog editar evento */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Editar Evento</DialogTitle>
+            <DialogDescription>Modifica los datos del evento.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-nombre">Nombre del Evento *</Label>
+              <Input id="edit-nombre" value={editFormData.nombre} onChange={e => setEditFormData({ ...editFormData, nombre: e.target.value })} required />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-hora">Hora *</Label>
+                <Input id="edit-hora" type="time" value={editFormData.hora} onChange={e => setEditFormData({ ...editFormData, hora: e.target.value })} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-lugar">Lugar *</Label>
+                <Input id="edit-lugar" value={editFormData.lugar} onChange={e => setEditFormData({ ...editFormData, lugar: e.target.value })} required />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-fechaEvento">Fecha del Evento</Label>
+              <Input id="edit-fechaEvento" type="date" value={editFormData.fechaEvento} onChange={e => setEditFormData({ ...editFormData, fechaEvento: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-apertura">Fecha de Apertura *</Label>
+                <Input id="edit-apertura" type="datetime-local" value={editFormData.fechaApertura} onChange={e => setEditFormData({ ...editFormData, fechaApertura: e.target.value })} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-vencimiento">Fecha de Vencimiento *</Label>
+                <Input id="edit-vencimiento" type="datetime-local" value={editFormData.fechaVencimiento} onChange={e => setEditFormData({ ...editFormData, fechaVencimiento: e.target.value })} required />
+              </div>
+            </div>
+            {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Guardando..." : "Guardar cambios"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

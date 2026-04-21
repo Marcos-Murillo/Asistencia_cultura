@@ -11,6 +11,7 @@ export async function generatePDFReport(
   eventStats?: EventStats,
   realEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   realEventStats?: EventStats,
+  dateRange?: { desde?: string; hasta?: string },
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
   console.log("[PDF] Area:", area)
@@ -41,7 +42,13 @@ export async function generatePDFReport(
 
   currentY += 5
   doc.setFontSize(10)
-  doc.text(`Fecha: ${new Date().toLocaleDateString("es-CO")}`, pageWidth / 2, currentY, { align: "center" })
+  if (dateRange?.desde || dateRange?.hasta) {
+    const desde = dateRange.desde ? new Date(dateRange.desde + "T00:00:00").toLocaleDateString("es-CO") : "inicio"
+    const hasta = dateRange.hasta ? new Date(dateRange.hasta + "T00:00:00").toLocaleDateString("es-CO") : "hoy"
+    doc.text(`Período: ${desde} — ${hasta}`, pageWidth / 2, currentY, { align: "center" })
+  } else {
+    doc.text(`Fecha: ${new Date().toLocaleDateString("es-CO")}`, pageWidth / 2, currentY, { align: "center" })
+  }
 
   currentY += 15
 

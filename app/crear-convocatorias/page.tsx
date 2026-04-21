@@ -17,9 +17,9 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { getAllEvents, createEvent, deleteEvent, toggleEventActive } from "@/lib/db-router"
+import { getAllEvents, createEvent, deleteEvent, toggleEventActive, updateEvent } from "@/lib/db-router"
 import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search } from "lucide-react"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search, Pencil } from "lucide-react"
 import Link from "next/link"
 import { useArea } from "@/contexts/area-context"
 
@@ -40,6 +40,15 @@ export default function EventosPage() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    nombre: "",
+    hora: "",
+    lugar: "",
+    fechaApertura: "",
+    fechaVencimiento: "",
+  })
 
   useEffect(() => {
     loadEvents()
@@ -142,6 +151,56 @@ export default function EventosPage() {
     } catch (error) {
       console.error("Error cambiando estado de la convocatoria:", error)
       setError("Hubo un problema al cambiar el estado de la convocatoria")
+    }
+  }
+
+  function toDatetimeLocal(date: Date | string): string {
+    const d = new Date(date)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function handleOpenEdit(event: Event) {
+    setEditingEvent(event)
+    setEditFormData({
+      nombre: event.nombre,
+      hora: event.hora,
+      lugar: event.lugar,
+      fechaApertura: toDatetimeLocal(event.fechaApertura),
+      fechaVencimiento: toDatetimeLocal(event.fechaVencimiento),
+    })
+    setEditDialogOpen(true)
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingEvent) return
+    setError("")
+    setIsSubmitting(true)
+    try {
+      const fechaApertura = new Date(editFormData.fechaApertura)
+      const fechaVencimiento = new Date(editFormData.fechaVencimiento)
+      if (fechaVencimiento <= fechaApertura) {
+        setError("La fecha de vencimiento debe ser posterior a la fecha de apertura")
+        setIsSubmitting(false)
+        return
+      }
+      await updateEvent(area, editingEvent.id, {
+        nombre: editFormData.nombre,
+        hora: editFormData.hora,
+        lugar: editFormData.lugar,
+        fechaApertura,
+        fechaVencimiento,
+      })
+      setSuccess("Convocatoria actualizada exitosamente")
+      setEditDialogOpen(false)
+      setEditingEvent(null)
+      await loadEvents()
+    } catch (err) {
+      console.error("Error actualizando convocatoria:", err)
+      setError("Hubo un problema al actualizar la convocatoria.")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -356,6 +415,15 @@ export default function EventosPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => handleOpenEdit(event)}
+                          className="flex-1 bg-transparent"
+                        >
+                          <Pencil className="h-4 w-4 mr-1" />
+                          Editar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => handleToggleActive(event.id, event.activo)}
                           className="flex-1 bg-transparent"
                         >
@@ -383,6 +451,75 @@ export default function EventosPage() {
           </div>
         )}
       </div>
+
+      {/* Dialog editar convocatoria */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Editar Convocatoria</DialogTitle>
+            <DialogDescription>Modifica los datos de la convocatoria.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-nombre">Nombre de la convocatoria *</Label>
+              <Input
+                id="edit-nombre"
+                value={editFormData.nombre}
+                onChange={e => setEditFormData({ ...editFormData, nombre: e.target.value })}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-hora">Hora *</Label>
+                <Input
+                  id="edit-hora"
+                  type="time"
+                  value={editFormData.hora}
+                  onChange={e => setEditFormData({ ...editFormData, hora: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-lugar">Lugar *</Label>
+                <Input
+                  id="edit-lugar"
+                  value={editFormData.lugar}
+                  onChange={e => setEditFormData({ ...editFormData, lugar: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-apertura">Fecha de Apertura *</Label>
+                <Input
+                  id="edit-apertura"
+                  type="datetime-local"
+                  value={editFormData.fechaApertura}
+                  onChange={e => setEditFormData({ ...editFormData, fechaApertura: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-vencimiento">Fecha de Vencimiento *</Label>
+                <Input
+                  id="edit-vencimiento"
+                  type="datetime-local"
+                  value={editFormData.fechaVencimiento}
+                  onChange={e => setEditFormData({ ...editFormData, fechaVencimiento: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Guardando..." : "Guardar cambios"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

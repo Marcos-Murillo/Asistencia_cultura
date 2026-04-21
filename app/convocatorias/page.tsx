@@ -769,9 +769,9 @@ export default function ConvocatoriasPage() {
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl font-bold text-gray-900">Inscripción a Convocatorias</CardTitle>
+              <CardTitle className="text-2xl font-bold text-gray-900">Inscripción a Convocatorias y Eventos</CardTitle>
               <CardDescription className="text-lg">
-                Eventos Culturales - Universidad del Valle
+                Convocatorias y Eventos Culturales - Universidad del Valle
               </CardDescription>
               {!selectedUser && (
                 <>

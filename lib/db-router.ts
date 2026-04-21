@@ -1121,6 +1121,25 @@ export async function toggleEventActive(area: Area, eventId: string, activo: boo
   }
 }
 
+// Update event (area-aware)
+export async function updateEvent(area: Area, eventId: string, eventData: Omit<Event, "id" | "createdAt" | "activo">): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await updateDoc(doc(db, EVENTS_COLLECTION, eventId), {
+      nombre: eventData.nombre,
+      hora: eventData.hora,
+      lugar: eventData.lugar,
+      fechaApertura: Timestamp.fromDate(new Date(eventData.fechaApertura)),
+      fechaVencimiento: Timestamp.fromDate(new Date(eventData.fechaVencimiento)),
+    })
+    console.log("[db-router] Event updated:", eventId, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error updating event:", error)
+    throw error
+  }
+}
+
 // Get group tracking data (area-aware)
 export async function getGroupTracking(area: Area): Promise<Array<{
   groupName: string
@@ -1684,6 +1703,7 @@ export async function getAllRealEvents(area: Area): Promise<Event[]> {
         fechaApertura: timestampToDate(data.fechaApertura),
         fechaVencimiento: timestampToDate(data.fechaVencimiento),
         createdAt: timestampToDate(data.createdAt),
+        ...(data.fechaEvento ? { fechaEvento: timestampToDate(data.fechaEvento) } : {}),
       } as Event)
     })
     return events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -1709,6 +1729,7 @@ export async function createRealEvent(area: Area, eventData: Omit<Event, "id" | 
       ...eventData,
       fechaApertura: Timestamp.fromDate(new Date(eventData.fechaApertura)),
       fechaVencimiento: Timestamp.fromDate(new Date(eventData.fechaVencimiento)),
+      ...(eventData.fechaEvento ? { fechaEvento: Timestamp.fromDate(new Date(eventData.fechaEvento)) } : {}),
       createdAt: serverTimestamp(),
       activo: true,
     })
@@ -1742,6 +1763,27 @@ export async function toggleRealEventActive(area: Area, eventId: string, activo:
     await updateDoc(doc(db, REAL_EVENTS_COLLECTION, eventId), { activo })
   } catch (error) {
     console.error("[db-router] Error toggling real event:", error)
+    throw error
+  }
+}
+
+export async function updateRealEvent(area: Area, eventId: string, eventData: Omit<Event, "id" | "createdAt" | "activo">): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await updateDoc(doc(db, REAL_EVENTS_COLLECTION, eventId), {
+      nombre: eventData.nombre,
+      hora: eventData.hora,
+      lugar: eventData.lugar,
+      fechaApertura: Timestamp.fromDate(new Date(eventData.fechaApertura)),
+      fechaVencimiento: Timestamp.fromDate(new Date(eventData.fechaVencimiento)),
+      ...(eventData.fechaEvento
+        ? { fechaEvento: Timestamp.fromDate(new Date(eventData.fechaEvento)) }
+        : { fechaEvento: null }),
+    })
+    console.log("[db-router] Real event updated:", eventId, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error updating real event:", error)
     throw error
   }
 }

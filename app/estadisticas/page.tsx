@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp, Filter, X } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { FACULTADES, PROGRAMAS_POR_FACULTAD, ESTAMENTOS } from "@/lib/data"
 import { getAllCulturalGroups } from "@/lib/db-router"
 import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
@@ -79,6 +80,9 @@ export default function EstadisticasPage() {
   const [loading, setLoading] = useState(true)
   const [hasActiveFilters, setHasActiveFilters] = useState(false)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [showPDFDateDialog, setShowPDFDateDialog] = useState(false)
+  const [pdfFechaDesde, setPdfFechaDesde] = useState("")
+  const [pdfFechaHasta, setPdfFechaHasta] = useState("")
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [allRealEventRecords, setAllRealEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
@@ -281,17 +285,52 @@ export default function EstadisticasPage() {
     if (!stats) return
 
     setIsGeneratingPDF(true)
+    setShowPDFDateDialog(false)
     try {
       console.log("[Estadisticas] ========== GENERATING PDF ==========")
       console.log("[Estadisticas] Area:", area)
-      console.log("[Estadisticas] Attendance records:", allAttendanceRecords.length)
-      console.log("[Estadisticas] Event records:", allEventRecords.length)
-      console.log("[Estadisticas] Stats total participants:", stats.totalParticipants)
-      console.log("[Estadisticas] Event stats total:", eventStats?.totalParticipants || 0)
-      console.log("[Estadisticas] Sample attendance record:", allAttendanceRecords[0])
-      console.log("[Estadisticas] Sample event record:", allEventRecords[0])
-      
-      await generatePDFReport(stats, allAttendanceRecords, allEventRecords, area, eventStats || undefined, allRealEventRecords, realEventStats || undefined)
+      console.log("[Estadisticas] Date range:", pdfFechaDesde, "->", pdfFechaHasta)
+
+      // Filtrar registros por rango de fechas si se especificó
+      const filterByDate = <T extends { timestamp: Date | string }>(records: T[]): T[] => {
+        return records.filter(r => {
+          const ts = new Date(r.timestamp)
+          if (pdfFechaDesde && ts < new Date(pdfFechaDesde)) return false
+          if (pdfFechaHasta) {
+            const hasta = new Date(pdfFechaHasta)
+            hasta.setHours(23, 59, 59)
+            if (ts > hasta) return false
+          }
+          return true
+        })
+      }
+
+      const filterEventByDate = <T extends { entry: { timestamp: Date | string } }>(records: T[]): T[] => {
+        return records.filter(r => {
+          const ts = new Date(r.entry.timestamp)
+          if (pdfFechaDesde && ts < new Date(pdfFechaDesde)) return false
+          if (pdfFechaHasta) {
+            const hasta = new Date(pdfFechaHasta)
+            hasta.setHours(23, 59, 59)
+            if (ts > hasta) return false
+          }
+          return true
+        })
+      }
+
+      const filteredAttendance = filterByDate(allAttendanceRecords)
+      const filteredEvents = filterEventByDate(allEventRecords)
+      const filteredRealEvents = filterEventByDate(allRealEventRecords)
+
+      const filteredStats = generateStatsFromRecords(filteredAttendance)
+      const filteredEventStats = generateEventStats(filteredEvents)
+      const filteredRealEventStats = generateEventStats(filteredRealEvents)
+
+      const dateRange = pdfFechaDesde || pdfFechaHasta
+        ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
+        : undefined
+
+      await generatePDFReport(filteredStats, filteredAttendance, filteredEvents, area, filteredEventStats, filteredRealEvents, filteredRealEventStats, dateRange)
     } catch (error) {
       console.error("[Estadisticas] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")
@@ -339,7 +378,7 @@ export default function EstadisticasPage() {
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
               <Button
-                onClick={handleGeneratePDF}
+                onClick={() => setShowPDFDateDialog(true)}
                 disabled={isGeneratingPDF}
                 className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
               >
@@ -715,6 +754,58 @@ export default function EstadisticasPage() {
           <GroupTrackingTable />
         </div>
       </div>
+
+      {/* Dialog rango de fechas para PDF */}
+      <Dialog open={showPDFDateDialog} onOpenChange={setShowPDFDateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rango de fechas del reporte</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-gray-500">Selecciona el período que quieres incluir en el reporte. Deja los campos vacíos para incluir todos los registros.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="pdf-desde">Desde</Label>
+                <Input
+                  id="pdf-desde"
+                  type="date"
+                  value={pdfFechaDesde}
+                  onChange={e => setPdfFechaDesde(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="pdf-hasta">Hasta</Label>
+                <Input
+                  id="pdf-hasta"
+                  type="date"
+                  value={pdfFechaHasta}
+                  onChange={e => setPdfFechaHasta(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowPDFDateDialog(false)}>Cancelar</Button>
+            <Button
+              onClick={handleGeneratePDF}
+              disabled={isGeneratingPDF}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {isGeneratingPDF ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Generando...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Generar PDF
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -139,6 +139,7 @@ export interface Event {
   nombre: string
   hora: string
   lugar: string
+  fechaEvento?: Date
   fechaApertura: Date
   fechaVencimiento: Date
   createdAt: Date
