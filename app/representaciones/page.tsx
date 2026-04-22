@@ -350,29 +350,19 @@ export default function RepresentacionesPage() {
                 </div>
               </div>
 
-              {/* Selector de grupo con búsqueda */}
+              {/* Selector de grupo */}
               <div className="space-y-1">
                 <Label>Grupo *</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    className="pl-9"
-                    placeholder="Buscar grupo..."
-                    value={grupoSearch}
-                    onChange={e => setGrupoSearch(e.target.value)}
-                  />
-                </div>
-                <div className="max-h-32 overflow-y-auto border rounded-md mt-1">
-                  {filteredGrupos.map(g => (
-                    <div
-                      key={g}
-                      onClick={() => { handleGrupoChange(g); setGrupoSearch(g) }}
-                      className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${formGrupo === g ? "bg-blue-100 font-medium" : ""}`}
-                    >
-                      {g}
-                    </div>
-                  ))}
-                </div>
+                <Select value={formGrupo} onValueChange={g => { handleGrupoChange(g) }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar grupo..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {grupos.map(g => (
+                      <SelectItem key={g} value={g}>{g}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Selección de integrantes */}

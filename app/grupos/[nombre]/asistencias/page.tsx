@@ -9,14 +9,17 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DatePicker } from "@/components/ui/date-picker"
-import { getGroupTracking } from "@/lib/db-router"
-import type { GroupTracking } from "@/lib/types"
+import { getGroupTracking, getAttendanceRecords } from "@/lib/db-router"
+import type { GroupTracking, AttendanceRecord } from "@/lib/types"
 import { Calendar, ChevronLeft, ChevronRight, ArrowLeft, Users } from "lucide-react"
 import Link from "next/link"
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useArea } from "@/contexts/area-context"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import * as XLSX from "xlsx"
 
 type TimeFilter = "day" | "week" | "month"
@@ -32,6 +35,10 @@ export default function GrupoAsistenciasPage() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("month")
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [currentPage, setCurrentPage] = useState(1)
+  const [showExcelDialog, setShowExcelDialog] = useState(false)
+  const [excelDesde, setExcelDesde] = useState("")
+  const [excelHasta, setExcelHasta] = useState("")
+  const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
 
   useEffect(() => {
     loadGroupData()
@@ -40,10 +47,14 @@ export default function GrupoAsistenciasPage() {
   async function loadGroupData() {
     try {
       console.log("[GrupoAsistencias] Loading data for group:", groupName, "in area:", area)
-      const tracking = await getGroupTracking(area)
+      const [tracking, records] = await Promise.all([
+        getGroupTracking(area),
+        getAttendanceRecords(area),
+      ])
       const group = tracking.find(g => g.groupName === groupName)
       console.log("[GrupoAsistencias] Found group:", !!group, "with", group?.participants.length || 0, "participants")
       setGroupData(group || null)
+      setAllAttendanceRecords(records.filter(r => r.grupoCultural === groupName))
     } catch (error) {
       console.error("[GrupoAsistencias] Error loading group data:", error)
     } finally {
@@ -123,30 +134,63 @@ export default function GrupoAsistenciasPage() {
   const currentParticipants = filteredParticipants.slice(startIndex, endIndex)
 
   const excelColumns: ExcelColumn[] = [
-    { key: "monthlyCount", label: "Asist. este mes" },
-    { key: "totalCount", label: "Total asistencias" },
-    { key: "lastAttendance", label: "Última asistencia" },
+    { key: "numeroDocumento", label: "Documento" },
+    { key: "genero", label: "Género" },
+    { key: "estamento", label: "Estamento" },
+    { key: "facultad", label: "Facultad" },
+    { key: "programaAcademico", label: "Programa" },
+    { key: "totalAsistencias", label: "Total Asistencias" },
+    { key: "correo", label: "Correo" },
+    { key: "telefono", label: "Teléfono" },
+    { key: "sede", label: "Sede" },
+    { key: "edad", label: "Edad" },
   ]
 
   function handleDownloadExcel(selectedColumns: string[]) {
-    const data = filteredParticipants.map(p => {
-      const row: Record<string, any> = { Nombre: p.userName }
+    // Filtrar por rango de fechas
+    const filtered = allAttendanceRecords.filter(r => {
+      const ts = new Date(r.timestamp)
+      if (excelDesde && ts < new Date(excelDesde)) return false
+      if (excelHasta) {
+        const h = new Date(excelHasta); h.setHours(23, 59, 59)
+        if (ts > h) return false
+      }
+      return true
+    })
+
+    // Agrupar por usuario y contar asistencias
+    const userMap = new Map<string, { record: AttendanceRecord; count: number }>()
+    filtered.forEach(r => {
+      const key = r.numeroDocumento
+      if (!userMap.has(key)) userMap.set(key, { record: r, count: 0 })
+      userMap.get(key)!.count++
+    })
+
+    const data = Array.from(userMap.values()).map(({ record: r, count }) => {
+      const row: Record<string, any> = { Nombres: r.nombres }
       selectedColumns.forEach(key => {
         switch (key) {
-          case "monthlyCount": row["Asist. este mes"] = p.monthlyCount; break
-          case "totalCount": row["Total asistencias"] = p.totalCount; break
-          case "lastAttendance": row["Última asistencia"] = new Date(p.lastAttendance).toLocaleDateString("es-CO"); break
+          case "numeroDocumento": row["Documento"] = r.numeroDocumento; break
+          case "genero": row["Género"] = r.genero; break
+          case "estamento": row["Estamento"] = r.estamento; break
+          case "facultad": row["Facultad"] = r.facultad || "N/A"; break
+          case "programaAcademico": row["Programa"] = r.programaAcademico || "N/A"; break
+          case "totalAsistencias": row["Total Asistencias"] = count; break
+          case "correo": row["Correo"] = r.correo; break
+          case "telefono": row["Teléfono"] = r.telefono; break
+          case "sede": row["Sede"] = r.sede; break
+          case "edad": row["Edad"] = r.edad; break
         }
       })
       return row
     })
+
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Asistencias")
-    const rangeLabel = selectedDate
-      ? `_${format(getDateRange(selectedDate, timeFilter).start, "yyyy-MM-dd")}`
-      : ""
-    XLSX.writeFile(wb, `asistencias_${groupName.replace(/\s+/g, "_")}${rangeLabel}.xlsx`)
+    const suffix = excelDesde || excelHasta ? `_${excelDesde || "inicio"}_a_${excelHasta || "hoy"}` : ""
+    XLSX.writeFile(wb, `asistencias_${groupName.replace(/\s+/g, "_")}${suffix}.xlsx`)
+    setShowExcelDialog(false)
   }
 
   return (
@@ -165,13 +209,42 @@ export default function GrupoAsistenciasPage() {
               <h1 className="text-3xl font-bold text-gray-900">{groupName}</h1>
               <p className="text-gray-600 mt-1">Lista de asistencias del grupo</p>
             </div>
-            <ExcelColumnSelector
-              availableColumns={excelColumns}
-              onDownload={handleDownloadExcel}
-              buttonText="Descargar Excel"
-              buttonClassName="bg-emerald-600 hover:bg-emerald-700"
-            />
+            <Button onClick={() => setShowExcelDialog(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+              <Users className="h-4 w-4" />
+              Descargar Excel
+            </Button>
           </div>
+
+          {/* Dialog Excel */}
+          <Dialog open={showExcelDialog} onOpenChange={setShowExcelDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Descargar Excel — {groupName}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <p className="text-sm text-gray-500">Rango de fechas opcional. El Excel mostrará el total de asistencias por usuario en ese período.</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="excel-desde">Desde</Label>
+                    <Input id="excel-desde" type="date" value={excelDesde} onChange={e => setExcelDesde(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="excel-hasta">Hasta</Label>
+                    <Input id="excel-hasta" type="date" value={excelHasta} onChange={e => setExcelHasta(e.target.value)} />
+                  </div>
+                </div>
+                <ExcelColumnSelector
+                  availableColumns={excelColumns}
+                  onDownload={handleDownloadExcel}
+                  buttonText="Descargar Excel"
+                  buttonClassName="w-full bg-emerald-600 hover:bg-emerald-700"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowExcelDialog(false)}>Cancelar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Filtros */}
           <Card>
