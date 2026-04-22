@@ -16,6 +16,8 @@ import Link from "next/link"
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useArea } from "@/contexts/area-context"
+import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import * as XLSX from "xlsx"
 
 type TimeFilter = "day" | "week" | "month"
 const ITEMS_PER_PAGE = 15
@@ -120,6 +122,33 @@ export default function GrupoAsistenciasPage() {
   const endIndex = startIndex + ITEMS_PER_PAGE
   const currentParticipants = filteredParticipants.slice(startIndex, endIndex)
 
+  const excelColumns: ExcelColumn[] = [
+    { key: "monthlyCount", label: "Asist. este mes" },
+    { key: "totalCount", label: "Total asistencias" },
+    { key: "lastAttendance", label: "Última asistencia" },
+  ]
+
+  function handleDownloadExcel(selectedColumns: string[]) {
+    const data = filteredParticipants.map(p => {
+      const row: Record<string, any> = { Nombre: p.userName }
+      selectedColumns.forEach(key => {
+        switch (key) {
+          case "monthlyCount": row["Asist. este mes"] = p.monthlyCount; break
+          case "totalCount": row["Total asistencias"] = p.totalCount; break
+          case "lastAttendance": row["Última asistencia"] = new Date(p.lastAttendance).toLocaleDateString("es-CO"); break
+        }
+      })
+      return row
+    })
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Asistencias")
+    const rangeLabel = selectedDate
+      ? `_${format(getDateRange(selectedDate, timeFilter).start, "yyyy-MM-dd")}`
+      : ""
+    XLSX.writeFile(wb, `asistencias_${groupName.replace(/\s+/g, "_")}${rangeLabel}.xlsx`)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto p-6">
@@ -136,6 +165,12 @@ export default function GrupoAsistenciasPage() {
               <h1 className="text-3xl font-bold text-gray-900">{groupName}</h1>
               <p className="text-gray-600 mt-1">Lista de asistencias del grupo</p>
             </div>
+            <ExcelColumnSelector
+              availableColumns={excelColumns}
+              onDownload={handleDownloadExcel}
+              buttonText="Descargar Excel"
+              buttonClassName="bg-emerald-600 hover:bg-emerald-700"
+            />
           </div>
 
           {/* Filtros */}
