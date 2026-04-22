@@ -58,6 +58,11 @@ service cloud.firestore {
     match /cultural_groups/{groupId} {
       allow read, write: if true;
     }
+
+    // Listas de representación
+    match /representaciones/{repId} {
+      allow read, write: if true;
+    }
   }
 }
 
