@@ -349,79 +349,118 @@ export default function RepresentacionesPage() {
 
         {/* ── Create / Edit Dialog ── */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingId ? "Editar Lista" : "Nueva Lista de Representación"}</DialogTitle>
               <DialogDescription>Selecciona el grupo y los integrantes que representarán a la universidad.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label>Nombre del evento *</Label>
-                  <Input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: Festival Nacional de Danza" />
-                </div>
-                <div className="space-y-1">
-                  <Label>Fecha del evento *</Label>
-                  <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} />
-                </div>
-              </div>
 
-              {/* Selector de grupo */}
-              <div className="space-y-1">
-                <Label>Grupo *</Label>
-                <Select value={formGrupo} onValueChange={g => { handleGrupoChange(g) }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar grupo..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {grupos.map(g => (
-                      <SelectItem key={g} value={g}>{g}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Selección de integrantes */}
-              {formGrupo && (
-                <div className="space-y-2">
-                  <Label>Integrantes ({selectedMembers.length} seleccionados)</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input className="pl-9" placeholder="Buscar por nombre o cédula..." value={userSearch} onChange={e => setUserSearch(e.target.value)} />
+            <div className="flex gap-4 flex-1 overflow-hidden py-2">
+              {/* ── Columna izquierda: formulario + búsqueda ── */}
+              <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Nombre del evento *</Label>
+                    <Input value={formNombre} onChange={e => setFormNombre(e.target.value)} placeholder="Ej: Festival Nacional de Danza" />
                   </div>
-                  {loadingUsers ? (
-                    <p className="text-sm text-gray-500 py-2">Cargando integrantes...</p>
-                  ) : (
-                    <div className="max-h-52 overflow-y-auto border rounded-md">
-                      {filteredEnrolled.length === 0 ? (
-                        <p className="text-sm text-gray-500 p-3">No se encontraron integrantes</p>
-                      ) : filteredEnrolled.map(u => {
-                        const selected = selectedMembers.some(m => m.userId === u.id)
-                        return (
-                          <div
-                            key={u.id}
-                            onClick={() => toggleMember(u)}
-                            className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 border-b last:border-0 ${selected ? "bg-blue-50" : ""}`}
-                          >
-                            <div>
-                              <p className="text-sm font-medium">{formatNombre(u.nombres)}</p>
-                              <p className="text-xs text-gray-500">{u.numeroDocumento} · {u.estamento}</p>
-                            </div>
-                            {selected && <Badge className="bg-blue-500 text-xs">✓</Badge>}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  <div className="space-y-1">
+                    <Label>Fecha del evento *</Label>
+                    <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} />
+                  </div>
                 </div>
-              )}
 
-              {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+                <div className="space-y-1">
+                  <Label>Grupo *</Label>
+                  <Select value={formGrupo} onValueChange={g => handleGrupoChange(g)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar grupo..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {grupos.map(g => (
+                        <SelectItem key={g} value={g}>{g}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formGrupo && (
+                  <div className="flex flex-col gap-2 flex-1">
+                    <Label>Integrantes del grupo</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input className="pl-9" placeholder="Buscar por nombre o cédula..." value={userSearch} onChange={e => setUserSearch(e.target.value)} />
+                    </div>
+                    {loadingUsers ? (
+                      <p className="text-sm text-gray-500 py-2">Cargando integrantes...</p>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto border rounded-md" style={{ maxHeight: 320 }}>
+                        {filteredEnrolled.length === 0 ? (
+                          <p className="text-sm text-gray-500 p-3">No se encontraron integrantes</p>
+                        ) : filteredEnrolled.map(u => {
+                          const selected = selectedMembers.some(m => m.userId === u.id)
+                          return (
+                            <div
+                              key={u.id}
+                              onClick={() => toggleMember(u)}
+                              className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 border-b last:border-0 transition-colors ${selected ? "bg-blue-50" : ""}`}
+                            >
+                              <div>
+                                <p className="text-sm font-medium">{formatNombre(u.nombres)}</p>
+                                <p className="text-xs text-gray-500">{u.numeroDocumento} · {u.estamento}</p>
+                              </div>
+                              {selected
+                                ? <Badge className="bg-blue-500 text-xs shrink-0">✓ Añadido</Badge>
+                                : <span className="text-xs text-gray-400">+ Añadir</span>
+                              }
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+              </div>
+
+              {/* ── Columna derecha: lista seleccionados ── */}
+              <div className="w-64 shrink-0 flex flex-col border-l pl-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">Lista seleccionada</Label>
+                  <Badge variant="secondary">{selectedMembers.length}</Badge>
+                </div>
+                {selectedMembers.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center text-center text-xs text-gray-400 border border-dashed rounded-md p-4">
+                    Ningún integrante seleccionado aún
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto space-y-1" style={{ maxHeight: 420 }}>
+                    {selectedMembers.map((m, i) => (
+                      <div key={m.userId} className="flex items-center justify-between bg-blue-50 rounded-md px-2 py-1.5 text-xs">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-blue-400 font-bold shrink-0">{i + 1}.</span>
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{formatNombre(m.nombres)}</p>
+                            <p className="text-gray-500 truncate">{m.numeroDocumento}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setSelectedMembers(prev => prev.filter(x => x.userId !== m.userId))}
+                          className="text-red-400 hover:text-red-600 shrink-0 ml-1"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <DialogFooter className="gap-2">
+
+            <DialogFooter className="gap-2 pt-2 border-t">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
               <Button onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? "Guardando..." : editingId ? "Guardar cambios" : "Crear lista"}
+                {isSubmitting ? "Guardando..." : editingId ? "Guardar cambios" : `Crear lista (${selectedMembers.length})`}
               </Button>
             </DialogFooter>
           </DialogContent>
