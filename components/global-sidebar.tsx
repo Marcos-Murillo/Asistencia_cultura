@@ -18,7 +18,8 @@ import {
   FileText,
   Megaphone,
   UserCog,
-  Bell
+  Bell,
+  ListChecks
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
@@ -58,6 +59,7 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
     { icon: Calendar, label: "Crear Eventos", path: "/crear-eventos" },
     { icon: BarChart3, label: "Estadísticas", path: "/estadisticas" },
     { icon: FileText, label: "Gráficas", path: "/graficas" },
+    { icon: ListChecks, label: "Representaciones", path: "/representaciones" },
     { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]
 
