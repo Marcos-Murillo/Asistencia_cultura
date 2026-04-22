@@ -1893,8 +1893,20 @@ export async function createRepresentacion(
   try {
     const db = getFirestoreForArea(area)
     const ref = collection(db, REPRESENTACIONES_COLLECTION)
+    // Limpiar undefined de los miembros (Firestore no acepta undefined)
+    const cleanMiembros = data.miembros.map(m => ({
+      userId: m.userId,
+      nombres: m.nombres,
+      numeroDocumento: m.numeroDocumento,
+      genero: m.genero,
+      estamento: m.estamento,
+      grupoCultural: m.grupoCultural,
+      ...(m.facultad ? { facultad: m.facultad } : {}),
+      ...(m.programaAcademico ? { programaAcademico: m.programaAcademico } : {}),
+    }))
     const docRef = await addDoc(ref, {
       ...data,
+      miembros: cleanMiembros,
       createdAt: serverTimestamp(),
     })
     return docRef.id
@@ -1930,7 +1942,20 @@ export async function updateRepresentacion(
   validateAreaSpecified(area)
   try {
     const db = getFirestoreForArea(area)
-    await updateDoc(doc(db, REPRESENTACIONES_COLLECTION, id), data)
+    const cleanData: Record<string, any> = { ...data }
+    if (data.miembros) {
+      cleanData.miembros = data.miembros.map(m => ({
+        userId: m.userId,
+        nombres: m.nombres,
+        numeroDocumento: m.numeroDocumento,
+        genero: m.genero,
+        estamento: m.estamento,
+        grupoCultural: m.grupoCultural,
+        ...(m.facultad ? { facultad: m.facultad } : {}),
+        ...(m.programaAcademico ? { programaAcademico: m.programaAcademico } : {}),
+      }))
+    }
+    await updateDoc(doc(db, REPRESENTACIONES_COLLECTION, id), cleanData)
   } catch (error) {
     console.error("[db-router] Error updating representacion:", error)
     throw error
