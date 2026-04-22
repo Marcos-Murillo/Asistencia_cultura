@@ -2,6 +2,7 @@ import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import type { AttendanceStats, EventStats, AttendanceRecord, EventAttendanceEntry, UserProfile } from "./types"
 import type { Area } from "./firebase-config"
+import type { Representacion } from "./db-router"
 
 export async function generatePDFReport(
   stats: AttendanceStats,
@@ -12,6 +13,7 @@ export async function generatePDFReport(
   realEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   realEventStats?: EventStats,
   dateRange?: { desde?: string; hasta?: string },
+  representaciones?: Representacion[],
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
   console.log("[PDF] Area:", area)
@@ -725,6 +727,76 @@ export async function generatePDFReport(
       styles: { fontSize: 6 },
     })
     currentY = (doc as any).lastAutoTable.finalY + 15
+  }
+
+  // ── REPRESENTACIONES ──────────────────────────────────────────────────────
+  if (representaciones && representaciones.length > 0) {
+    doc.addPage()
+    currentY = 20
+    doc.setFontSize(16)
+    doc.setFont("helvetica", "bold")
+    doc.text("REPRESENTACIONES", 14, currentY)
+    currentY += 10
+
+    for (const rep of representaciones) {
+      if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+      doc.setFontSize(12)
+      doc.setFont("helvetica", "bold")
+      doc.text(rep.nombre, 14, currentY)
+      currentY += 6
+      doc.setFontSize(9)
+      doc.setFont("helvetica", "normal")
+      doc.text(`Grupo: ${rep.grupoCultural}   |   Fecha: ${rep.fechaEvento}   |   Integrantes: ${rep.miembros.length}`, 14, currentY)
+      currentY += 5
+
+      // Tabla de integrantes
+      autoTable(doc, {
+        startY: currentY,
+        head: [["Nombre", "Documento", "Género", "Estamento", "Facultad", "Programa"]],
+        body: rep.miembros.map(m => [
+          m.nombres,
+          m.numeroDocumento,
+          m.genero,
+          m.estamento,
+          m.facultad || "N/A",
+          m.programaAcademico || "N/A",
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
+        margin: { left: 14, right: 14 },
+        styles: { fontSize: 7 },
+      })
+      currentY = (doc as any).lastAutoTable.finalY + 6
+
+      // Mini stats: género y facultad
+      const total = rep.miembros.length
+      const byGenero: Record<string, number> = {}
+      const byFacultad: Record<string, number> = {}
+      rep.miembros.forEach(m => {
+        byGenero[m.genero] = (byGenero[m.genero] || 0) + 1
+        if (m.facultad) byFacultad[m.facultad] = (byFacultad[m.facultad] || 0) + 1
+      })
+
+      doc.setFontSize(8)
+      doc.setFont("helvetica", "bold")
+      doc.text("Género:", 14, currentY)
+      currentY += 4
+      doc.setFont("helvetica", "normal")
+      Object.entries(byGenero).forEach(([g, v]) => {
+        doc.text(`  ${g}: ${v} (${Math.round((v / total) * 100)}%)`, 14, currentY)
+        currentY += 4
+      })
+      doc.setFont("helvetica", "bold")
+      doc.text("Facultades:", 14, currentY)
+      currentY += 4
+      doc.setFont("helvetica", "normal")
+      Object.entries(byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 5).forEach(([f, v]) => {
+        doc.text(`  ${f.replace("FACULTAD DE ", "")}: ${v} (${Math.round((v / total) * 100)}%)`, 14, currentY)
+        currentY += 4
+      })
+      currentY += 8
+    }
   }
 
   // Pie de página en todas las páginas

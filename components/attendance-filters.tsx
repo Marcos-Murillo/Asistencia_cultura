@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Search, X, Filter, ChevronDown } from "lucide-react"
-import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
+import { FACULTADES, PROGRAMAS_POR_FACULTAD, ESTAMENTOS } from "@/lib/data"
 import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
 import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import type { Area } from "@/lib/firebase-config"
@@ -24,6 +24,7 @@ export interface FilterState {
   facultad: string
   programa: string
   grupoCultural: string
+  estamento: string
 }
 
 // Combobox con búsqueda para grupos
@@ -110,6 +111,7 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
     facultad: "defaultFacultad",
     programa: "defaultPrograma",
     grupoCultural: "defaultGrupoCultural",
+    estamento: "defaultEstamento",
   })
   const [grupos, setGrupos] = useState<string[]>([])
   const [isExpanded, setIsExpanded] = useState(false)
@@ -142,6 +144,7 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
       facultad: "defaultFacultad",
       programa: "defaultPrograma",
       grupoCultural: "defaultGrupoCultural",
+      estamento: "defaultEstamento",
     }
     setFilters(emptyFilters)
     onFiltersChange(emptyFilters)
@@ -151,7 +154,8 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
     filters.nombre !== "" ||
     filters.facultad !== "defaultFacultad" ||
     filters.programa !== "defaultPrograma" ||
-    filters.grupoCultural !== "defaultGrupoCultural"
+    filters.grupoCultural !== "defaultGrupoCultural" ||
+    filters.estamento !== "defaultEstamento"
 
   const programasDisponibles =
     filters.facultad && filters.facultad !== "defaultFacultad" ? PROGRAMAS_POR_FACULTAD[filters.facultad] || [] : []
@@ -192,7 +196,23 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
         </div>
 
         {/* Filtros por categorías */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Estamento */}
+          <div className="space-y-2">
+            <Label>Estamento</Label>
+            <Select value={filters.estamento} onValueChange={(value) => handleFilterChange("estamento", value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todos los estamentos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="defaultEstamento">Todos los estamentos</SelectItem>
+                {ESTAMENTOS.map((e) => (
+                  <SelectItem key={e} value={e}>{e}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Facultad */}
           <div className="space-y-2">
             <Label>Facultad</Label>
@@ -253,6 +273,12 @@ export default function AttendanceFilters({ onFiltersChange, attendanceCount, ar
               <Badge variant="outline" className="gap-1">
                 Nombre: {filters.nombre}
                 <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange("nombre", "")} />
+              </Badge>
+            )}
+            {filters.estamento && filters.estamento !== "defaultEstamento" && (
+              <Badge variant="outline" className="gap-1">
+                {filters.estamento}
+                <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange("estamento", "defaultEstamento")} />
               </Badge>
             )}
             {filters.facultad && filters.facultad !== "defaultFacultad" && (

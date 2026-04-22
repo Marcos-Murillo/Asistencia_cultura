@@ -1857,3 +1857,93 @@ export async function getRealEventAttendanceRecords(area: Area): Promise<Array<{
     throw error
   }
 }
+
+// ============================================================================
+// REPRESENTACIONES (listas de usuarios por grupo para eventos)
+// ============================================================================
+
+const REPRESENTACIONES_COLLECTION = "representaciones"
+
+export interface RepresentacionMember {
+  userId: string
+  nombres: string
+  numeroDocumento: string
+  genero: string
+  estamento: string
+  facultad?: string
+  programaAcademico?: string
+  grupoCultural: string
+}
+
+export interface Representacion {
+  id: string
+  nombre: string
+  fechaEvento: string
+  grupoCultural: string
+  miembros: RepresentacionMember[]
+  createdAt: Date
+  area: Area
+}
+
+export async function createRepresentacion(
+  area: Area,
+  data: Omit<Representacion, "id" | "createdAt">
+): Promise<string> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const ref = collection(db, REPRESENTACIONES_COLLECTION)
+    const docRef = await addDoc(ref, {
+      ...data,
+      createdAt: serverTimestamp(),
+    })
+    return docRef.id
+  } catch (error) {
+    console.error("[db-router] Error creating representacion:", error)
+    throw error
+  }
+}
+
+export async function getAllRepresentaciones(area: Area): Promise<Representacion[]> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const ref = collection(db, REPRESENTACIONES_COLLECTION)
+    const q = query(ref, where("area", "==", area))
+    const snap = await getDocs(q)
+    return snap.docs.map(d => ({
+      id: d.id,
+      ...d.data(),
+      createdAt: timestampToDate(d.data().createdAt),
+    } as Representacion)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting representaciones:", error)
+    throw error
+  }
+}
+
+export async function updateRepresentacion(
+  area: Area,
+  id: string,
+  data: Partial<Pick<Representacion, "nombre" | "fechaEvento" | "grupoCultural" | "miembros">>
+): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await updateDoc(doc(db, REPRESENTACIONES_COLLECTION, id), data)
+  } catch (error) {
+    console.error("[db-router] Error updating representacion:", error)
+    throw error
+  }
+}
+
+export async function deleteRepresentacion(area: Area, id: string): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await deleteDoc(doc(db, REPRESENTACIONES_COLLECTION, id))
+  } catch (error) {
+    console.error("[db-router] Error deleting representacion:", error)
+    throw error
+  }
+}

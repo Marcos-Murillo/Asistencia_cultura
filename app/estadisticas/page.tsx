@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Users, GraduationCap, Building2, Calendar, User, FileText, ChevronDown, ChevronUp, Filter, X } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import * as XLSX from "xlsx"
 import { FACULTADES, PROGRAMAS_POR_FACULTAD, ESTAMENTOS } from "@/lib/data"
 import { getAllCulturalGroups } from "@/lib/db-router"
 import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
@@ -83,6 +85,9 @@ export default function EstadisticasPage() {
   const [showPDFDateDialog, setShowPDFDateDialog] = useState(false)
   const [pdfFechaDesde, setPdfFechaDesde] = useState("")
   const [pdfFechaHasta, setPdfFechaHasta] = useState("")
+  const [showExcelDialog, setShowExcelDialog] = useState(false)
+  const [excelFechaDesde, setExcelFechaDesde] = useState("")
+  const [excelFechaHasta, setExcelFechaHasta] = useState("")
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [allRealEventRecords, setAllRealEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
@@ -269,6 +274,11 @@ export default function EstadisticasPage() {
       isFiltering = true
     }
 
+    if (filters.estamento && filters.estamento !== "defaultEstamento") {
+      filtered = filtered.filter((record) => record.estamento === filters.estamento)
+      isFiltering = true
+    }
+
     filtered.forEach((record) => {
       const userId = `${record.numeroDocumento}-${record.grupoCultural}`
       if (!uniqueUsers.has(userId)) {
@@ -279,6 +289,71 @@ export default function EstadisticasPage() {
 
     setFilteredRecords(uniqueRecords)
     setHasActiveFilters(isFiltering)
+  }
+
+  const excelColumns: ExcelColumn[] = [
+    { key: "numeroDocumento", label: "Documento" },
+    { key: "tipoDocumento", label: "Tipo Doc." },
+    { key: "genero", label: "Género" },
+    { key: "estamento", label: "Estamento" },
+    { key: "facultad", label: "Facultad" },
+    { key: "programaAcademico", label: "Programa" },
+    { key: "grupoCultural", label: area === "deporte" ? "Grupo Deportivo" : "Grupo Cultural" },
+    { key: "totalAsistencias", label: "Total Asistencias" },
+    { key: "correo", label: "Correo" },
+    { key: "telefono", label: "Teléfono" },
+    { key: "sede", label: "Sede" },
+    { key: "edad", label: "Edad" },
+    { key: "etnia", label: "Etnia" },
+  ]
+
+  function handleDownloadExcel(selectedColumns: string[], fechaDesde?: string, fechaHasta?: string) {
+    // Agrupar registros por usuario (numeroDocumento + grupoCultural)
+    const userMap = new Map<string, { record: AttendanceRecord; count: number }>()
+    allAttendanceRecords.forEach(r => {
+      const ts = new Date(r.timestamp)
+      if (fechaDesde && ts < new Date(fechaDesde)) return
+      if (fechaHasta) {
+        const h = new Date(fechaHasta); h.setHours(23, 59, 59)
+        if (ts > h) return
+      }
+      const key = `${r.numeroDocumento}||${r.grupoCultural}`
+      if (!userMap.has(key)) {
+        userMap.set(key, { record: r, count: 0 })
+      }
+      userMap.get(key)!.count++
+    })
+
+    const data = Array.from(userMap.values()).map(({ record: r, count }) => {
+      const row: Record<string, any> = { Nombres: r.nombres }
+      selectedColumns.forEach(key => {
+        switch (key) {
+          case "numeroDocumento": row["Documento"] = r.numeroDocumento; break
+          case "tipoDocumento": row["Tipo Doc."] = r.tipoDocumento; break
+          case "genero": row["Género"] = r.genero; break
+          case "estamento": row["Estamento"] = r.estamento; break
+          case "facultad": row["Facultad"] = r.facultad || "N/A"; break
+          case "programaAcademico": row["Programa"] = r.programaAcademico || "N/A"; break
+          case "grupoCultural": row[area === "deporte" ? "Grupo Deportivo" : "Grupo Cultural"] = r.grupoCultural; break
+          case "totalAsistencias": row["Total Asistencias"] = count; break
+          case "correo": row["Correo"] = r.correo; break
+          case "telefono": row["Teléfono"] = r.telefono; break
+          case "sede": row["Sede"] = r.sede; break
+          case "edad": row["Edad"] = r.edad; break
+          case "etnia": row["Etnia"] = r.etnia; break
+        }
+      })
+      return row
+    })
+
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Asistencias")
+    const suffix = fechaDesde || fechaHasta
+      ? `_${fechaDesde || "inicio"}_${fechaHasta || "hoy"}`
+      : ""
+    XLSX.writeFile(wb, `asistencias_por_usuario${suffix}_${new Date().toISOString().split("T")[0]}.xlsx`)
+    setShowExcelDialog(false)
   }
 
   const handleGeneratePDF = async () => {
@@ -377,6 +452,13 @@ export default function EstadisticasPage() {
               <p className="text-gray-600 mt-1">Grupos {area === 'deporte' ? 'Deportivos' : 'Culturales'} - Universidad del Valle</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button
+                onClick={() => setShowExcelDialog(true)}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <FileText className="w-4 h-4" />
+                Descargar Excel
+              </Button>
               <Button
                 onClick={() => setShowPDFDateDialog(true)}
                 disabled={isGeneratingPDF}
@@ -754,6 +836,37 @@ export default function EstadisticasPage() {
           <GroupTrackingTable />
         </div>
       </div>
+
+      {/* Dialog rango de fechas para Excel */}
+      <Dialog open={showExcelDialog} onOpenChange={setShowExcelDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Descargar Excel de asistencias</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-gray-500">Rango de fechas opcional para filtrar las asistencias.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="excel-desde">Desde</Label>
+                <Input id="excel-desde" type="date" value={excelFechaDesde} onChange={e => setExcelFechaDesde(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="excel-hasta">Hasta</Label>
+                <Input id="excel-hasta" type="date" value={excelFechaHasta} onChange={e => setExcelFechaHasta(e.target.value)} />
+              </div>
+            </div>
+            <ExcelColumnSelector
+              availableColumns={excelColumns}
+              onDownload={(cols) => handleDownloadExcel(cols, excelFechaDesde || undefined, excelFechaHasta || undefined)}
+              buttonText="Descargar Excel"
+              buttonClassName="w-full bg-emerald-600 hover:bg-emerald-700"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExcelDialog(false)}>Cancelar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog rango de fechas para PDF */}
       <Dialog open={showPDFDateDialog} onOpenChange={setShowPDFDateDialog}>
