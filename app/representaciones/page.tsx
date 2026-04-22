@@ -80,25 +80,41 @@ export default function RepresentacionesPage() {
   const [viewEstamento, setViewEstamento] = useState("all")
 
   useEffect(() => {
-    loadData()
+    if (!area) return
+    loadGrupos()
+    loadRepresentaciones()
   }, [area])
 
-  async function loadData() {
+  async function loadGrupos() {
+    try {
+      let grps: string[]
+      if (area === "deporte") {
+        grps = [...GRUPOS_DEPORTIVOS].sort()
+      } else {
+        const gs = await getAllCulturalGroups(area)
+        grps = gs.filter(g => g.activo).map(g => g.nombre).sort()
+      }
+      setGrupos(grps)
+    } catch (e) {
+      console.error("[Representaciones] Error cargando grupos:", e)
+    }
+  }
+
+  async function loadRepresentaciones() {
     setLoading(true)
     try {
-      const [reps, grps] = await Promise.all([
-        getAllRepresentaciones(area),
-        area === "deporte"
-          ? Promise.resolve(GRUPOS_DEPORTIVOS.map(g => g))
-          : getAllCulturalGroups(area).then(gs => gs.filter(g => g.activo).map(g => g.nombre)),
-      ])
+      const reps = await getAllRepresentaciones(area)
       setRepresentaciones(reps)
-      setGrupos(grps.sort())
     } catch (e) {
-      console.error(e)
+      console.error("[Representaciones] Error cargando representaciones:", e)
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadData() {
+    loadGrupos()
+    loadRepresentaciones()
   }
 
   async function handleGrupoChange(grupo: string) {

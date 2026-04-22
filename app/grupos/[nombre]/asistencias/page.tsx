@@ -139,7 +139,6 @@ export default function GrupoAsistenciasPage() {
     { key: "estamento", label: "Estamento" },
     { key: "facultad", label: "Facultad" },
     { key: "programaAcademico", label: "Programa" },
-    { key: "totalAsistencias", label: "Total Asistencias" },
     { key: "correo", label: "Correo" },
     { key: "telefono", label: "Teléfono" },
     { key: "sede", label: "Sede" },
@@ -167,7 +166,8 @@ export default function GrupoAsistenciasPage() {
     })
 
     const data = Array.from(userMap.values()).map(({ record: r, count }) => {
-      const row: Record<string, any> = { Nombres: r.nombres }
+      // "Total Asistencias" siempre incluido
+      const row: Record<string, any> = { Nombres: r.nombres, "Total Asistencias": count }
       selectedColumns.forEach(key => {
         switch (key) {
           case "numeroDocumento": row["Documento"] = r.numeroDocumento; break
@@ -175,7 +175,6 @@ export default function GrupoAsistenciasPage() {
           case "estamento": row["Estamento"] = r.estamento; break
           case "facultad": row["Facultad"] = r.facultad || "N/A"; break
           case "programaAcademico": row["Programa"] = r.programaAcademico || "N/A"; break
-          case "totalAsistencias": row["Total Asistencias"] = count; break
           case "correo": row["Correo"] = r.correo; break
           case "telefono": row["Teléfono"] = r.telefono; break
           case "sede": row["Sede"] = r.sede; break
