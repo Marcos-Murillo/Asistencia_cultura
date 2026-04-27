@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { getAllRealEvents, createRealEvent, deleteRealEvent, toggleRealEventActive, updateRealEvent } from "@/lib/db-router"
 import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, Search, Pencil } from "lucide-react"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, Search, Pencil, Users } from "lucide-react"
 import Link from "next/link"
 import { useArea } from "@/contexts/area-context"
 
@@ -324,6 +324,12 @@ export default function CrearEventosPage() {
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 pt-4 border-t">
+                      <Link href={`/crear-eventos/${event.id}/asistentes`}>
+                        <Button variant="outline" size="sm" className="w-full bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
+                          <Users className="h-4 w-4 mr-2" />
+                          Ver Inscritos
+                        </Button>
+                      </Link>
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={() => handleOpenEdit(event)} className="flex-1 bg-transparent">
                           <Pencil className="h-4 w-4 mr-1" />

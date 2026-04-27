@@ -1788,6 +1788,62 @@ export async function updateRealEvent(area: Area, eventId: string, eventData: Om
   }
 }
 
+export async function getRealEventByIdRouter(area: Area, eventId: string): Promise<Event | null> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const snap = await getDoc(doc(db, REAL_EVENTS_COLLECTION, eventId))
+    if (!snap.exists()) return null
+    const d = snap.data()
+    return {
+      id: snap.id,
+      nombre: d.nombre,
+      hora: d.hora,
+      lugar: d.lugar,
+      activo: d.activo,
+      fechaApertura: timestampToDate(d.fechaApertura),
+      fechaVencimiento: timestampToDate(d.fechaVencimiento),
+      createdAt: timestampToDate(d.createdAt),
+      ...(d.fechaEvento ? { fechaEvento: timestampToDate(d.fechaEvento) } : {}),
+    }
+  } catch (error) {
+    console.error("[db-router] Error getting real event by ID:", error)
+    return null
+  }
+}
+
+export async function getRealEventAttendeesRouter(
+  area: Area,
+  eventId: string
+): Promise<Array<UserProfile & { fechaAsistencia: Date }>> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const attRef = collection(db, REAL_EVENT_ATTENDANCE_COLLECTION)
+    const q = query(attRef, where("eventId", "==", eventId))
+    const snap = await getDocs(q)
+    const attendees: Array<UserProfile & { fechaAsistencia: Date }> = []
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data()
+      const userSnap = await getDoc(doc(db, USERS_COLLECTION, data.userId))
+      if (userSnap.exists()) {
+        const u = userSnap.data()
+        attendees.push({
+          id: userSnap.id,
+          ...u,
+          createdAt: timestampToDate(u.createdAt),
+          lastAttendance: timestampToDate(u.lastAttendance),
+          fechaAsistencia: timestampToDate(data.timestamp),
+        } as UserProfile & { fechaAsistencia: Date })
+      }
+    }
+    return attendees.sort((a, b) => b.fechaAsistencia.getTime() - a.fechaAsistencia.getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting real event attendees:", error)
+    return []
+  }
+}
+
 export async function saveRealEventAttendance(area: Area, userId: string, eventId: string): Promise<void> {
   validateAreaSpecified(area)
   try {
