@@ -77,6 +77,18 @@ export default function RepresentacionesPage() {
   const [editUserSearch, setEditUserSearch] = useState("")
   const [editSubmitting, setEditSubmitting] = useState(false)
 
+  // ── Add group to existing event ──
+  const [addGroupDialogOpen, setAddGroupDialogOpen] = useState(false)
+  const [addGroupEventoNombre, setAddGroupEventoNombre] = useState("")
+  const [addGroupEventoFecha, setAddGroupEventoFecha] = useState("")
+  const [addGroupGrupo, setAddGroupGrupo] = useState("")
+  const [addGroupEnrolled, setAddGroupEnrolled] = useState<EnrolledUser[]>([])
+  const [addGroupLoadingUsers, setAddGroupLoadingUsers] = useState(false)
+  const [addGroupMembers, setAddGroupMembers] = useState<RepresentacionMember[]>([])
+  const [addGroupUserSearch, setAddGroupUserSearch] = useState("")
+  const [addGroupSubmitting, setAddGroupSubmitting] = useState(false)
+  const [addGroupExistingGrupos, setAddGroupExistingGrupos] = useState<string[]>([])
+
   // ── View dialog ──
   const [viewingRep, setViewingRep] = useState<Representacion | null>(null)
   const [viewingAll, setViewingAll] = useState<Representacion[] | null>(null) // ver todo el evento
@@ -200,6 +212,50 @@ export default function RepresentacionesPage() {
     if (!confirm("¿Eliminar esta lista?")) return
     try { await deleteRepresentacion(area, id); setSuccess("Lista eliminada"); await loadRepresentaciones() }
     catch (e) { setError("Error al eliminar") }
+  }
+
+  function openAddGroup(nombre: string, fecha: string, existingGrupos: string[]) {
+    setAddGroupEventoNombre(nombre)
+    setAddGroupEventoFecha(fecha)
+    setAddGroupExistingGrupos(existingGrupos)
+    setAddGroupGrupo(""); setAddGroupMembers([]); setAddGroupEnrolled([])
+    setAddGroupUserSearch(""); setAddGroupDialogOpen(true)
+  }
+
+  async function handleAddGroupGrupoChange(g: string) {
+    setAddGroupGrupo(g); setAddGroupMembers([]); setAddGroupUserSearch("")
+    if (!g) return
+    setAddGroupLoadingUsers(true)
+    try { setAddGroupEnrolled(await getGroupEnrolledUsersRouter(area, g)) }
+    catch (e) { console.error(e) }
+    finally { setAddGroupLoadingUsers(false) }
+  }
+
+  function toggleAddGroupMember(u: EnrolledUser) {
+    setAddGroupMembers(prev => {
+      const exists = prev.find(m => m.userId === u.id)
+      if (exists) return prev.filter(m => m.userId !== u.id)
+      return [...prev, {
+        userId: u.id, nombres: u.nombres, numeroDocumento: u.numeroDocumento,
+        genero: u.genero, estamento: u.estamento, grupoCultural: addGroupGrupo,
+        ...(u.facultad ? { facultad: u.facultad } : {}),
+        ...(u.programaAcademico ? { programaAcademico: u.programaAcademico } : {}),
+      }]
+    })
+  }
+
+  async function handleAddGroupSubmit() {
+    if (!addGroupGrupo || addGroupMembers.length === 0) { setError("Selecciona un grupo y al menos un integrante."); return }
+    setAddGroupSubmitting(true)
+    try {
+      await createRepresentacion(area, {
+        nombre: addGroupEventoNombre, fechaEvento: addGroupEventoFecha,
+        grupoCultural: addGroupGrupo, miembros: addGroupMembers, area,
+      })
+      setSuccess(`Lista de "${addGroupGrupo}" agregada al evento`)
+      setAddGroupDialogOpen(false); await loadRepresentaciones()
+    } catch (e) { setError("Error al guardar") }
+    finally { setAddGroupSubmitting(false) }
   }
 
   async function handleDeleteEvento(reps: Representacion[]) {
@@ -352,6 +408,16 @@ export default function RepresentacionesPage() {
 
                     {/* Acciones con dropdowns */}
                     <div className="flex gap-2 pt-1">
+                      {/* Agregar grupo */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 w-8 p-0 shrink-0 border-dashed border-blue-300 text-blue-500 hover:bg-blue-50"
+                        title="Agregar lista de otro grupo"
+                        onClick={() => openAddGroup(nombre, fecha, reps.map(r => r.grupoCultural))}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                       {/* Ver */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -754,6 +820,86 @@ export default function RepresentacionesPage() {
                 <Button variant="outline" onClick={() => setViewingRep(null)}>Cerrar</Button>
               </DialogFooter>
             </>)}
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Add group to existing event ── */}
+        <Dialog open={addGroupDialogOpen} onOpenChange={setAddGroupDialogOpen}>
+          <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Agregar grupo — {addGroupEventoNombre}</DialogTitle>
+              <DialogDescription>
+                {addGroupEventoFecha && new Date(addGroupEventoFecha + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-4 flex-1 overflow-hidden py-2">
+              <div className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2">
+                <div className="space-y-1">
+                  <Label>Grupo *</Label>
+                  <Select value={addGroupGrupo} onValueChange={handleAddGroupGrupoChange}>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar grupo..." /></SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {grupos.filter(g => !addGroupExistingGrupos.includes(g)).map(g => (
+                        <SelectItem key={g} value={g}>{g}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {addGroupExistingGrupos.length > 0 && (
+                    <p className="text-xs text-gray-400">Los grupos ya existentes en este evento están ocultos.</p>
+                  )}
+                </div>
+                {addGroupGrupo && (
+                  <>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input className="pl-9" placeholder="Buscar integrante..." value={addGroupUserSearch} onChange={e => setAddGroupUserSearch(e.target.value)} />
+                    </div>
+                    {addGroupLoadingUsers ? <p className="text-sm text-gray-500">Cargando...</p> : (
+                      <div className="overflow-y-auto border rounded-md flex-1" style={{ maxHeight: 320 }}>
+                        {addGroupEnrolled
+                          .filter(u => !addGroupUserSearch || u.nombres.toLowerCase().includes(addGroupUserSearch.toLowerCase()) || u.numeroDocumento.includes(addGroupUserSearch))
+                          .map(u => {
+                            const sel = addGroupMembers.some(m => m.userId === u.id)
+                            return (
+                              <div key={u.id} onClick={() => toggleAddGroupMember(u)}
+                                className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50 border-b last:border-0 ${sel ? "bg-blue-50" : ""}`}>
+                                <div>
+                                  <p className="text-sm font-medium">{formatNombre(u.nombres)}</p>
+                                  <p className="text-xs text-gray-500">{u.numeroDocumento} · {u.estamento}</p>
+                                </div>
+                                {sel ? <Badge className="bg-blue-500 text-xs">✓</Badge> : <span className="text-xs text-gray-400">+</span>}
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )}
+                  </>
+                )}
+                {error && addGroupDialogOpen && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+              </div>
+              {/* Panel derecho: seleccionados */}
+              <div className="w-56 shrink-0 border-l pl-4 flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">Seleccionados</Label>
+                  <Badge variant="secondary">{addGroupMembers.length}</Badge>
+                </div>
+                <div className="overflow-y-auto space-y-1 flex-1" style={{ maxHeight: 360 }}>
+                  {addGroupMembers.map((m, i) => (
+                    <div key={m.userId} className="flex items-center gap-1.5 bg-blue-50 rounded px-2 py-1.5 text-xs">
+                      <span className="text-blue-400 font-bold shrink-0">{i + 1}.</span>
+                      <span className="truncate flex-1">{formatNombre(m.nombres)}</span>
+                      <button onClick={() => setAddGroupMembers(prev => prev.filter(x => x.userId !== m.userId))} className="text-red-400 hover:text-red-600 shrink-0"><X className="h-3 w-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <DialogFooter className="gap-2 pt-2 border-t">
+              <Button variant="outline" onClick={() => setAddGroupDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={handleAddGroupSubmit} disabled={addGroupSubmitting || addGroupMembers.length === 0}>
+                {addGroupSubmitting ? "Guardando..." : `Agregar lista (${addGroupMembers.length})`}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
