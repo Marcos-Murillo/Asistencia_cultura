@@ -23,7 +23,7 @@ import {
   type Representacion, type RepresentacionMember,
 } from "@/lib/db-router"
 import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
-import { ESTAMENTOS, FACULTADES } from "@/lib/data"
+import { ESTAMENTOS, FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import type { UserProfile } from "@/lib/types"
 import { formatNombre } from "@/lib/utils"
 
@@ -91,9 +91,12 @@ export default function RepresentacionesPage() {
 
   // ── View dialog ──
   const [viewingRep, setViewingRep] = useState<Representacion | null>(null)
-  const [viewingAll, setViewingAll] = useState<Representacion[] | null>(null) // ver todo el evento
+  const [viewingAll, setViewingAll] = useState<Representacion[] | null>(null)
   const [viewSearch, setViewSearch] = useState("")
   const [viewFacultad, setViewFacultad] = useState("all")
+  const [viewFacultadSearch, setViewFacultadSearch] = useState("")
+  const [viewPrograma, setViewPrograma] = useState("all")
+  const [viewProgramaSearch, setViewProgramaSearch] = useState("")
   const [viewEstamento, setViewEstamento] = useState("all")
 
   useEffect(() => { if (!area) return; loadGrupos(); loadRepresentaciones() }, [area])
@@ -703,61 +706,147 @@ export default function RepresentacionesPage() {
 
         {/* ── View toda la lista del evento ── */}
         <Dialog open={!!viewingAll} onOpenChange={open => { if (!open) setViewingAll(null) }}>
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
             {viewingAll && (() => {
               const allMembers = viewingAll.flatMap(r => r.miembros)
+              const programasDisponibles = viewFacultad !== "all" ? (PROGRAMAS_POR_FACULTAD[viewFacultad] || []) : []
               const filtered = allMembers.filter(m => {
                 if (viewSearch && !m.nombres.toLowerCase().includes(viewSearch.toLowerCase()) && !m.numeroDocumento.includes(viewSearch)) return false
                 if (viewFacultad !== "all" && m.facultad !== viewFacultad) return false
+                if (viewPrograma !== "all" && m.programaAcademico !== viewPrograma) return false
                 if (viewEstamento !== "all" && m.estamento !== viewEstamento) return false
                 return true
               })
+              // Stats
+              const total = allMembers.length
+              const byGenero: Record<string, number> = { MUJER: 0, HOMBRE: 0, OTRO: 0 }
+              const byFacultad: Record<string, number> = {}
+              const byPrograma: Record<string, number> = {}
+              allMembers.forEach(m => {
+                const g = m.genero?.toUpperCase() || "OTRO"; byGenero[g] = (byGenero[g] || 0) + 1
+                if (m.facultad) byFacultad[m.facultad] = (byFacultad[m.facultad] || 0) + 1
+                if (m.programaAcademico) byPrograma[m.programaAcademico] = (byPrograma[m.programaAcademico] || 0) + 1
+              })
               return (<>
                 <DialogHeader>
-                  <DialogTitle>{viewingAll[0].nombre} — Todas las listas</DialogTitle>
-                  <DialogDescription>
-                    {new Date(viewingAll[0].fechaEvento + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })} · {viewingAll.length} grupos · {allMembers.length} personas
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-2">
-                  <div className="relative col-span-2 md:col-span-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input className="pl-9 h-8 text-xs" placeholder="Nombre o cédula..." value={viewSearch} onChange={e => setViewSearch(e.target.value)} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <DialogTitle className="text-xl">{viewingAll[0].nombre} — Todas las listas</DialogTitle>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        {new Date(viewingAll[0].fechaEvento + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })} · {viewingAll.length} grupos
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-100 text-green-700 font-bold text-sm">
+                        {filtered.length}/{total}
+                      </div>
+                      <ExcelColumnSelector
+                        availableColumns={[...excelColumns, { key: "grupoCultural", label: "Grupo" }]}
+                        onDownload={cols => downloadExcelEvento(viewingAll, cols)}
+                        buttonText="Excel"
+                        buttonClassName="bg-emerald-600 hover:bg-emerald-700 h-9"
+                      />
+                    </div>
                   </div>
+                </DialogHeader>
+
+                {/* Filtros compactos */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 py-2 border-y">
+                  {/* Búsqueda nombre */}
+                  <div className="relative col-span-2 md:col-span-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                    <Input className="pl-7 h-7 text-xs" placeholder="Nombre o cédula..." value={viewSearch} onChange={e => setViewSearch(e.target.value)} />
+                  </div>
+                  {/* Estamento */}
                   <Select value={viewEstamento} onValueChange={setViewEstamento}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Estamento" /></SelectTrigger>
+                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Estamento" /></SelectTrigger>
                     <SelectContent><SelectItem value="all">Todos</SelectItem>{ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
                   </Select>
-                  <Select value={viewFacultad} onValueChange={setViewFacultad}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Facultad" /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">Todas</SelectItem>{FACULTADES.map(f => <SelectItem key={f} value={f}>{f.replace("FACULTAD DE ", "")}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <Badge variant="secondary">{filtered.length} / {allMembers.length}</Badge>
+                  {/* Facultad con búsqueda */}
+                  <div className="space-y-0.5">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                      <Input className="pl-7 h-7 text-xs" placeholder="Buscar facultad..." value={viewFacultadSearch}
+                        onChange={e => { setViewFacultadSearch(e.target.value); if (!e.target.value) { setViewFacultad("all"); setViewPrograma("all") } }} />
+                    </div>
+                    {viewFacultadSearch && (
+                      <div className="absolute z-50 bg-white border rounded-md shadow-md max-h-40 overflow-y-auto w-48">
+                        <div className="px-2 py-1 text-xs cursor-pointer hover:bg-gray-50" onClick={() => { setViewFacultad("all"); setViewFacultadSearch(""); setViewPrograma("all") }}>Todas</div>
+                        {FACULTADES.filter(f => f.toLowerCase().includes(viewFacultadSearch.toLowerCase())).map(f => (
+                          <div key={f} className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 ${viewFacultad === f ? "bg-blue-100 font-medium" : ""}`}
+                            onClick={() => { setViewFacultad(f); setViewFacultadSearch(f.replace("FACULTAD DE ", "")); setViewPrograma("all"); setViewProgramaSearch("") }}>
+                            {f.replace("FACULTAD DE ", "")}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Programa con búsqueda */}
+                  <div className="space-y-0.5">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                      <Input className="pl-7 h-7 text-xs" placeholder="Buscar programa..." value={viewProgramaSearch} disabled={viewFacultad === "all"}
+                        onChange={e => { setViewProgramaSearch(e.target.value); if (!e.target.value) setViewPrograma("all") }} />
+                    </div>
+                    {viewProgramaSearch && viewFacultad !== "all" && (
+                      <div className="absolute z-50 bg-white border rounded-md shadow-md max-h-40 overflow-y-auto w-56">
+                        <div className="px-2 py-1 text-xs cursor-pointer hover:bg-gray-50" onClick={() => { setViewPrograma("all"); setViewProgramaSearch("") }}>Todos</div>
+                        {programasDisponibles.filter(p => p.toLowerCase().includes(viewProgramaSearch.toLowerCase())).map(p => (
+                          <div key={p} className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 ${viewPrograma === p ? "bg-blue-100 font-medium" : ""}`}
+                            onClick={() => { setViewPrograma(p); setViewProgramaSearch(p) }}>
+                            {p}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Limpiar */}
+                  {(viewSearch || viewFacultad !== "all" || viewPrograma !== "all" || viewEstamento !== "all") && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => { setViewSearch(""); setViewFacultad("all"); setViewFacultadSearch(""); setViewPrograma("all"); setViewProgramaSearch(""); setViewEstamento("all") }}>
+                      <X className="h-3 w-3 mr-1" />Limpiar
+                    </Button>
+                  )}
                 </div>
-                <div className="overflow-x-auto">
+
+                {/* Tabla */}
+                <div className="overflow-x-auto flex-1 overflow-y-auto">
                   <Table>
                     <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Grupo</TableHead><TableHead>Documento</TableHead><TableHead>Género</TableHead><TableHead>Estamento</TableHead><TableHead>Facultad</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {filtered.map((m, i) => (
                         <TableRow key={`${m.userId}-${i}`}>
-                          <TableCell className="font-medium">{formatNombre(m.nombres)}</TableCell>
-                          <TableCell className="text-xs text-gray-500 max-w-[140px] truncate">{m.grupoCultural}</TableCell>
-                          <TableCell>{m.numeroDocumento}</TableCell>
-                          <TableCell><Badge variant="outline" className={m.genero === "MUJER" ? "bg-pink-50 text-pink-700" : m.genero === "HOMBRE" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}>{m.genero}</Badge></TableCell>
-                          <TableCell><Badge variant="secondary">{m.estamento}</Badge></TableCell>
-                          <TableCell className="text-xs max-w-[160px] truncate">{m.facultad || "N/A"}</TableCell>
+                          <TableCell className="font-medium text-sm">{formatNombre(m.nombres)}</TableCell>
+                          <TableCell className="text-xs text-gray-500 max-w-[130px] truncate">{m.grupoCultural}</TableCell>
+                          <TableCell className="text-xs">{m.numeroDocumento}</TableCell>
+                          <TableCell><Badge variant="outline" className={`text-xs ${m.genero === "MUJER" ? "bg-pink-50 text-pink-700" : m.genero === "HOMBRE" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}`}>{m.genero}</Badge></TableCell>
+                          <TableCell><Badge variant="secondary" className="text-xs">{m.estamento}</Badge></TableCell>
+                          <TableCell className="text-xs max-w-[150px] truncate">{m.facultad || "N/A"}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
                 </div>
-                <DialogFooter className="mt-4">
-                  <ExcelColumnSelector
-                    availableColumns={[...excelColumns, { key: "grupoCultural", label: "Grupo" }]}
-                    onDownload={cols => downloadExcelEvento(viewingAll, cols)}
-                    buttonText="Descargar Excel"
-                    buttonClassName="bg-emerald-600 hover:bg-emerald-700"
-                  />
+
+                {/* Resumen estadístico */}
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-semibold text-gray-600 flex items-center gap-1"><BarChart2 className="h-3 w-3" />Resumen estadístico</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Género</p>
+                      {Object.entries(byGenero).map(([g, v]) => <StatBar key={g} label={g} value={v} total={total} />)}
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Facultad</p>
+                      {Object.entries(byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([f, v]) => <StatBar key={f} label={f.replace("FACULTAD DE ", "")} value={v} total={total} />)}
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Programa</p>
+                      {Object.entries(byPrograma).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p, v]) => <StatBar key={p} label={p} value={v} total={total} />)}
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter className="pt-2">
                   <Button variant="outline" onClick={() => setViewingAll(null)}>Cerrar</Button>
                 </DialogFooter>
               </>)
