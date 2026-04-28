@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Trophy, Users, User, Plus, Trash2, Pencil, Shuffle, Calendar, MapPin,
-  ArrowLeft, Copy, CheckCircle, BarChart2, Swords
+  ArrowLeft, Copy, CheckCircle, BarChart2, Swords, ChevronRight
 } from "lucide-react"
 import Link from "next/link"
 import {
