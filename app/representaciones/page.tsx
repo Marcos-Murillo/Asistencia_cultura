@@ -12,7 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
 import * as XLSX from "xlsx"
-import { Plus, Trash2, Pencil, Search, Users, Calendar, X, ListChecks, BarChart2, ChevronRight } from "lucide-react"
+import { Plus, Trash2, Pencil, Search, Users, Calendar, X, ListChecks, BarChart2, ChevronRight, ChevronDown, Eye, FileSpreadsheet } from "lucide-react"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu"
 import { useArea } from "@/contexts/area-context"
 import {
   getAllCulturalGroups, getGroupEnrolledUsersRouter,
@@ -76,6 +79,7 @@ export default function RepresentacionesPage() {
 
   // ── View dialog ──
   const [viewingRep, setViewingRep] = useState<Representacion | null>(null)
+  const [viewingAll, setViewingAll] = useState<Representacion[] | null>(null) // ver todo el evento
   const [viewSearch, setViewSearch] = useState("")
   const [viewFacultad, setViewFacultad] = useState("all")
   const [viewEstamento, setViewEstamento] = useState("all")
@@ -198,6 +202,14 @@ export default function RepresentacionesPage() {
     catch (e) { setError("Error al eliminar") }
   }
 
+  async function handleDeleteEvento(reps: Representacion[]) {
+    if (!confirm(`¿Eliminar el evento "${reps[0].nombre}" y todas sus listas (${reps.length})?`)) return
+    try {
+      await Promise.all(reps.map(r => deleteRepresentacion(area, r.id)))
+      setSuccess("Evento eliminado"); await loadRepresentaciones()
+    } catch (e) { setError("Error al eliminar") }
+  }
+
   // ── Memos ──
   const filteredEnrolled = useMemo(() => {
     const s = userSearch.toLowerCase()
@@ -272,6 +284,25 @@ export default function RepresentacionesPage() {
     XLSX.writeFile(wb, `rep_${rep.nombre.replace(/\s+/g, "_")}_${rep.grupoCultural.replace(/\s+/g, "_")}.xlsx`)
   }
 
+  function downloadExcelEvento(reps: Representacion[], selectedCols: string[]) {
+    const data = reps.flatMap(rep => rep.miembros.map(m => {
+      const row: Record<string, any> = { Nombres: formatNombre(m.nombres), Grupo: m.grupoCultural }
+      selectedCols.forEach(k => {
+        switch (k) {
+          case "numeroDocumento": row["Documento"] = m.numeroDocumento; break
+          case "genero": row["Género"] = m.genero; break
+          case "estamento": row["Estamento"] = m.estamento; break
+          case "facultad": row["Facultad"] = m.facultad || "N/A"; break
+          case "programaAcademico": row["Programa"] = m.programaAcademico || "N/A"; break
+        }
+      })
+      return row
+    }))
+    const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Representaciones")
+    XLSX.writeFile(wb, `evento_${reps[0].nombre.replace(/\s+/g, "_")}_${reps[0].fechaEvento}.xlsx`)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -292,45 +323,133 @@ export default function RepresentacionesPage() {
         ) : eventoGroups.length === 0 ? (
           <Card><CardContent className="py-12 text-center"><ListChecks className="h-12 w-12 text-gray-400 mx-auto mb-4" /><p className="text-gray-500">No hay listas creadas aún</p></CardContent></Card>
         ) : (
-          <div className="space-y-6">
-            {eventoGroups.map(({ nombre, fecha, reps }) => (
-              <Card key={`${nombre}||${fecha}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-xl">{nombre}</CardTitle>
-                      <CardDescription className="flex items-center gap-1 mt-1">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(fecha + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
-                        <span className="ml-2 text-blue-600 font-medium">{reps.length} grupo(s) · {reps.reduce((s, r) => s + r.miembros.length, 0)} personas</span>
-                      </CardDescription>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {eventoGroups.map(({ nombre, fecha, reps }) => {
+              const totalPersonas = reps.reduce((s, r) => s + r.miembros.length, 0)
+              return (
+                <Card key={`${nombre}||${fecha}`} className="hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-start gap-2">
+                      <CardTitle className="text-lg leading-tight">{nombre}</CardTitle>
+                      <Badge variant="outline" className="text-xs shrink-0">{totalPersonas} personas</Badge>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {reps.map(rep => (
-                      <div key={rep.id} className="border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium text-gray-800 truncate flex-1">{rep.grupoCultural}</p>
-                          <Badge variant="secondary" className="text-xs ml-2 shrink-0">{rep.miembros.length}</Badge>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setViewingRep(rep); setViewSearch(""); setViewFacultad("all"); setViewEstamento("all") }}>
-                            <Search className="h-3 w-3 mr-1" />Ver
+                    <CardDescription className="flex items-center gap-1 mt-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(fecha + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {/* Grupos como badges */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {reps.map(r => (
+                        <Badge key={r.id} variant="secondary" className="text-xs gap-1">
+                          <Users className="h-2.5 w-2.5" />
+                          {r.grupoCultural.length > 25 ? r.grupoCultural.slice(0, 25) + "…" : r.grupoCultural}
+                          <span className="text-gray-400">({r.miembros.length})</span>
+                        </Badge>
+                      ))}
+                    </div>
+
+                    {/* Acciones con dropdowns */}
+                    <div className="flex gap-2 pt-1">
+                      {/* Ver */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="outline" className="flex-1 gap-1 h-8 text-xs">
+                            <Eye className="h-3 w-3" />Ver<ChevronDown className="h-3 w-3 ml-auto" />
                           </Button>
-                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(rep)}>
-                            <Pencil className="h-3 w-3 mr-1" />Editar
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-56">
+                          <DropdownMenuLabel className="text-xs">Ver lista</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => { setViewingAll(reps); setViewingRep(null); setViewSearch(""); setViewFacultad("all"); setViewEstamento("all") }}>
+                            <Users className="h-3 w-3 mr-2" />Toda la lista ({totalPersonas})
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {reps.map(r => (
+                            <DropdownMenuItem key={r.id} onClick={() => { setViewingRep(r); setViewingAll(null); setViewSearch(""); setViewFacultad("all"); setViewEstamento("all") }}>
+                              <ChevronRight className="h-3 w-3 mr-2" />{r.grupoCultural.length > 30 ? r.grupoCultural.slice(0, 30) + "…" : r.grupoCultural}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {/* Editar */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="outline" className="flex-1 gap-1 h-8 text-xs">
+                            <Pencil className="h-3 w-3" />Editar<ChevronDown className="h-3 w-3 ml-auto" />
                           </Button>
-                          <ExcelColumnSelector availableColumns={excelColumns} onDownload={cols => downloadExcel(rep, cols)} buttonText="Excel" buttonClassName="bg-emerald-600 hover:bg-emerald-700 h-7 text-xs px-2" />
-                          <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => handleDelete(rep.id)}><Trash2 className="h-3 w-3" /></Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-56">
+                          <DropdownMenuLabel className="text-xs">Editar grupo</DropdownMenuLabel>
+                          {reps.map(r => (
+                            <DropdownMenuItem key={r.id} onClick={() => openEdit(r)}>
+                              <Pencil className="h-3 w-3 mr-2" />{r.grupoCultural.length > 30 ? r.grupoCultural.slice(0, 30) + "…" : r.grupoCultural}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {/* Excel */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" className="flex-1 gap-1 h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white">
+                            <FileSpreadsheet className="h-3 w-3" />Excel<ChevronDown className="h-3 w-3 ml-auto" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-56">
+                          <DropdownMenuLabel className="text-xs">Descargar Excel</DropdownMenuLabel>
+                          <DropdownMenuItem asChild>
+                            <div className="p-0">
+                              <ExcelColumnSelector
+                                availableColumns={[...excelColumns, { key: "grupoCultural", label: "Grupo" }]}
+                                onDownload={cols => downloadExcelEvento(reps, cols)}
+                                buttonText="Todo el evento"
+                                buttonClassName="w-full justify-start bg-transparent text-gray-700 hover:bg-accent h-8 text-xs px-2 rounded-none font-normal"
+                              />
+                            </div>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {reps.map(r => (
+                            <DropdownMenuItem key={r.id} asChild>
+                              <div className="p-0">
+                                <ExcelColumnSelector
+                                  availableColumns={excelColumns}
+                                  onDownload={cols => downloadExcel(r, cols)}
+                                  buttonText={r.grupoCultural.length > 28 ? r.grupoCultural.slice(0, 28) + "…" : r.grupoCultural}
+                                  buttonClassName="w-full justify-start bg-transparent text-gray-700 hover:bg-accent h-8 text-xs px-2 rounded-none font-normal"
+                                />
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {/* Eliminar */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="destructive" className="h-8 px-2">
+                            <Trash2 className="h-3 w-3" /><ChevronDown className="h-3 w-3 ml-0.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel className="text-xs text-red-600">Eliminar</DropdownMenuLabel>
+                          <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => handleDeleteEvento(reps)}>
+                            <Trash2 className="h-3 w-3 mr-2" />Todo el evento
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {reps.map(r => (
+                            <DropdownMenuItem key={r.id} className="text-red-500 focus:text-red-600" onClick={() => handleDelete(r.id)}>
+                              <ChevronRight className="h-3 w-3 mr-2" />{r.grupoCultural.length > 28 ? r.grupoCultural.slice(0, 28) + "…" : r.grupoCultural}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
         )}
 
@@ -516,7 +635,71 @@ export default function RepresentacionesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── View Dialog ── */}
+        {/* ── View toda la lista del evento ── */}
+        <Dialog open={!!viewingAll} onOpenChange={open => { if (!open) setViewingAll(null) }}>
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+            {viewingAll && (() => {
+              const allMembers = viewingAll.flatMap(r => r.miembros)
+              const filtered = allMembers.filter(m => {
+                if (viewSearch && !m.nombres.toLowerCase().includes(viewSearch.toLowerCase()) && !m.numeroDocumento.includes(viewSearch)) return false
+                if (viewFacultad !== "all" && m.facultad !== viewFacultad) return false
+                if (viewEstamento !== "all" && m.estamento !== viewEstamento) return false
+                return true
+              })
+              return (<>
+                <DialogHeader>
+                  <DialogTitle>{viewingAll[0].nombre} — Todas las listas</DialogTitle>
+                  <DialogDescription>
+                    {new Date(viewingAll[0].fechaEvento + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })} · {viewingAll.length} grupos · {allMembers.length} personas
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-2">
+                  <div className="relative col-span-2 md:col-span-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input className="pl-9 h-8 text-xs" placeholder="Nombre o cédula..." value={viewSearch} onChange={e => setViewSearch(e.target.value)} />
+                  </div>
+                  <Select value={viewEstamento} onValueChange={setViewEstamento}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Estamento" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">Todos</SelectItem>{ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={viewFacultad} onValueChange={setViewFacultad}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Facultad" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">Todas</SelectItem>{FACULTADES.map(f => <SelectItem key={f} value={f}>{f.replace("FACULTAD DE ", "")}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Badge variant="secondary">{filtered.length} / {allMembers.length}</Badge>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Grupo</TableHead><TableHead>Documento</TableHead><TableHead>Género</TableHead><TableHead>Estamento</TableHead><TableHead>Facultad</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {filtered.map((m, i) => (
+                        <TableRow key={`${m.userId}-${i}`}>
+                          <TableCell className="font-medium">{formatNombre(m.nombres)}</TableCell>
+                          <TableCell className="text-xs text-gray-500 max-w-[140px] truncate">{m.grupoCultural}</TableCell>
+                          <TableCell>{m.numeroDocumento}</TableCell>
+                          <TableCell><Badge variant="outline" className={m.genero === "MUJER" ? "bg-pink-50 text-pink-700" : m.genero === "HOMBRE" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}>{m.genero}</Badge></TableCell>
+                          <TableCell><Badge variant="secondary">{m.estamento}</Badge></TableCell>
+                          <TableCell className="text-xs max-w-[160px] truncate">{m.facultad || "N/A"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <DialogFooter className="mt-4">
+                  <ExcelColumnSelector
+                    availableColumns={[...excelColumns, { key: "grupoCultural", label: "Grupo" }]}
+                    onDownload={cols => downloadExcelEvento(viewingAll, cols)}
+                    buttonText="Descargar Excel"
+                    buttonClassName="bg-emerald-600 hover:bg-emerald-700"
+                  />
+                  <Button variant="outline" onClick={() => setViewingAll(null)}>Cerrar</Button>
+                </DialogFooter>
+              </>)
+            })()}
+          </DialogContent>
+        </Dialog>
+
+        {/* ── View Dialog (un grupo) ── */}
         <Dialog open={!!viewingRep} onOpenChange={open => { if (!open) setViewingRep(null) }}>
           <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
             {viewingRep && (<>
