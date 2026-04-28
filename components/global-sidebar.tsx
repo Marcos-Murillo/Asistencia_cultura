@@ -66,8 +66,8 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
     { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]
 
-  // Torneos: solo deporte + admin/superadmin
-  const torneosItem = area === "deporte" && isAdmin
+  // Torneos: solo deporte + admin/superadmin, o superadmin en cualquier área
+  const torneosItem = (area === "deporte" && isAdmin) || isSuperAdmin
     ? [{ icon: Trophy, label: "Torneos", path: "/torneos" }]
     : []
 
