@@ -19,9 +19,10 @@ import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import Link from "next/link"
 import { GroupTrackingTable } from "@/components/group-tracking-table"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
-import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter, getRealEventAttendanceRecords } from "@/lib/db-router"
+import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter, getRealEventAttendanceRecords, getAllRepresentaciones } from "@/lib/db-router"
 import { generateEventStats } from "@/lib/event-stats"
 import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
+import type { Representacion } from "@/lib/db-router"
 import { generatePDFReport } from "@/lib/pdf-generator"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
@@ -92,6 +93,7 @@ export default function EstadisticasPage() {
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [allRealEventRecords, setAllRealEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [realEventStats, setRealEventStats] = useState<EventStats | null>(null)
+  const [allRepresentaciones, setAllRepresentaciones] = useState<Representacion[]>([])
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
   const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
   const [isEventProgramTableOpen, setIsEventProgramTableOpen] = useState(false)
@@ -180,6 +182,14 @@ export default function EstadisticasPage() {
 
         const calculatedRealEventStats = generateEventStats(realEventRecordsData)
         setRealEventStats(calculatedRealEventStats)
+
+        // Load representaciones
+        try {
+          const reps = await getAllRepresentaciones(area)
+          setAllRepresentaciones(reps)
+        } catch (e) {
+          console.error("[Estadisticas] Error loading representaciones:", e)
+        }
         
         console.log("[Estadisticas] ========== DATA LOADED SUCCESSFULLY ==========")
       } catch (error) {
@@ -405,7 +415,7 @@ export default function EstadisticasPage() {
         ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
         : undefined
 
-      await generatePDFReport(filteredStats, filteredAttendance, filteredEvents, area, filteredEventStats, filteredRealEvents, filteredRealEventStats, dateRange)
+      await generatePDFReport(filteredStats, filteredAttendance, filteredEvents, area, filteredEventStats, filteredRealEvents, filteredRealEventStats, dateRange, allRepresentaciones.length > 0 ? allRepresentaciones : undefined)
     } catch (error) {
       console.error("[Estadisticas] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")

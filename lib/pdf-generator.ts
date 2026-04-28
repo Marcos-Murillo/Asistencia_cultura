@@ -62,6 +62,10 @@ export async function generatePDFReport(
   const totalGruposCulturales = stats.totalParticipants
   const totalConvocatorias = eventStats?.totalParticipants || 0
   const totalRealEventos = realEventStats?.totalParticipants || 0
+  // Contar participaciones únicas en representaciones (por userId)
+  const totalRepresentaciones = representaciones
+    ? new Set(representaciones.flatMap(r => r.miembros.map(m => m.userId))).size
+    : 0
   const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos
 
   const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
@@ -79,6 +83,7 @@ export async function generatePDFReport(
     [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
     ["Inscripciones en Eventos", totalRealEventos.toString()],
+    ["Artistas en Representaciones", totalRepresentaciones.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
 
@@ -733,69 +738,175 @@ export async function generatePDFReport(
   if (representaciones && representaciones.length > 0) {
     doc.addPage()
     currentY = 20
-    doc.setFontSize(16)
+
+    // Título principal
+    doc.setFontSize(18)
     doc.setFont("helvetica", "bold")
-    doc.text("REPRESENTACIONES", 14, currentY)
+    doc.text("REPRESENTACIONES EN EVENTOS", pageWidth / 2, currentY, { align: "center" })
+    currentY += 8
+
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "italic")
+    doc.setTextColor(80, 80, 80)
+    doc.text(
+      "Los siguientes datos corresponden a los artistas que participaron representando los diferentes grupos culturales de la Universidad del Valle.",
+      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
+    )
+    doc.setTextColor(0, 0, 0)
+    currentY += 14
+
+    // Calcular estadísticas globales de representaciones
+    const allRepMembers = representaciones.flatMap(r => r.miembros)
+    const totalRep = allRepMembers.length
+    const uniqueRepUsers = new Set(allRepMembers.map(m => m.userId)).size
+
+    const repByGenero: Record<string, number> = {}
+    const repByFacultad: Record<string, number> = {}
+    const repByPrograma: Record<string, number> = {}
+    const repByEvento: Record<string, Set<string>> = {}
+
+    allRepMembers.forEach(m => {
+      const g = m.genero || "OTRO"
+      repByGenero[g] = (repByGenero[g] || 0) + 1
+      if (m.facultad) repByFacultad[m.facultad] = (repByFacultad[m.facultad] || 0) + 1
+      if (m.programaAcademico) repByPrograma[m.programaAcademico] = (repByPrograma[m.programaAcademico] || 0) + 1
+    })
+    representaciones.forEach(r => {
+      if (!repByEvento[r.nombre]) repByEvento[r.nombre] = new Set()
+      r.miembros.forEach(m => repByEvento[r.nombre].add(m.userId))
+    })
+
+    // ── Resumen global ──
+    doc.setFontSize(13)
+    doc.setFont("helvetica", "bold")
+    doc.text("RESUMEN GLOBAL DE REPRESENTACIONES", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Indicador", "Cantidad"]],
+      body: [
+        ["Total de participaciones en representaciones", totalRep.toString()],
+        ["Artistas únicos representados", uniqueRepUsers.toString()],
+        ["Eventos con representación", Object.keys(repByEvento).length.toString()],
+        ["Grupos culturales representados", new Set(representaciones.map(r => r.grupoCultural)).size.toString()],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 9 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 12
+
+    // ── Por género ──
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "bold")
+    doc.text("REPRESENTACIONES EN EVENTOS POR GÉNERO", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Género", "Cantidad", "Porcentaje"]],
+      body: Object.entries(repByGenero).map(([g, v]) => [g, v.toString(), `${Math.round((v / totalRep) * 100)}%`]),
+      theme: "grid",
+      headStyles: { fillColor: [236, 72, 153], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 9 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 12
+
+    // ── Por evento ──
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "bold")
+    doc.text("REPRESENTACIONES POR EVENTO", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Evento", "Artistas únicos", "Grupos"]],
+      body: Object.entries(repByEvento).map(([evento, users]) => {
+        const gruposEvento = new Set(representaciones.filter(r => r.nombre === evento).map(r => r.grupoCultural))
+        return [evento, users.size.toString(), gruposEvento.size.toString()]
+      }),
+      theme: "grid",
+      headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 9 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 12
+
+    // ── Por facultad ──
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "bold")
+    doc.text("REPRESENTACIONES EN EVENTOS POR FACULTAD", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Facultad", "Cantidad", "Porcentaje"]],
+      body: Object.entries(repByFacultad).sort((a, b) => b[1] - a[1]).map(([f, v]) => [
+        f.replace("FACULTAD DE ", ""), v.toString(), `${Math.round((v / totalRep) * 100)}%`
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: [16, 185, 129], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 8 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 12
+
+    // ── Por programa ──
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+    doc.setFontSize(12)
+    doc.setFont("helvetica", "bold")
+    doc.text("REPRESENTACIONES EN EVENTOS POR PROGRAMA", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Programa Académico", "Cantidad", "Porcentaje"]],
+      body: Object.entries(repByPrograma).sort((a, b) => b[1] - a[1]).map(([p, v]) => [
+        p, v.toString(), `${Math.round((v / totalRep) * 100)}%`
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: [245, 158, 11], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 7 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 16
+
+    // ── Detalle por evento/grupo ──
+    doc.addPage()
+    currentY = 20
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("DETALLE DE LISTAS POR EVENTO Y GRUPO", 14, currentY)
     currentY += 10
 
     for (const rep of representaciones) {
       if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
 
-      doc.setFontSize(12)
+      doc.setFontSize(11)
       doc.setFont("helvetica", "bold")
-      doc.text(rep.nombre, 14, currentY)
-      currentY += 6
-      doc.setFontSize(9)
+      doc.text(`${rep.nombre}`, 14, currentY)
+      currentY += 5
+      doc.setFontSize(8)
       doc.setFont("helvetica", "normal")
       doc.text(`Grupo: ${rep.grupoCultural}   |   Fecha: ${rep.fechaEvento}   |   Integrantes: ${rep.miembros.length}`, 14, currentY)
-      currentY += 5
+      currentY += 4
 
-      // Tabla de integrantes
       autoTable(doc, {
         startY: currentY,
         head: [["Nombre", "Documento", "Género", "Estamento", "Facultad", "Programa"]],
-        body: rep.miembros.map(m => [
-          m.nombres,
-          m.numeroDocumento,
-          m.genero,
-          m.estamento,
-          m.facultad || "N/A",
-          m.programaAcademico || "N/A",
-        ]),
+        body: rep.miembros.map(m => [m.nombres, m.numeroDocumento, m.genero, m.estamento, m.facultad || "N/A", m.programaAcademico || "N/A"]),
         theme: "grid",
         headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
         margin: { left: 14, right: 14 },
-        styles: { fontSize: 7 },
+        styles: { fontSize: 6.5 },
       })
-      currentY = (doc as any).lastAutoTable.finalY + 6
-
-      // Mini stats: género y facultad
-      const total = rep.miembros.length
-      const byGenero: Record<string, number> = {}
-      const byFacultad: Record<string, number> = {}
-      rep.miembros.forEach(m => {
-        byGenero[m.genero] = (byGenero[m.genero] || 0) + 1
-        if (m.facultad) byFacultad[m.facultad] = (byFacultad[m.facultad] || 0) + 1
-      })
-
-      doc.setFontSize(8)
-      doc.setFont("helvetica", "bold")
-      doc.text("Género:", 14, currentY)
-      currentY += 4
-      doc.setFont("helvetica", "normal")
-      Object.entries(byGenero).forEach(([g, v]) => {
-        doc.text(`  ${g}: ${v} (${Math.round((v / total) * 100)}%)`, 14, currentY)
-        currentY += 4
-      })
-      doc.setFont("helvetica", "bold")
-      doc.text("Facultades:", 14, currentY)
-      currentY += 4
-      doc.setFont("helvetica", "normal")
-      Object.entries(byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 5).forEach(([f, v]) => {
-        doc.text(`  ${f.replace("FACULTAD DE ", "")}: ${v} (${Math.round((v / total) * 100)}%)`, 14, currentY)
-        currentY += 4
-      })
-      currentY += 8
+      currentY = (doc as any).lastAutoTable.finalY + 10
     }
   }
 
