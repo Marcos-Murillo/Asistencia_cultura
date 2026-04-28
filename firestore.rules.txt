@@ -63,6 +63,23 @@ service cloud.firestore {
     match /representaciones/{repId} {
       allow read, write: if true;
     }
+
+    // Torneos deportivos
+    match /torneos/{torneoId} {
+      allow read, write: if true;
+    }
+    match /torneo_equipos/{id} {
+      allow read, write: if true;
+    }
+    match /torneo_inscripciones/{id} {
+      allow read, write: if true;
+    }
+    match /torneo_grupos/{id} {
+      allow read, write: if true;
+    }
+    match /torneo_partidos/{id} {
+      allow read, write: if true;
+    }
   }
 }
 

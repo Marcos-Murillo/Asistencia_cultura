@@ -772,6 +772,13 @@ export default function ConvocatoriasDeportePage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100">
       <div className="p-4">
         <div className="max-w-2xl mx-auto">
+          {/* Link a torneos para usuarios no-admin */}
+          <div className="flex justify-end mb-3">
+            <a href="/torneos" className="flex items-center gap-1.5 text-sm text-orange-600 hover:text-orange-700 font-medium bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
+              Ver Torneos
+            </a>
+          </div>
           <Card className="shadow-lg">
             <CardHeader className="text-center">
               <CardTitle className="text-2xl font-bold text-gray-900">Inscripción a Convocatorias</CardTitle>

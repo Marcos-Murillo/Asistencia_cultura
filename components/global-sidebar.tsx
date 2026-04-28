@@ -19,10 +19,12 @@ import {
   Megaphone,
   UserCog,
   Bell,
-  ListChecks
+  ListChecks,
+  Trophy
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
+import { useArea } from "@/contexts/area-context"
 
 interface GlobalSidebarProps {
   isOpen: boolean
@@ -39,15 +41,16 @@ interface NavItem {
 export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
+  const { area } = useArea()
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const userType = sessionStorage.getItem("userType")
     const isSuperAdminFlag = sessionStorage.getItem("isSuperAdmin")
-    console.log('[GlobalSidebar] userType:', userType)
-    console.log('[GlobalSidebar] isSuperAdmin:', isSuperAdminFlag)
     setIsSuperAdmin(userType === "superadmin" && isSuperAdminFlag === "true")
-  }, [pathname]) // Re-check when pathname changes
+    setIsAdmin(userType === "admin" || userType === "superadmin")
+  }, [pathname])
 
   // Páginas generales
   const generalNavItems: NavItem[] = [
@@ -62,6 +65,11 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
     { icon: ListChecks, label: "Representaciones", path: "/representaciones" },
     { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]
+
+  // Torneos: solo deporte + admin/superadmin
+  const torneosItem = area === "deporte" && isAdmin
+    ? [{ icon: Trophy, label: "Torneos", path: "/torneos" }]
+    : []
 
   // Páginas exclusivas de Super Admin
   const superAdminNavItems: NavItem[] = [
@@ -104,7 +112,7 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
         <nav className="p-4 space-y-1 overflow-y-auto h-[calc(100vh-73px)]">
           {/* Páginas Generales */}
           <div className="space-y-1">
-            {generalNavItems.map((item) => {
+            {[...generalNavItems, ...torneosItem].map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.path || (item.path !== "/" && pathname.startsWith(item.path))
               

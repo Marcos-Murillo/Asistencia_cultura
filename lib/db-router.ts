@@ -2028,3 +2028,196 @@ export async function deleteRepresentacion(area: Area, id: string): Promise<void
     throw error
   }
 }
+
+// ============================================================================
+// TORNEOS DEPORTIVOS (solo área deporte)
+// ============================================================================
+import type {
+  Torneo, TorneoEquipo, TorneoInscripcion, TorneoGrupo, TorneoPartido, EstadisticasJugador
+} from "./types"
+
+const TORNEOS_COL = "torneos"
+const TORNEO_EQUIPOS_COL = "torneo_equipos"
+const TORNEO_INSCRIPCIONES_COL = "torneo_inscripciones"
+const TORNEO_GRUPOS_COL = "torneo_grupos"
+const TORNEO_PARTIDOS_COL = "torneo_partidos"
+
+function genCodigo(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+}
+
+// ── Torneos ──────────────────────────────────────────────────────────────────
+export async function getAllTorneos(): Promise<Torneo[]> {
+  const db = getFirestoreForArea("deporte")
+  const snap = await getDocs(collection(db, TORNEOS_COL))
+  return snap.docs.map(d => ({
+    id: d.id, ...d.data(),
+    fechaInicio: timestampToDate(d.data().fechaInicio),
+    fechaFin: timestampToDate(d.data().fechaFin),
+    createdAt: timestampToDate(d.data().createdAt),
+  } as Torneo)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+}
+
+export async function getTorneoById(torneoId: string): Promise<Torneo | null> {
+  const db = getFirestoreForArea("deporte")
+  const snap = await getDoc(doc(db, TORNEOS_COL, torneoId))
+  if (!snap.exists()) return null
+  const d = snap.data()
+  return { id: snap.id, ...d, fechaInicio: timestampToDate(d.fechaInicio), fechaFin: timestampToDate(d.fechaFin), createdAt: timestampToDate(d.createdAt) } as Torneo
+}
+
+export async function createTorneo(data: Omit<Torneo, "id" | "createdAt" | "fase">): Promise<string> {
+  const db = getFirestoreForArea("deporte")
+  const ref = await addDoc(collection(db, TORNEOS_COL), {
+    ...data,
+    fechaInicio: Timestamp.fromDate(new Date(data.fechaInicio)),
+    fechaFin: Timestamp.fromDate(new Date(data.fechaFin)),
+    fase: "inscripcion",
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateTorneo(torneoId: string, data: Partial<Omit<Torneo, "id" | "createdAt">>): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  const clean: Record<string, any> = { ...data }
+  if (data.fechaInicio) clean.fechaInicio = Timestamp.fromDate(new Date(data.fechaInicio))
+  if (data.fechaFin) clean.fechaFin = Timestamp.fromDate(new Date(data.fechaFin))
+  await updateDoc(doc(db, TORNEOS_COL, torneoId), clean)
+}
+
+export async function deleteTorneo(torneoId: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  await deleteDoc(doc(db, TORNEOS_COL, torneoId))
+}
+
+// ── Equipos ───────────────────────────────────────────────────────────────────
+export async function getEquiposByTorneo(torneoId: string): Promise<TorneoEquipo[]> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_EQUIPOS_COL), where("torneoId", "==", torneoId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: timestampToDate(d.data().createdAt) } as TorneoEquipo))
+}
+
+export async function createEquipo(torneoId: string, nombre: string): Promise<TorneoEquipo> {
+  const db = getFirestoreForArea("deporte")
+  // Generar código único
+  let codigo = genCodigo()
+  const existing = await getDocs(query(collection(db, TORNEO_EQUIPOS_COL), where("torneoId", "==", torneoId), where("codigo", "==", codigo)))
+  while (!existing.empty) { codigo = genCodigo() }
+  const ref = await addDoc(collection(db, TORNEO_EQUIPOS_COL), { torneoId, nombre, codigo, createdAt: serverTimestamp() })
+  return { id: ref.id, torneoId, nombre, codigo, createdAt: new Date() }
+}
+
+export async function updateEquipo(equipoId: string, nombre: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  await updateDoc(doc(db, TORNEO_EQUIPOS_COL, equipoId), { nombre })
+}
+
+export async function deleteEquipo(equipoId: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  await deleteDoc(doc(db, TORNEO_EQUIPOS_COL, equipoId))
+}
+
+export async function getEquipoByCodigo(torneoId: string, codigo: string): Promise<TorneoEquipo | null> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_EQUIPOS_COL), where("torneoId", "==", torneoId), where("codigo", "==", codigo.toLowerCase()))
+  const snap = await getDocs(q)
+  if (snap.empty) return null
+  const d = snap.docs[0]
+  return { id: d.id, ...d.data(), createdAt: timestampToDate(d.data().createdAt) } as TorneoEquipo
+}
+
+// ── Inscripciones ─────────────────────────────────────────────────────────────
+export async function inscribirEnTorneo(torneoId: string, userId: string, equipoId?: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  const existing = await getDocs(query(collection(db, TORNEO_INSCRIPCIONES_COL), where("torneoId", "==", torneoId), where("userId", "==", userId)))
+  if (!existing.empty) throw new Error("Ya estás inscrito en este torneo")
+  const data: Record<string, any> = { torneoId, userId, fechaInscripcion: serverTimestamp() }
+  if (equipoId) data.equipoId = equipoId
+  await addDoc(collection(db, TORNEO_INSCRIPCIONES_COL), data)
+}
+
+export async function getInscripcionesByTorneo(torneoId: string): Promise<TorneoInscripcion[]> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_INSCRIPCIONES_COL), where("torneoId", "==", torneoId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ id: d.id, ...d.data(), fechaInscripcion: timestampToDate(d.data().fechaInscripcion) } as TorneoInscripcion))
+}
+
+// ── Grupos (fase de grupos) ───────────────────────────────────────────────────
+export async function getGruposByTorneo(torneoId: string): Promise<TorneoGrupo[]> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_GRUPOS_COL), where("torneoId", "==", torneoId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as TorneoGrupo)).sort((a, b) => a.nombre.localeCompare(b.nombre))
+}
+
+export async function createGruposAleatorios(torneoId: string, participantes: string[], porGrupo: number): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  // Eliminar grupos anteriores
+  const prev = await getDocs(query(collection(db, TORNEO_GRUPOS_COL), where("torneoId", "==", torneoId)))
+  await Promise.all(prev.docs.map(d => deleteDoc(d.ref)))
+  // Mezclar aleatoriamente
+  const shuffled = [...participantes].sort(() => Math.random() - 0.5)
+  const letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  const numGrupos = Math.ceil(shuffled.length / porGrupo)
+  for (let i = 0; i < numGrupos; i++) {
+    const miembros = shuffled.slice(i * porGrupo, (i + 1) * porGrupo)
+    await addDoc(collection(db, TORNEO_GRUPOS_COL), { torneoId, nombre: `Grupo ${letras[i]}`, equipos: miembros })
+  }
+}
+
+// ── Partidos ──────────────────────────────────────────────────────────────────
+export async function getPartidosByTorneo(torneoId: string): Promise<TorneoPartido[]> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_PARTIDOS_COL), where("torneoId", "==", torneoId))
+  const snap = await getDocs(q)
+  return snap.docs.map(d => {
+    const data = d.data()
+    return { id: d.id, ...data, ...(data.fecha ? { fecha: timestampToDate(data.fecha) } : {}) } as TorneoPartido
+  })
+}
+
+export async function createPartido(partido: Omit<TorneoPartido, "id">): Promise<string> {
+  const db = getFirestoreForArea("deporte")
+  const data: Record<string, any> = { ...partido }
+  if (partido.fecha) data.fecha = Timestamp.fromDate(new Date(partido.fecha))
+  const ref = await addDoc(collection(db, TORNEO_PARTIDOS_COL), data)
+  return ref.id
+}
+
+export async function updatePartido(partidoId: string, data: Partial<TorneoPartido>): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  const clean: Record<string, any> = { ...data }
+  if (data.fecha) clean.fecha = Timestamp.fromDate(new Date(data.fecha))
+  await updateDoc(doc(db, TORNEO_PARTIDOS_COL, partidoId), clean)
+}
+
+export async function generarPartidosGrupo(torneoId: string, grupoId: string, equipos: string[]): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  // Round-robin: cada equipo juega contra todos los demás
+  for (let i = 0; i < equipos.length; i++) {
+    for (let j = i + 1; j < equipos.length; j++) {
+      await addDoc(collection(db, TORNEO_PARTIDOS_COL), {
+        torneoId, grupoId, fase: "grupos",
+        local: equipos[i], visitante: equipos[j],
+        jugado: false, golesLocal: null, golesVisitante: null,
+      })
+    }
+  }
+}
+
+export async function generarBracketEliminatorias(torneoId: string, clasificados: string[], fase: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  const shuffled = [...clasificados].sort(() => Math.random() - 0.5)
+  for (let i = 0; i < shuffled.length; i += 2) {
+    if (i + 1 < shuffled.length) {
+      await addDoc(collection(db, TORNEO_PARTIDOS_COL), {
+        torneoId, fase, local: shuffled[i], visitante: shuffled[i + 1],
+        jugado: false, posicionBracket: i / 2,
+      })
+    }
+  }
+}

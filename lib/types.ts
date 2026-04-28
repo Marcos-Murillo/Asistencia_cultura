@@ -239,3 +239,108 @@ export interface GroupCategoryAssignment {
   category: GroupCategory
   assignedAt: Date
 }
+
+// ============================================================================
+// TORNEOS DEPORTIVOS
+// ============================================================================
+
+export type TorneoTipo = 'individual' | 'grupal'
+export type TorneoDeporte = 'futbol' | 'baloncesto' | 'voleibol' | 'tenis_mesa' | 'ajedrez' | 'natacion' | 'atletismo' | 'otro'
+export type TorneoFase = 'inscripcion' | 'grupos' | 'eliminatorias' | 'finalizado'
+
+export interface Torneo {
+  id: string
+  nombre: string
+  deporte: TorneoDeporte
+  tipo: TorneoTipo
+  descripcion?: string
+  fechaInicio: Date
+  fechaFin: Date
+  lugar: string
+  fase: TorneoFase
+  activo: boolean
+  createdAt: Date
+  // Solo para grupales
+  equiposPorGrupo?: number
+}
+
+export interface TorneoEquipo {
+  id: string
+  torneoId: string
+  nombre: string
+  codigo: string // ej: "a1b2"
+  createdAt: Date
+}
+
+export interface TorneoInscripcion {
+  id: string
+  torneoId: string
+  userId: string
+  // Para grupal: equipoId
+  equipoId?: string
+  fechaInscripcion: Date
+}
+
+export interface TorneoGrupo {
+  id: string
+  torneoId: string
+  nombre: string // "Grupo A", "Grupo B"...
+  equipos: string[] // equipoIds (grupal) o userIds (individual)
+}
+
+// Estadísticas por deporte
+export interface EstadisticasJugador {
+  userId: string
+  // Fútbol
+  goles?: number
+  asistencias?: number
+  tarjetasAmarillas?: number
+  tarjetasRojas?: number
+  // Baloncesto
+  puntos?: number
+  rebotes?: number
+  // Voleibol
+  aces?: number
+  bloqueos?: number
+  // Tenis de mesa / Ajedrez
+  puntosIndividuales?: number
+  // Natación / Atletismo
+  tiempoSegundos?: number
+  posicion?: number
+  // General
+  minutosJugados?: number
+}
+
+export interface TorneoPartido {
+  id: string
+  torneoId: string
+  grupoId?: string // null si es eliminatoria
+  fase: 'grupos' | 'octavos' | 'cuartos' | 'semifinal' | 'final' | 'tercer_puesto'
+  ronda?: number
+  posicionBracket?: number // para el árbol de eliminatorias
+  // Participantes (equipoId o userId según tipo)
+  local: string
+  visitante: string
+  // Resultados
+  golesLocal?: number
+  golesVisitante?: number
+  jugado: boolean
+  fecha?: Date
+  lugar?: string
+  // Estadísticas por jugador
+  estadisticas?: EstadisticasJugador[]
+}
+
+// Tabla de posiciones (calculada)
+export interface PosicionGrupo {
+  equipoId: string
+  nombre: string
+  pj: number // partidos jugados
+  pg: number // ganados
+  pe: number // empatados
+  pp: number // perdidos
+  gf: number // goles a favor
+  gc: number // goles en contra
+  dg: number // diferencia de goles
+  pts: number // puntos
+}
