@@ -31,8 +31,12 @@ import {
   getActiveRealEvents,
   saveRealEventAttendance,
   getUserRealEventEnrollments,
+  getAllTorneos,
+  inscribirEnTorneo,
+  getEquipoByCodigo,
 } from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
+import type { Torneo } from "@/lib/types"
 
 export default function ConvocatoriasDeportePage() {
   const area: 'deporte' = 'deporte' // Área hardcoded para deporte
@@ -64,7 +68,9 @@ export default function ConvocatoriasDeportePage() {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [activeEvents, setActiveEvents] = useState<Event[]>([])
   const [activeRealEvents, setActiveRealEvents] = useState<Event[]>([])
-  const [currentStep, setCurrentStep] = useState(1)
+  const [activeTorneos, setActiveTorneos] = useState<Torneo[]>([])
+  const [codigoEquipo, setCodigoEquipo] = useState("")
+  const [codigoEquipoError, setCodigoEquipoError] = useState("")  const [currentStep, setCurrentStep] = useState(1)
   const [userEventEnrollments, setUserEventEnrollments] = useState<string[]>([])
   const [userRealEventEnrollments, setUserRealEventEnrollments] = useState<string[]>([])
 
@@ -224,12 +230,14 @@ export default function ConvocatoriasDeportePage() {
 
   async function loadActiveEvents() {
     try {
-      const [convocatorias, eventos] = await Promise.all([
+      const [convocatorias, eventos, torneos] = await Promise.all([
         getActiveEvents(area),
         getActiveRealEvents(area),
+        getAllTorneos(),
       ])
       setActiveEvents(convocatorias)
       setActiveRealEvents(eventos)
+      setActiveTorneos(torneos.filter(t => t.activo && t.fase === "inscripcion"))
     } catch (error) {
       console.error("Error cargando eventos activos:", error)
     }
@@ -239,6 +247,21 @@ export default function ConvocatoriasDeportePage() {
     if (!formData.eventoId) {
       setError("Debes seleccionar un evento")
       return
+    }
+
+    // Si es torneo grupal, validar código de equipo
+    const torneoSeleccionado = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+    if (torneoSeleccionado?.tipo === "grupal") {
+      if (!codigoEquipo.trim()) {
+        setCodigoEquipoError("Debes ingresar el código del equipo")
+        return
+      }
+      const equipo = await getEquipoByCodigo(torneoSeleccionado.id, codigoEquipo.trim().toLowerCase())
+      if (!equipo) {
+        setCodigoEquipoError("Código de equipo inválido. Verifica con tu capitán.")
+        return
+      }
+      setCodigoEquipoError("")
     }
 
     if (isSubmitting) {
@@ -255,11 +278,21 @@ export default function ConvocatoriasDeportePage() {
       if (selectedUser) {
         userId = selectedUser.id
         console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-        const isRealEvent = activeRealEvents.some(e => e.id === formData.eventoId)
-        if (isRealEvent) {
-          await saveRealEventAttendance(area, userId, formData.eventoId)
+        const torneoSel = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+        if (torneoSel) {
+          let equipoId: string | undefined
+          if (torneoSel.tipo === "grupal") {
+            const eq = await getEquipoByCodigo(torneoSel.id, codigoEquipo.trim().toLowerCase())
+            equipoId = eq?.id
+          }
+          await inscribirEnTorneo(torneoSel.id, userId, equipoId)
         } else {
-          await saveEventAttendance(area, userId, formData.eventoId)
+          const isRealEvent = activeRealEvents.some(e => e.id === formData.eventoId)
+          if (isRealEvent) {
+            await saveRealEventAttendance(area, userId, formData.eventoId)
+          } else {
+            await saveEventAttendance(area, userId, formData.eventoId)
+          }
         }
       } else {
         const userProfile = {
@@ -293,11 +326,21 @@ export default function ConvocatoriasDeportePage() {
         console.log("[Convocatorias] New user created with ID:", userId)
 
         console.log("[Convocatorias] Saving event attendance for user:", userId, "event:", formData.eventoId)
-        const isRealEvent2 = activeRealEvents.some(e => e.id === formData.eventoId)
-        if (isRealEvent2) {
-          await saveRealEventAttendance(area, userId, formData.eventoId)
+        const torneoSel2 = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+        if (torneoSel2) {
+          let equipoId2: string | undefined
+          if (torneoSel2.tipo === "grupal") {
+            const eq2 = await getEquipoByCodigo(torneoSel2.id, codigoEquipo.trim().toLowerCase())
+            equipoId2 = eq2?.id
+          }
+          await inscribirEnTorneo(torneoSel2.id, userId, equipoId2)
         } else {
-          await saveEventAttendance(area, userId, formData.eventoId)
+          const isRealEvent2 = activeRealEvents.some(e => e.id === formData.eventoId)
+          if (isRealEvent2) {
+            await saveRealEventAttendance(area, userId, formData.eventoId)
+          } else {
+            await saveEventAttendance(area, userId, formData.eventoId)
+          }
         }
       }
 
@@ -653,9 +696,12 @@ export default function ConvocatoriasDeportePage() {
     const enrolledRealEvents = activeRealEvents.filter(e => userRealEventEnrollments.includes(e.id))
 
     const allEnrolled = [...enrolledConvocatorias, ...enrolledRealEvents]
-    const totalAvailable = availableConvocatorias.length + availableRealEvents.length
+    const totalAvailable = availableConvocatorias.length + availableRealEvents.length + activeTorneos.length
 
-    if (activeEvents.length === 0 && activeRealEvents.length === 0) {
+    // Torneo seleccionado (si aplica)
+    const torneoSeleccionado = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+
+    if (activeEvents.length === 0 && activeRealEvents.length === 0 && activeTorneos.length === 0) {
       return (
         <Alert className="border-amber-200 bg-amber-50">
           <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -722,9 +768,38 @@ export default function ConvocatoriasDeportePage() {
                       ))}
                     </>
                   )}
+                  {activeTorneos.length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-orange-600 bg-orange-50">TORNEOS</div>
+                      {activeTorneos.map(t => (
+                        <SelectItem key={`torneo_${t.id}`} value={`torneo_${t.id}`}>
+                          🏆 {t.nombre} ({t.tipo === "grupal" ? "Grupal" : "Individual"} · {t.lugar})
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Código de equipo para torneos grupales */}
+            {torneoSeleccionado?.tipo === "grupal" && (
+              <div className="space-y-2 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <Label htmlFor="codigoEquipo" className="text-orange-800 font-medium">
+                  🏆 Código del equipo *
+                </Label>
+                <p className="text-xs text-orange-600">Este torneo es grupal. Ingresa el código que te dio el capitán de tu equipo.</p>
+                <Input
+                  id="codigoEquipo"
+                  value={codigoEquipo}
+                  onChange={e => { setCodigoEquipo(e.target.value.toLowerCase()); setCodigoEquipoError("") }}
+                  placeholder="Ej: a1b2"
+                  className="font-mono uppercase tracking-widest text-center text-lg border-orange-300 focus:border-orange-500"
+                  maxLength={4}
+                />
+                {codigoEquipoError && <p className="text-xs text-red-600">{codigoEquipoError}</p>}
+              </div>
+            )}
 
             {selectedEventInfo && (
               <div className={`p-4 rounded-lg border ${selectedEventInfo._tipo === "evento" ? "bg-blue-50 border-blue-200" : "bg-purple-50 border-purple-200"}`}>
@@ -737,6 +812,17 @@ export default function ConvocatoriasDeportePage() {
                     <p className="text-xs mt-1 text-gray-500">
                       Asegúrate de seleccionar la opción correcta antes de confirmar tu inscripción.
                     </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {torneoSeleccionado && (
+              <div className="p-4 rounded-lg border bg-orange-50 border-orange-200">
+                <div className="flex items-start gap-3">
+                  <span className="text-lg">🏆</span>
+                  <div className="text-sm">
+                    <p className="font-medium text-orange-800">Torneo: {torneoSeleccionado.nombre}</p>
+                    <p className="text-xs text-orange-600 mt-1">{torneoSeleccionado.tipo === "grupal" ? "Modalidad grupal — necesitas el código de tu equipo." : "Modalidad individual."}</p>
                   </div>
                 </div>
               </div>
