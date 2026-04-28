@@ -390,7 +390,18 @@ export default function RepresentacionesPage() {
                   <CardHeader className="pb-3">
                     <div className="flex justify-between items-start gap-2">
                       <CardTitle className="text-lg leading-tight">{nombre}</CardTitle>
-                      <Badge variant="outline" className="text-xs shrink-0">{totalPersonas} personas</Badge>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge variant="outline" className="text-xs">{totalPersonas} personas</Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 w-6 p-0 border-dashed border-blue-300 text-blue-500 hover:bg-blue-50"
+                          title="Agregar lista de otro grupo"
+                          onClick={() => openAddGroup(nombre, fecha, reps.map(r => r.grupoCultural))}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                     <CardDescription className="flex items-center gap-1 mt-1">
                       <Calendar className="h-3 w-3" />
@@ -411,16 +422,6 @@ export default function RepresentacionesPage() {
 
                     {/* Acciones con dropdowns */}
                     <div className="flex gap-2 pt-1">
-                      {/* Agregar grupo */}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 w-8 p-0 shrink-0 border-dashed border-blue-300 text-blue-500 hover:bg-blue-50"
-                        title="Agregar lista de otro grupo"
-                        onClick={() => openAddGroup(nombre, fecha, reps.map(r => r.grupoCultural))}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
                       {/* Ver */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
