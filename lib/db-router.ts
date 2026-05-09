@@ -2146,6 +2146,35 @@ export async function getInscripcionesByTorneo(torneoId: string): Promise<Torneo
   return snap.docs.map(d => ({ id: d.id, ...d.data(), fechaInscripcion: timestampToDate(d.data().fechaInscripcion) } as TorneoInscripcion))
 }
 
+export async function getMiembrosEquipo(torneoId: string, equipoId: string): Promise<{ userId: string; nombres: string }[]> {
+  const db = getFirestoreForArea("deporte")
+  const q = query(collection(db, TORNEO_INSCRIPCIONES_COL), where("torneoId", "==", torneoId), where("equipoId", "==", equipoId))
+  const snap = await getDocs(q)
+  if (snap.empty) return []
+  const userIds = snap.docs.map(d => d.data().userId as string)
+  const miembros: { userId: string; nombres: string }[] = []
+  for (let i = 0; i < userIds.length; i += 10) {
+    const batch = userIds.slice(i, i + 10)
+    const uq = query(collection(db, USERS_COLLECTION), where("__name__", "in", batch))
+    const uSnap = await getDocs(uq)
+    uSnap.docs.forEach(d => miembros.push({ userId: d.id, nombres: d.data().nombres || "" }))
+  }
+  return miembros
+}
+
+export async function getUserNamesByIds(userIds: string[]): Promise<Record<string, string>> {
+  if (userIds.length === 0) return {}
+  const db = getFirestoreForArea("deporte")
+  const names: Record<string, string> = {}
+  for (let i = 0; i < userIds.length; i += 10) {
+    const batch = userIds.slice(i, i + 10)
+    const uq = query(collection(db, USERS_COLLECTION), where("__name__", "in", batch))
+    const uSnap = await getDocs(uq)
+    uSnap.docs.forEach(d => { names[d.id] = d.data().nombres || "" })
+  }
+  return names
+}
+
 // ── Grupos (fase de grupos) ───────────────────────────────────────────────────
 export async function getGruposByTorneo(torneoId: string): Promise<TorneoGrupo[]> {
   const db = getFirestoreForArea("deporte")

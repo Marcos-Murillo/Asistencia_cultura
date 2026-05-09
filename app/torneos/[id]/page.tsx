@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -11,22 +11,21 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  Trophy, Users, User, Plus, Trash2, Pencil, Shuffle, Calendar, MapPin,
-  ArrowLeft, Copy, CheckCircle, BarChart2, Swords, ChevronRight
+  Trophy, Users, User, Plus, Trash2, Pencil, Shuffle,
+  ArrowLeft, Copy, CheckCircle, BarChart2, Swords, ChevronRight,
+  MapPin, History, Search
 } from "lucide-react"
 import Link from "next/link"
 import {
   getTorneoById, getEquiposByTorneo, createEquipo, updateEquipo, deleteEquipo,
   getInscripcionesByTorneo, getGruposByTorneo, createGruposAleatorios,
   getPartidosByTorneo, createPartido, updatePartido, generarPartidosGrupo,
-  generarBracketEliminatorias, updateTorneo, getUserById,
+  generarBracketEliminatorias, updateTorneo, getUserNamesByIds,
 } from "@/lib/db-router"
 import type { Torneo, TorneoEquipo, TorneoInscripcion, TorneoGrupo, TorneoPartido, PosicionGrupo, EstadisticasJugador } from "@/lib/types"
-import { getCurrentUserRole, isSuperAdmin as checkSuperAdmin, isAdmin as checkAdmin } from "@/lib/auth-helpers"
+import { isSuperAdmin as checkSuperAdmin, isAdmin as checkAdmin } from "@/lib/auth-helpers"
 
-// Estadísticas por deporte
 const STATS_FIELDS: Record<string, { key: keyof EstadisticasJugador; label: string }[]> = {
   futbol: [
     { key: "goles", label: "Goles" }, { key: "asistencias", label: "Asistencias" },
@@ -63,6 +62,12 @@ function calcPosiciones(partidos: TorneoPartido[], equipos: string[]): PosicionG
   return Array.from(map.values()).sort((a, b) => b.pts - a.pts || b.dg - a.dg || b.gf - a.gf)
 }
 
+// Orden de fases para saber cuáles ya pasaron
+const FASE_ORDER = ["inscripcion", "grupos", "eliminatorias", "finalizado"]
+function fasePasada(torneoFase: string, fase: string): boolean {
+  return FASE_ORDER.indexOf(torneoFase) > FASE_ORDER.indexOf(fase)
+}
+
 export default function TorneoAdminPage() {
   const params = useParams()
   const torneoId = params.id as string
@@ -71,11 +76,13 @@ export default function TorneoAdminPage() {
   const [inscripciones, setInscripciones] = useState<TorneoInscripcion[]>([])
   const [grupos, setGrupos] = useState<TorneoGrupo[]>([])
   const [partidos, setPartidos] = useState<TorneoPartido[]>([])
+  const [userNames, setUserNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [copiedCodigo, setCopiedCodigo] = useState<string | null>(null)
+  const [mostrarAnteriores, setMostrarAnteriores] = useState(false)
 
   // Equipo dialog
   const [equipoDialogOpen, setEquipoDialogOpen] = useState(false)
@@ -94,6 +101,7 @@ export default function TorneoAdminPage() {
   const [pGolesVisitante, setPGolesVisitante] = useState("")
   const [pJugado, setPJugado] = useState(false)
   const [pStats, setPStats] = useState<EstadisticasJugador[]>([])
+  const [pStatsFilter, setPStatsFilter] = useState("")
   const [partidoSubmitting, setPartidoSubmitting] = useState(false)
 
   useEffect(() => {
@@ -105,13 +113,13 @@ export default function TorneoAdminPage() {
     setLoading(true)
     try {
       const [t, eq, ins, gr, pts] = await Promise.all([
-        getTorneoById(torneoId),
-        getEquiposByTorneo(torneoId),
-        getInscripcionesByTorneo(torneoId),
-        getGruposByTorneo(torneoId),
+        getTorneoById(torneoId), getEquiposByTorneo(torneoId),
+        getInscripcionesByTorneo(torneoId), getGruposByTorneo(torneoId),
         getPartidosByTorneo(torneoId),
       ])
       setTorneo(t); setEquipos(eq); setInscripciones(ins); setGrupos(gr); setPartidos(pts)
+      const names = await getUserNamesByIds(ins.map(i => i.userId))
+      setUserNames(names)
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
@@ -121,7 +129,6 @@ export default function TorneoAdminPage() {
     setTimeout(() => setCopiedCodigo(null), 2000)
   }
 
-  // ── Equipos ──
   function openCreateEquipo() { setEditingEquipo(null); setEquipoNombre(""); setEquipoDialogOpen(true) }
   function openEditEquipo(e: TorneoEquipo) { setEditingEquipo(e); setEquipoNombre(e.nombre); setEquipoDialogOpen(true) }
 
@@ -141,29 +148,24 @@ export default function TorneoAdminPage() {
     catch (e) { setError("Error al eliminar") }
   }
 
-  // ── Grupos ──
   async function handleCrearGrupos() {
     if (!torneo) return
     const participantes = torneo.tipo === "grupal" ? equipos.map(e => e.id) : inscripciones.map(i => i.userId)
     if (participantes.length < 2) { setError("Se necesitan al menos 2 participantes"); return }
     const porGrupo = torneo.equiposPorGrupo || 4
     if (!confirm(`¿Crear grupos de ${porGrupo} participantes aleatoriamente? Esto eliminará los grupos anteriores.`)) return
-    try {
-      await createGruposAleatorios(torneoId, participantes, porGrupo)
-      setSuccess("Grupos creados"); await loadAll()
-    } catch (e) { setError("Error al crear grupos") }
+    try { await createGruposAleatorios(torneoId, participantes, porGrupo); setSuccess("Grupos creados"); await loadAll() }
+    catch (e) { setError("Error al crear grupos") }
   }
 
   async function handleGenerarPartidosGrupo(grupo: TorneoGrupo) {
     if (!confirm(`¿Generar partidos round-robin para ${grupo.nombre}?`)) return
-    try {
-      await generarPartidosGrupo(torneoId, grupo.id, grupo.equipos)
-      setSuccess("Partidos generados"); await loadAll()
-    } catch (e) { setError("Error al generar partidos") }
+    try { await generarPartidosGrupo(torneoId, grupo.id, grupo.equipos); setSuccess("Partidos generados"); await loadAll() }
+    catch (e) { setError("Error al generar partidos") }
   }
 
-  // ── Partidos ──
   function openPartidoDialog(p?: TorneoPartido, local?: string, visitante?: string) {
+    setPStatsFilter("")
     if (p) {
       setEditingPartido(p); setPLocal(p.local); setPVisitante(p.visitante)
       setPFecha(p.fecha ? p.fecha.toISOString().split("T")[0] : "")
@@ -204,7 +206,6 @@ export default function TorneoAdminPage() {
     try {
       await updateTorneo(torneoId, { fase: nextFase as any })
       if (nextFase === "eliminatorias") {
-        // Tomar los 2 primeros de cada grupo como clasificados
         const clasificados: string[] = []
         for (const g of grupos) {
           const pts = calcPosiciones(partidos.filter(p => p.grupoId === g.id), g.equipos)
@@ -217,9 +218,14 @@ export default function TorneoAdminPage() {
     } catch (e) { setError("Error al avanzar fase") }
   }
 
-  const getNombre = (id: string) => {
-    const eq = equipos.find(e => e.id === id)
-    return eq ? eq.nombre : id.slice(0, 8)
+  const getNombre = (id: string) => equipos.find(e => e.id === id)?.nombre ?? id.slice(0, 8)
+
+  // Jugadores de los dos equipos del partido actual (para estadísticas)
+  function getJugadoresPartido(localId: string, visitanteId: string) {
+    const equipoIds = [localId, visitanteId]
+    return inscripciones
+      .filter(i => i.equipoId && equipoIds.includes(i.equipoId))
+      .map(i => ({ userId: i.userId, nombre: userNames[i.userId] || i.userId, equipo: getNombre(i.equipoId!) }))
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">Cargando torneo...</p></div>
@@ -228,6 +234,8 @@ export default function TorneoAdminPage() {
   const statsFields = STATS_FIELDS[torneo.deporte] || STATS_FIELDS.otro
   const partidosGrupos = partidos.filter(p => p.fase === "grupos")
   const partidosElim = partidos.filter(p => p.fase !== "grupos")
+  const gruposPasados = fasePasada(torneo.fase, "grupos")
+  const elimPasados = fasePasada(torneo.fase, "eliminatorias")
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50">
@@ -247,11 +255,18 @@ export default function TorneoAdminPage() {
               <Badge variant="outline" className="text-xs">{torneo.fase}</Badge>
             </div>
           </div>
-          {isAdmin && torneo.fase !== "finalizado" && (
-            <Button size="sm" onClick={handleAvanzarFase} className="bg-orange-600 hover:bg-orange-700 text-white gap-1">
-              <ChevronRight className="h-4 w-4" />Avanzar fase
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {(gruposPasados || elimPasados) && (
+              <Button size="sm" variant="outline" onClick={() => setMostrarAnteriores(v => !v)} className="gap-1 text-gray-600">
+                <History className="h-4 w-4" />{mostrarAnteriores ? "Ocultar anteriores" : "Resultados anteriores"}
+              </Button>
+            )}
+            {isAdmin && torneo.fase !== "finalizado" && (
+              <Button size="sm" onClick={handleAvanzarFase} className="bg-orange-600 hover:bg-orange-700 text-white gap-1">
+                <ChevronRight className="h-4 w-4" />Avanzar fase
+              </Button>
+            )}
+          </div>
         </div>
 
         {success && <Alert className="mb-4 bg-green-50 border-green-200"><AlertDescription className="text-green-800">{success}</AlertDescription></Alert>}
@@ -262,13 +277,12 @@ export default function TorneoAdminPage() {
             {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
             <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
             <TabsTrigger value="estadisticas">Estadísticas</TabsTrigger>
-            {isAdmin && <TabsTrigger value="estadisticas-admin">Estadísticas Admin</TabsTrigger>}
+            {isAdmin && <TabsTrigger value="estadisticas-admin">Resumen</TabsTrigger>}
           </TabsList>
 
           {/* ── TAB ADMIN ── */}
           {isAdmin && (
             <TabsContent value="admin" className="space-y-6">
-              {/* Equipos (solo grupal) */}
               {torneo.tipo === "grupal" && (
                 <Card>
                   <CardHeader>
@@ -307,18 +321,39 @@ export default function TorneoAdminPage() {
               {/* Inscritos */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5" />Inscritos ({inscripciones.length})
-                  </CardTitle>
+                  <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />Inscritos ({inscripciones.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {inscripciones.length === 0 ? <p className="text-sm text-gray-500">Nadie inscrito aún.</p> : (
+                  {inscripciones.length === 0 ? <p className="text-sm text-gray-500">Nadie inscrito aún.</p> : torneo.tipo === "grupal" ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {equipos.map(eq => {
+                        const miembros = inscripciones.filter(i => i.equipoId === eq.id)
+                        return (
+                          <div key={eq.id} className="border rounded-lg p-3 bg-white space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="font-semibold text-sm text-orange-800">{eq.nombre}</p>
+                              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">{miembros.length} inscrito{miembros.length !== 1 ? "s" : ""}</span>
+                            </div>
+                            {miembros.length === 0 ? <p className="text-xs text-gray-400 italic">Sin inscritos</p> : (
+                              <ul className="space-y-1">
+                                {miembros.map((i, idx) => (
+                                  <li key={i.id} className="text-xs text-gray-700 flex items-center gap-1.5">
+                                    <span className="w-4 h-4 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
+                                    {userNames[i.userId] || i.userId.slice(0, 10) + "..."}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
                     <div className="text-sm text-gray-600 space-y-1">
-                      {inscripciones.map(i => (
+                      {inscripciones.map((i, idx) => (
                         <div key={i.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-                          <User className="h-3 w-3 text-gray-400" />
-                          <span>{i.userId.slice(0, 12)}...</span>
-                          {i.equipoId && <Badge variant="outline" className="text-xs">{equipos.find(e => e.id === i.equipoId)?.nombre || i.equipoId}</Badge>}
+                          <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
+                          <span>{userNames[i.userId] || i.userId.slice(0, 12) + "..."}</span>
                         </div>
                       ))}
                     </div>
@@ -326,12 +361,15 @@ export default function TorneoAdminPage() {
                 </CardContent>
               </Card>
 
-              {/* Fase de grupos */}
-              {(torneo.fase === "grupos" || torneo.fase === "eliminatorias" || torneo.fase === "finalizado") && (
-                <Card>
+              {/* Fase de grupos — oculta si ya pasó, salvo mostrarAnteriores */}
+              {(torneo.fase === "grupos" || (gruposPasados && mostrarAnteriores)) && (
+                <Card className={gruposPasados ? "opacity-75 border-dashed" : ""}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2"><Shuffle className="h-5 w-5" />Fase de Grupos</CardTitle>
+                      <CardTitle className="flex items-center gap-2">
+                        <Shuffle className="h-5 w-5" />Fase de Grupos
+                        {gruposPasados && <Badge variant="outline" className="text-xs text-gray-400">Fase anterior</Badge>}
+                      </CardTitle>
                       {torneo.fase === "grupos" && (
                         <Button size="sm" onClick={handleCrearGrupos} variant="outline" className="gap-1">
                           <Shuffle className="h-4 w-4" />Regenerar grupos
@@ -343,9 +381,7 @@ export default function TorneoAdminPage() {
                     {grupos.length === 0 ? (
                       <div className="text-center py-4">
                         <p className="text-sm text-gray-500 mb-3">No hay grupos generados.</p>
-                        <Button onClick={handleCrearGrupos} className="gap-1 bg-orange-600 hover:bg-orange-700">
-                          <Shuffle className="h-4 w-4" />Crear grupos aleatorios
-                        </Button>
+                        <Button onClick={handleCrearGrupos} className="gap-1 bg-orange-600 hover:bg-orange-700"><Shuffle className="h-4 w-4" />Crear grupos aleatorios</Button>
                       </div>
                     ) : grupos.map(g => {
                       const gPartidos = partidosGrupos.filter(p => p.grupoId === g.id)
@@ -353,7 +389,7 @@ export default function TorneoAdminPage() {
                         <div key={g.id} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="font-semibold">{g.nombre}</h3>
-                            {gPartidos.length === 0 && (
+                            {gPartidos.length === 0 && torneo.fase === "grupos" && (
                               <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => handleGenerarPartidosGrupo(g)}>
                                 <Swords className="h-3 w-3" />Generar partidos
                               </Button>
@@ -368,14 +404,9 @@ export default function TorneoAdminPage() {
                                 <div key={p.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
                                   <span className="font-medium">{getNombre(p.local)}</span>
                                   <div className="flex items-center gap-2">
-                                    {p.jugado ? (
-                                      <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span>
-                                    ) : (
-                                      <span className="text-gray-400 text-xs">{p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Sin fecha"}</span>
-                                    )}
-                                    <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}>
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
+                                    {p.jugado ? <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span>
+                                      : <span className="text-gray-400 text-xs">{p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Sin fecha"}</span>}
+                                    {!gruposPasados && <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}><Pencil className="h-3 w-3" /></Button>}
                                   </div>
                                   <span className="font-medium">{getNombre(p.visitante)}</span>
                                 </div>
@@ -389,10 +420,15 @@ export default function TorneoAdminPage() {
                 </Card>
               )}
 
-              {/* Bracket eliminatorias */}
-              {(torneo.fase === "eliminatorias" || torneo.fase === "finalizado") && partidosElim.length > 0 && (
-                <Card>
-                  <CardHeader><CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5" />Eliminatorias</CardTitle></CardHeader>
+              {/* Eliminatorias — oculta si ya pasó, salvo mostrarAnteriores */}
+              {((torneo.fase === "eliminatorias") || (elimPasados && mostrarAnteriores)) && partidosElim.length > 0 && (
+                <Card className={elimPasados ? "opacity-75 border-dashed" : ""}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Trophy className="h-5 w-5" />Eliminatorias
+                      {elimPasados && <Badge variant="outline" className="text-xs text-gray-400">Fase anterior</Badge>}
+                    </CardTitle>
+                  </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
                       {["octavos", "cuartos", "semifinal", "tercer_puesto", "final"].map(fase => {
@@ -407,7 +443,7 @@ export default function TorneoAdminPage() {
                                   <span className="font-medium">{getNombre(p.local)}</span>
                                   <div className="flex items-center gap-2">
                                     {p.jugado ? <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span> : <span className="text-gray-400 text-xs">vs</span>}
-                                    <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}><Pencil className="h-3 w-3" /></Button>
+                                    {!elimPasados && <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}><Pencil className="h-3 w-3" /></Button>}
                                   </div>
                                   <span className="font-medium">{getNombre(p.visitante)}</span>
                                 </div>
@@ -425,58 +461,84 @@ export default function TorneoAdminPage() {
 
           {/* ── TAB SEGUIMIENTO ── */}
           <TabsContent value="seguimiento" className="space-y-6">
-            {grupos.length === 0 ? (
-              <Card><CardContent className="py-12 text-center text-gray-500">El torneo aún no tiene grupos generados.</CardContent></Card>
-            ) : grupos.map(g => {
-              const gPartidos = partidosGrupos.filter(p => p.grupoId === g.id)
-              const posiciones = calcPosiciones(gPartidos, g.equipos)
-              return (
-                <Card key={g.id}>
-                  <CardHeader><CardTitle>{g.nombre}</CardTitle></CardHeader>
-                  <CardContent className="space-y-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>#</TableHead><TableHead>Equipo</TableHead>
-                          <TableHead className="text-center">PJ</TableHead><TableHead className="text-center">PG</TableHead>
-                          <TableHead className="text-center">PE</TableHead><TableHead className="text-center">PP</TableHead>
-                          <TableHead className="text-center">GF</TableHead><TableHead className="text-center">GC</TableHead>
-                          <TableHead className="text-center">DG</TableHead><TableHead className="text-center font-bold">PTS</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {posiciones.map((p, i) => (
-                          <TableRow key={p.equipoId} className={i < 2 ? "bg-green-50" : ""}>
-                            <TableCell className="font-bold text-gray-500">{i + 1}</TableCell>
-                            <TableCell className="font-medium">{getNombre(p.equipoId)}</TableCell>
-                            <TableCell className="text-center">{p.pj}</TableCell><TableCell className="text-center">{p.pg}</TableCell>
-                            <TableCell className="text-center">{p.pe}</TableCell><TableCell className="text-center">{p.pp}</TableCell>
-                            <TableCell className="text-center">{p.gf}</TableCell><TableCell className="text-center">{p.gc}</TableCell>
-                            <TableCell className="text-center">{p.dg > 0 ? `+${p.dg}` : p.dg}</TableCell>
-                            <TableCell className="text-center font-bold text-orange-600">{p.pts}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <div className="space-y-1">
-                      {gPartidos.map(p => (
-                        <div key={p.id} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
-                          <span>{getNombre(p.local)}</span>
-                          <span className={`font-bold ${p.jugado ? "text-orange-600" : "text-gray-400"}`}>
-                            {p.jugado ? `${p.golesLocal} - ${p.golesVisitante}` : p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Por jugar"}
-                          </span>
-                          <span>{getNombre(p.visitante)}</span>
+            {/* Fase de grupos — oculta si ya pasó */}
+            {(!gruposPasados || mostrarAnteriores) && grupos.length > 0 && (
+              <div className="space-y-4">
+                {gruposPasados && <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Fase de grupos (anterior)</p>}
+                {grupos.map(g => {
+                  const gPartidos = partidosGrupos.filter(p => p.grupoId === g.id)
+                  const posiciones = calcPosiciones(gPartidos, g.equipos)
+                  return (
+                    <Card key={g.id} className={gruposPasados ? "opacity-75" : ""}>
+                      <CardHeader><CardTitle>{g.nombre}</CardTitle></CardHeader>
+                      <CardContent className="space-y-4">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>#</TableHead><TableHead>Equipo</TableHead>
+                              <TableHead className="text-center">PJ</TableHead><TableHead className="text-center">PG</TableHead>
+                              <TableHead className="text-center">PE</TableHead><TableHead className="text-center">PP</TableHead>
+                              <TableHead className="text-center">GF</TableHead><TableHead className="text-center">GC</TableHead>
+                              <TableHead className="text-center">DG</TableHead><TableHead className="text-center font-bold">PTS</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {posiciones.map((p, i) => (
+                              <TableRow key={p.equipoId} className={i < 2 ? "bg-green-50" : ""}>
+                                <TableCell className="font-bold text-gray-500">{i + 1}</TableCell>
+                                <TableCell className="font-medium">{getNombre(p.equipoId)}</TableCell>
+                                <TableCell className="text-center">{p.pj}</TableCell><TableCell className="text-center">{p.pg}</TableCell>
+                                <TableCell className="text-center">{p.pe}</TableCell><TableCell className="text-center">{p.pp}</TableCell>
+                                <TableCell className="text-center">{p.gf}</TableCell><TableCell className="text-center">{p.gc}</TableCell>
+                                <TableCell className="text-center">{p.dg > 0 ? `+${p.dg}` : p.dg}</TableCell>
+                                <TableCell className="text-center font-bold text-orange-600">{p.pts}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                        <div className="space-y-1">
+                          {gPartidos.map(p => (
+                            <div key={p.id} className="flex items-center justify-between text-sm py-1.5 border-b last:border-0">
+                              <span className="flex-1 text-right pr-3">{getNombre(p.local)}</span>
+                              <div className="text-center min-w-[100px]">
+                                <span className={`font-bold ${p.jugado ? "text-orange-600" : "text-gray-400"}`}>
+                                  {p.jugado ? `${p.golesLocal} - ${p.golesVisitante}` : p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Por jugar"}
+                                </span>
+                                {(p.fecha || p.lugar) && !p.jugado && (
+                                  <div className="flex items-center justify-center gap-2 mt-0.5 text-xs text-gray-400">
+                                    {p.lugar && <span className="flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{p.lugar}</span>}
+                                  </div>
+                                )}
+                                {p.jugado && p.lugar && (
+                                  <div className="text-xs text-gray-400 flex items-center justify-center gap-0.5 mt-0.5">
+                                    <MapPin className="h-2.5 w-2.5" />{p.lugar}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="flex-1 pl-3">{getNombre(p.visitante)}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-            {/* Bracket */}
-            {partidosElim.length > 0 && (
-              <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-orange-500" />Eliminatorias</CardTitle></CardHeader>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+
+            {grupos.length === 0 && !partidosElim.length && (
+              <Card><CardContent className="py-12 text-center text-gray-500">El torneo aún no tiene grupos generados.</CardContent></Card>
+            )}
+
+            {/* Eliminatorias */}
+            {(!elimPasados || mostrarAnteriores) && partidosElim.length > 0 && (
+              <Card className={elimPasados ? "opacity-75" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Trophy className="h-5 w-5 text-orange-500" />Eliminatorias
+                    {elimPasados && <Badge variant="outline" className="text-xs text-gray-400">Fase anterior</Badge>}
+                  </CardTitle>
+                </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {["octavos", "cuartos", "semifinal", "tercer_puesto", "final"].map(fase => {
@@ -487,15 +549,25 @@ export default function TorneoAdminPage() {
                           <p className="text-xs font-semibold text-gray-500 uppercase mb-2">{fase.replace("_", " ")}</p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {fps.map(p => (
-                              <div key={p.id} className={`flex items-center justify-between border-2 rounded-lg px-4 py-3 ${p.jugado ? "border-orange-300 bg-orange-50" : "border-gray-200 bg-white"}`}>
-                                <div className="text-center">
-                                  <p className="font-semibold text-sm">{getNombre(p.local)}</p>
-                                  {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesLocal}</p>}
-                                </div>
-                                <span className="text-gray-400 font-bold">VS</span>
-                                <div className="text-center">
-                                  <p className="font-semibold text-sm">{getNombre(p.visitante)}</p>
-                                  {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesVisitante}</p>}
+                              <div key={p.id} className={`border-2 rounded-lg px-4 py-3 ${p.jugado ? "border-orange-300 bg-orange-50" : "border-gray-200 bg-white"}`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="text-center flex-1">
+                                    <p className="font-semibold text-sm">{getNombre(p.local)}</p>
+                                    {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesLocal}</p>}
+                                  </div>
+                                  <div className="text-center px-2">
+                                    <span className="text-gray-400 font-bold text-sm">VS</span>
+                                    {(p.fecha || p.lugar) && (
+                                      <div className="text-xs text-gray-400 mt-1 space-y-0.5">
+                                        {p.fecha && <p>{p.fecha.toLocaleDateString("es-CO")}</p>}
+                                        {p.lugar && <p className="flex items-center gap-0.5 justify-center"><MapPin className="h-2.5 w-2.5" />{p.lugar}</p>}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="text-center flex-1">
+                                    <p className="font-semibold text-sm">{getNombre(p.visitante)}</p>
+                                    {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesVisitante}</p>}
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -521,6 +593,7 @@ export default function TorneoAdminPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Jugador</TableHead>
+                        <TableHead>Equipo</TableHead>
                         {statsFields.map(f => <TableHead key={f.key} className="text-center">{f.label}</TableHead>)}
                       </TableRow>
                     </TableHeader>
@@ -537,12 +610,17 @@ export default function TorneoAdminPage() {
                             agg.set(s.userId, prev)
                           })
                         })
-                        return Array.from(agg.values()).map(s => (
-                          <TableRow key={s.userId}>
-                            <TableCell className="font-medium">{s.userId.slice(0, 10)}...</TableCell>
-                            {statsFields.map(f => <TableCell key={f.key} className="text-center">{(s as any)[f.key] ?? "-"}</TableCell>)}
-                          </TableRow>
-                        ))
+                        return Array.from(agg.values()).map(s => {
+                          const insc = inscripciones.find(i => i.userId === s.userId)
+                          const equipoNombre = insc?.equipoId ? getNombre(insc.equipoId) : "-"
+                          return (
+                            <TableRow key={s.userId}>
+                              <TableCell className="font-medium">{userNames[s.userId] || s.userId.slice(0, 10) + "..."}</TableCell>
+                              <TableCell className="text-sm text-gray-500">{equipoNombre}</TableCell>
+                              {statsFields.map(f => <TableCell key={f.key} className="text-center">{(s as any)[f.key] ?? "-"}</TableCell>)}
+                            </TableRow>
+                          )
+                        })
                       })()}
                     </TableBody>
                   </Table>
@@ -551,7 +629,7 @@ export default function TorneoAdminPage() {
             )}
           </TabsContent>
 
-          {/* ── TAB ESTADÍSTICAS ADMIN ── */}
+          {/* ── TAB RESUMEN ADMIN ── */}
           {isAdmin && (
             <TabsContent value="estadisticas-admin" className="space-y-4">
               <Card>
@@ -629,33 +707,72 @@ export default function TorneoAdminPage() {
               {pJugado && statsFields.length > 0 && (
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Estadísticas por jugador</Label>
-                  <p className="text-xs text-gray-500">Agrega las estadísticas de cada jugador que participó.</p>
-                  {pStats.map((s, idx) => (
-                    <div key={idx} className="border rounded p-2 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Input className="h-7 text-xs flex-1 mr-2" placeholder="ID o nombre del jugador" value={s.userId} onChange={e => { const n = [...pStats]; n[idx].userId = e.target.value; setPStats(n) }} />
-                        <button onClick={() => setPStats(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        {statsFields.map(f => (
-                          <div key={f.key} className="space-y-0.5">
-                            <Label className="text-xs">{f.label}</Label>
-                            <Input className="h-7 text-xs" type="number" min={0} value={(s as any)[f.key] ?? ""} onChange={e => { const n = [...pStats]; (n[idx] as any)[f.key] = e.target.value ? parseInt(e.target.value) : undefined; setPStats(n) }} />
+                  {/* Filtro de jugadores */}
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      className="pl-7 h-8 text-xs"
+                      placeholder="Buscar jugador..."
+                      value={pStatsFilter}
+                      onChange={e => setPStatsFilter(e.target.value)}
+                    />
+                  </div>
+                  {/* Lista de jugadores de los dos equipos */}
+                  <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+                    {getJugadoresPartido(pLocal, pVisitante)
+                      .filter(j => j.nombre.toLowerCase().includes(pStatsFilter.toLowerCase()))
+                      .map(j => {
+                        const statIdx = pStats.findIndex(s => s.userId === j.userId)
+                        const stat = statIdx >= 0 ? pStats[statIdx] : null
+                        return (
+                          <div key={j.userId} className="p-2 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-xs font-medium">{j.nombre}</p>
+                                <p className="text-[10px] text-gray-400">{j.equipo}</p>
+                              </div>
+                              {!stat ? (
+                                <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setPStats(prev => [...prev, { userId: j.userId }])}>
+                                  + Agregar
+                                </Button>
+                              ) : (
+                                <button className="text-xs text-red-400 hover:text-red-600" onClick={() => setPStats(prev => prev.filter(s => s.userId !== j.userId))}>
+                                  Quitar
+                                </button>
+                              )}
+                            </div>
+                            {stat && (
+                              <div className="grid grid-cols-3 gap-1">
+                                {statsFields.map(f => (
+                                  <div key={f.key} className="space-y-0.5">
+                                    <p className="text-[10px] text-gray-500">{f.label}</p>
+                                    <Input
+                                      type="number" min={0}
+                                      className="h-6 text-xs px-1"
+                                      value={(stat as any)[f.key] ?? ""}
+                                      onChange={e => {
+                                        const val = e.target.value === "" ? undefined : parseInt(e.target.value)
+                                        setPStats(prev => prev.map(s => s.userId === j.userId ? { ...s, [f.key]: val } : s))
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  <Button size="sm" variant="outline" className="w-full gap-1 text-xs" onClick={() => setPStats(prev => [...prev, { userId: "" }])}>
-                    <Plus className="h-3 w-3" />Agregar jugador
-                  </Button>
+                        )
+                      })}
+                    {getJugadoresPartido(pLocal, pVisitante).filter(j => j.nombre.toLowerCase().includes(pStatsFilter.toLowerCase())).length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-3">No se encontraron jugadores</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setPartidoDialogOpen(false)}>Cancelar</Button>
               <Button onClick={handlePartidoSubmit} disabled={partidoSubmitting} className="bg-orange-600 hover:bg-orange-700">
-                {partidoSubmitting ? "Guardando..." : "Guardar"}
+                {partidoSubmitting ? "Guardando..." : editingPartido ? "Guardar" : "Crear"}
               </Button>
             </DialogFooter>
           </DialogContent>

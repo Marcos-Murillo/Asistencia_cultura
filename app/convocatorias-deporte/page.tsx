@@ -34,6 +34,7 @@ import {
   getAllTorneos,
   inscribirEnTorneo,
   getEquipoByCodigo,
+  getMiembrosEquipo,
 } from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
 import type { Torneo } from "@/lib/types"
@@ -70,7 +71,10 @@ export default function ConvocatoriasDeportePage() {
   const [activeRealEvents, setActiveRealEvents] = useState<Event[]>([])
   const [activeTorneos, setActiveTorneos] = useState<Torneo[]>([])
   const [codigoEquipo, setCodigoEquipo] = useState("")
-  const [codigoEquipoError, setCodigoEquipoError] = useState("")  const [currentStep, setCurrentStep] = useState(1)
+  const [codigoEquipoError, setCodigoEquipoError] = useState("")
+  const [equipoEncontrado, setEquipoEncontrado] = useState<{ id: string; nombre: string; codigo: string } | null>(null)
+  const [miembrosEquipo, setMiembrosEquipo] = useState<{ userId: string; nombres: string }[]>([])
+  const [currentStep, setCurrentStep] = useState(1)
   const [userEventEnrollments, setUserEventEnrollments] = useState<string[]>([])
   const [userRealEventEnrollments, setUserRealEventEnrollments] = useState<string[]>([])
 
@@ -80,6 +84,28 @@ export default function ConvocatoriasDeportePage() {
   useEffect(() => {
     loadActiveEvents()
   }, [area])
+
+  // Cargar miembros del equipo cuando el código tiene 4 caracteres
+  useEffect(() => {
+    const torneoSeleccionado = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+    if (!torneoSeleccionado || torneoSeleccionado.tipo !== "grupal" || codigoEquipo.trim().length !== 4) {
+      setEquipoEncontrado(null)
+      setMiembrosEquipo([])
+      return
+    }
+    const buscarEquipo = async () => {
+      const eq = await getEquipoByCodigo(torneoSeleccionado.id, codigoEquipo.trim().toLowerCase())
+      if (!eq) {
+        setEquipoEncontrado(null)
+        setMiembrosEquipo([])
+        return
+      }
+      setEquipoEncontrado(eq)
+      const miembros = await getMiembrosEquipo(torneoSeleccionado.id, eq.id)
+      setMiembrosEquipo(miembros)
+    }
+    buscarEquipo()
+  }, [codigoEquipo, formData.eventoId, activeTorneos])
 
   useEffect(() => {
     const checkSimilarity = async () => {
@@ -177,8 +203,14 @@ export default function ConvocatoriasDeportePage() {
   }
 
   const validateStep = (step: number): boolean => {
+    // Helper: si el evento seleccionado es un torneo grupal, también requiere código
+    const torneoSeleccionado = activeTorneos.find(t => `torneo_${t.id}` === formData.eventoId)
+    const eventoValido = !!formData.eventoId && (
+      !torneoSeleccionado || torneoSeleccionado.tipo !== "grupal" || codigoEquipo.trim().length === 4
+    )
+
     if (selectedUser) {
-      return !!formData.eventoId
+      return eventoValido
     }
 
     switch (step) {
@@ -204,9 +236,9 @@ export default function ConvocatoriasDeportePage() {
           return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
         }
         // No es estudiante/egresado: paso 3 es selección de evento
-        return !!formData.eventoId
+        return eventoValido
       case 4:
-        return !!formData.eventoId
+        return eventoValido
       default:
         return false
     }
@@ -371,6 +403,9 @@ export default function ConvocatoriasDeportePage() {
         setSimilarUsers([])
         setUserEventEnrollments([])
         setUserRealEventEnrollments([])
+        setCodigoEquipo("")
+        setEquipoEncontrado(null)
+        setMiembrosEquipo([])
       }, 3000)
     } catch (error: any) {
       console.error("Error saving event attendance:", error)
@@ -817,14 +852,36 @@ export default function ConvocatoriasDeportePage() {
               </div>
             )}
             {torneoSeleccionado && (
-              <div className="p-4 rounded-lg border bg-orange-50 border-orange-200">
+              <div className="p-4 rounded-lg border bg-orange-50 border-orange-200 space-y-3">
                 <div className="flex items-start gap-3">
                   <span className="text-lg">🏆</span>
-                  <div className="text-sm">
+                  <div className="text-sm flex-1">
                     <p className="font-medium text-orange-800">Torneo: {torneoSeleccionado.nombre}</p>
                     <p className="text-xs text-orange-600 mt-1">{torneoSeleccionado.tipo === "grupal" ? "Modalidad grupal — necesitas el código de tu equipo." : "Modalidad individual."}</p>
                   </div>
                 </div>
+                {equipoEncontrado && (
+                  <div className="border-t border-orange-200 pt-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-orange-800">👥 {equipoEncontrado.nombre}</p>
+                      <span className="text-xs bg-orange-200 text-orange-800 px-2 py-0.5 rounded-full font-medium">
+                        {miembrosEquipo.length} inscrito{miembrosEquipo.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    {miembrosEquipo.length > 0 ? (
+                      <ul className="space-y-1">
+                        {miembrosEquipo.map((m, i) => (
+                          <li key={m.userId} className="text-xs text-orange-700 flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-orange-200 text-orange-800 flex items-center justify-center text-[10px] font-bold shrink-0">{i + 1}</span>
+                            {m.nombres}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-orange-500 italic">Aún no hay inscritos en este equipo.</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -931,11 +988,7 @@ export default function ConvocatoriasDeportePage() {
                         onClick={handleSubmit}
                         disabled={
                           isSubmitting || 
-                          !validateStep(currentStep) || 
-                          (!!selectedUser && 
-                            activeEvents.filter(e => !userEventEnrollments.includes(e.id)).length === 0 &&
-                            activeRealEvents.filter(e => !userRealEventEnrollments.includes(e.id)).length === 0
-                          )
+                          !validateStep(currentStep)
                         }
                         className="flex-1 bg-purple-600 hover:bg-purple-700"
                       >
