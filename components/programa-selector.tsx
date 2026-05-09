@@ -3,12 +3,10 @@
 import { useState, useMemo } from "react"
 import { 
   getProgramasPorSede, 
-  getFacultadesPorSede, 
   getProgramasPorSedeYFacultad,
-  getSedesUnicas,
   type ProgramaAcademico 
 } from "@/lib/programas-academicos"
-import { SEDES, FACULTADES } from "@/lib/data"
+import { SEDES } from "@/lib/data"
 
 interface ProgramaSelectorProps {
   onProgramaSelect?: (programa: ProgramaAcademico) => void
@@ -32,7 +30,8 @@ export function ProgramaSelector({
   // Obtener facultades disponibles según la sede seleccionada
   const facultadesDisponibles = useMemo(() => {
     if (!sedeSeleccionada) return []
-    return getFacultadesPorSede(sedeSeleccionada)
+    const programas = getProgramasPorSede(sedeSeleccionada)
+    return Array.from(new Set(programas.map(p => p.facultad))).sort()
   }, [sedeSeleccionada])
 
   // Obtener programas disponibles según sede y facultad
