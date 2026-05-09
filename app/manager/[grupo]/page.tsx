@@ -35,13 +35,16 @@ import {
   Filter,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Eye,
 } from "lucide-react"
 import { assignUsersToCategory, getGroupCategoriesBatch } from "@/lib/group-categories"
 import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
 import { formatNombre } from "@/lib/utils"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { GroupAttendanceReport } from "@/components/group-attendance-report"
 
 export default function ManagerGroupPage() {
   const params = useParams()
@@ -377,6 +380,18 @@ export default function ManagerGroupPage() {
             </Alert>
           )}
 
+          <Tabs defaultValue="gestion" className="w-full">
+            <TabsList className="grid w-full max-w-lg grid-cols-2 h-auto p-1">
+              <TabsTrigger value="gestion" className="py-2.5">
+                Gestión del grupo
+              </TabsTrigger>
+              <TabsTrigger value="asistencias" className="gap-2 py-2.5">
+                <Eye className="h-4 w-4 shrink-0" />
+                Ver asistentes
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="gestion" className="mt-4 space-y-4 md:space-y-6 outline-none">
           {/* Estadísticas */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <Card>
@@ -686,6 +701,12 @@ export default function ManagerGroupPage() {
               </div>
             </CardContent>
           </Card>
+            </TabsContent>
+
+            <TabsContent value="asistencias" className="mt-4 outline-none">
+              <GroupAttendanceReport groupName={groupName} area={area} backLink={null} />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
