@@ -39,6 +39,7 @@ import type { GroupWithEnrollments, UserProfile, GroupManager, UserRole } from "
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterGroupsByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
+import { sortUsersByNombres } from "@/lib/utils"
 
 export default function GruposPage() {
   const { area } = useArea()
@@ -208,7 +209,7 @@ export default function GruposPage() {
           ? u.rol === "ENTRENADOR" || u.rol === "MONITOR"
           : u.rol === "DIRECTOR" || u.rol === "MONITOR"
       )
-      setAvailableManagers(managers)
+      setAvailableManagers(sortUsersByNombres(managers))
       console.log("[Grupos] Loaded", managers.length, "managers from area:", area)
     } catch (error) {
       console.error("Error cargando managers:", error)

@@ -13,6 +13,7 @@ import type {
   GroupEnrollment,
   GroupWithEnrollments,
 } from "./types"
+import { sortUsersByNombres } from "./utils"
 
 // Collections
 const USERS_COLLECTION = "user_profiles"
@@ -400,7 +401,7 @@ export async function getAllUsers(): Promise<UserProfile[]> {
       } as UserProfile)
     })
 
-    return users.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    return sortUsersByNombres(users)
   } catch (error) {
     console.error("[v0] Error getting all users:", error)
     throw error
@@ -859,7 +860,7 @@ export async function getGroupEnrolledUsers(grupoCultural: string): Promise<(Use
     // Convertir Map a array
     const enrolledUsers = Array.from(enrolledUsersMap.values())
 
-    return enrolledUsers.sort((a, b) => a.nombres.localeCompare(b.nombres))
+    return sortUsersByNombres(enrolledUsers)
   } catch (error) {
     console.error("[v0] Error getting group enrolled users:", error)
     throw error

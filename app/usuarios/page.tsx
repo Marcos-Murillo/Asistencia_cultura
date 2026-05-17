@@ -41,7 +41,7 @@ import { collection, query, where, getDocs } from "firebase/firestore"
 import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterStudentsByAssignment, type RolePermissions } from "@/lib/role-manager"
-import { formatNombre } from "@/lib/utils"
+import { formatNombre, sortUsersByNombres } from "@/lib/utils"
 import { 
   Users, 
   Search, 
@@ -191,7 +191,7 @@ export default function UsuariosPage() {
       // Por ahora lo dejamos como placeholder
     }
 
-    setFilteredUsers(filtered)
+    setFilteredUsers(sortUsersByNombres(filtered))
     setCurrentPage(1)
   }, [searchTerm, facultadFilter, programaFilter, grupoCulturalFilter, users])
 

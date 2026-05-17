@@ -25,7 +25,7 @@ import {
 import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import { ESTAMENTOS, FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import type { UserProfile } from "@/lib/types"
-import { formatNombre } from "@/lib/utils"
+import { formatNombre, sortUsersByNombres, compareByNombres } from "@/lib/utils"
 
 type EnrolledUser = UserProfile & { fechaInscripcion: Date }
 
@@ -272,22 +272,27 @@ export default function RepresentacionesPage() {
   // ── Memos ──
   const filteredEnrolled = useMemo(() => {
     const s = userSearch.toLowerCase()
-    return enrolledUsers.filter(u => !s || u.nombres.toLowerCase().includes(s) || u.numeroDocumento.includes(s))
+    return sortUsersByNombres(
+      enrolledUsers.filter(u => !s || u.nombres.toLowerCase().includes(s) || u.numeroDocumento.includes(s))
+    )
   }, [enrolledUsers, userSearch])
 
   const filteredEditEnrolled = useMemo(() => {
     const s = editUserSearch.toLowerCase()
-    return editEnrolled.filter(u => !s || u.nombres.toLowerCase().includes(s) || u.numeroDocumento.includes(s))
+    return sortUsersByNombres(
+      editEnrolled.filter(u => !s || u.nombres.toLowerCase().includes(s) || u.numeroDocumento.includes(s))
+    )
   }, [editEnrolled, editUserSearch])
 
   const filteredMembers = useMemo(() => {
     if (!viewingRep) return []
-    return viewingRep.miembros.filter(m => {
+    const filtered = viewingRep.miembros.filter(m => {
       if (viewSearch && !m.nombres.toLowerCase().includes(viewSearch.toLowerCase()) && !m.numeroDocumento.includes(viewSearch)) return false
       if (viewFacultad !== "all" && m.facultad !== viewFacultad) return false
       if (viewEstamento !== "all" && m.estamento !== viewEstamento) return false
       return true
     })
+    return [...filtered].sort(compareByNombres)
   }, [viewingRep, viewSearch, viewFacultad, viewEstamento])
 
   const viewStats = useMemo(() => {

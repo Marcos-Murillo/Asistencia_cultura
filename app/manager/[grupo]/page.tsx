@@ -24,11 +24,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
-import { 
-  Users, 
-  CheckCircle, 
-  AlertTriangle, 
-  TrendingUp, 
+import {
+  Users,
+  CheckCircle,
+  AlertTriangle,
+  TrendingUp,
   Calendar,
   Search,
   UserCheck,
@@ -37,12 +37,22 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
+  Copy,
+  Download,
+  GitCompareArrows,
+  CheckSquare,
 } from "lucide-react"
-import { assignUsersToCategory, getGroupCategoriesBatch } from "@/lib/group-categories"
+import * as XLSX from "xlsx"
+import {
+  assignUsersToCategory,
+  getGroupCategoriesBatch,
+  removeUserFromAllCategories,
+} from "@/lib/group-categories"
+import { SEDES, ESTAMENTOS } from "@/lib/data"
 import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
-import { formatNombre } from "@/lib/utils"
+import { formatNombre, sortUsersByNombres } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GroupAttendanceReport } from "@/components/group-attendance-report"
 
@@ -65,25 +75,31 @@ export default function ManagerGroupPage() {
   const [filterPrograma, setFilterPrograma] = useState("")
   const [filterCodigo, setFilterCodigo] = useState("")
   const [filterCategory, setFilterCategory] = useState<GroupCategory | "TODOS">("TODOS")
+  const [filterSede, setFilterSede] = useState("")
+  const [filterEstamento, setFilterEstamento] = useState("")
   const [showFilters, setShowFilters] = useState(false)
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 8
 
-  // Asistencia
-  const [selectedForAttendance, setSelectedForAttendance] = useState<Set<string>>(new Set())
+  // Selección múltiple
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showOnlySelected, setShowOnlySelected] = useState(false)
   const [isMarkingAttendance, setIsMarkingAttendance] = useState(false)
 
   // Categorías
-  const [selectedForCategory, setSelectedForCategory] = useState<Set<string>>(new Set())
   const [selectedCategory, setSelectedCategory] = useState<GroupCategory>("SEMILLERO")
   const [isAssigningCategory, setIsAssigningCategory] = useState(false)
+  const [isRemovingCategory, setIsRemovingCategory] = useState(false)
   const [userCategories, setUserCategories] = useState<Record<string, GroupCategory>>({})
   const [showCategoryDialog, setShowCategoryDialog] = useState(false)
+  const [showCompareDialog, setShowCompareDialog] = useState(false)
 
   // Estadísticas
   const [attendanceStats, setAttendanceStats] = useState<Record<string, number>>({})
+  const [managerDisplayName, setManagerDisplayName] = useState("")
 
   useEffect(() => {
     const userType = sessionStorage.getItem("userType")
@@ -122,12 +138,25 @@ export default function ManagerGroupPage() {
 
     const currentArea = userArea || "cultura"
     setArea(currentArea)
+    setManagerDisplayName(sessionStorage.getItem("userName") || "")
     loadGroupData(currentArea)
   }, [groupName, router])
 
   useEffect(() => {
     applyFilters()
-  }, [searchName, filterFacultad, filterPrograma, filterCodigo, filterCategory, enrolledUsers])
+  }, [
+    searchName,
+    filterFacultad,
+    filterPrograma,
+    filterCodigo,
+    filterCategory,
+    filterSede,
+    filterEstamento,
+    showOnlySelected,
+    selectedIds,
+    enrolledUsers,
+    userCategories,
+  ])
 
   async function loadGroupData(currentArea: Area) {
     setLoading(true)
@@ -191,36 +220,50 @@ export default function ManagerGroupPage() {
       filtered = filtered.filter(u => userCategories[u.id] === filterCategory)
     }
 
-    setFilteredUsers(filtered)
+    if (filterSede) {
+      filtered = filtered.filter(u => u.sede === filterSede)
+    }
+
+    if (filterEstamento) {
+      filtered = filtered.filter(u => u.estamento === filterEstamento)
+    }
+
+    if (showOnlySelected) {
+      filtered = filtered.filter(u => selectedIds.has(u.id))
+    }
+
+    setFilteredUsers(sortUsersByNombres(filtered))
     setCurrentPage(1) // Reset a la primera página cuando se filtran
   }
 
-  const handleSelectForAttendance = (userId: string) => {
-    const newSet = new Set(selectedForAttendance)
-    if (newSet.has(userId)) {
-      newSet.delete(userId)
-    } else {
-      newSet.add(userId)
-    }
-    setSelectedForAttendance(newSet)
+  const exitSelectionMode = () => {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+    setShowOnlySelected(false)
   }
 
-  const handleSelectAllForAttendance = () => {
-    if (selectedForAttendance.size === paginatedUsers.length && paginatedUsers.every(u => selectedForAttendance.has(u.id))) {
-      // Deseleccionar todos de la página actual
-      const newSet = new Set(selectedForAttendance)
-      paginatedUsers.forEach(u => newSet.delete(u.id))
-      setSelectedForAttendance(newSet)
+  const toggleUserSelection = (userId: string) => {
+    const next = new Set(selectedIds)
+    if (next.has(userId)) next.delete(userId)
+    else next.add(userId)
+    setSelectedIds(next)
+  }
+
+  const handleSelectAllFiltered = () => {
+    const allSelected = filteredUsers.length > 0 && filteredUsers.every(u => selectedIds.has(u.id))
+    if (allSelected) {
+      const next = new Set(selectedIds)
+      filteredUsers.forEach(u => next.delete(u.id))
+      setSelectedIds(next)
     } else {
-      // Seleccionar todos de la página actual
-      const newSet = new Set(selectedForAttendance)
-      paginatedUsers.forEach(u => newSet.add(u.id))
-      setSelectedForAttendance(newSet)
+      const next = new Set(selectedIds)
+      filteredUsers.forEach(u => next.add(u.id))
+      setSelectedIds(next)
     }
   }
 
   const handleMarkAttendance = async () => {
-    if (selectedForAttendance.size === 0) {
+    if (selectedIds.size === 0) {
       setError("Selecciona al menos un usuario")
       setTimeout(() => setError(null), 3000)
       return
@@ -233,14 +276,13 @@ export default function ManagerGroupPage() {
       const managerRole = sessionStorage.getItem("userRole") || ""
       const markedBy = { id: managerId, nombre: managerName, role: managerRole }
 
-      console.log("[Manager] Marking attendance for", selectedForAttendance.size, "users in area:", area)
-      const promises = Array.from(selectedForAttendance).map(userId =>
+      const promises = Array.from(selectedIds).map(userId =>
         saveAttendanceEntryRouter(area, userId, groupName, markedBy)
       )
       await Promise.all(promises)
 
-      setSuccess(`Asistencia registrada para ${selectedForAttendance.size} usuario(s)`)
-      setSelectedForAttendance(new Set())
+      setSuccess(`Asistencia registrada para ${selectedIds.size} usuario(s)`)
+      setSelectedIds(new Set())
       await loadGroupData(area)
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
@@ -252,18 +294,8 @@ export default function ManagerGroupPage() {
     }
   }
 
-  const handleSelectForCategory = (userId: string) => {
-    const newSet = new Set(selectedForCategory)
-    if (newSet.has(userId)) {
-      newSet.delete(userId)
-    } else {
-      newSet.add(userId)
-    }
-    setSelectedForCategory(newSet)
-  }
-
   const handleAssignCategory = async () => {
-    if (selectedForCategory.size === 0) {
+    if (selectedIds.size === 0) {
       setError("Selecciona al menos un usuario")
       setTimeout(() => setError(null), 3000)
       return
@@ -271,9 +303,9 @@ export default function ManagerGroupPage() {
 
     setIsAssigningCategory(true)
     try {
-      await assignUsersToCategory(Array.from(selectedForCategory), groupName, selectedCategory)
-      setSuccess(`${selectedForCategory.size} usuario(s) asignado(s) a ${selectedCategory}`)
-      setSelectedForCategory(new Set())
+      await assignUsersToCategory(Array.from(selectedIds), groupName, selectedCategory)
+      setSuccess(`${selectedIds.size} usuario(s) asignado(s) a ${selectedCategory}`)
+      setSelectedIds(new Set())
       setShowCategoryDialog(false)
       await loadGroupData(area)
       setTimeout(() => setSuccess(null), 3000)
@@ -284,6 +316,77 @@ export default function ManagerGroupPage() {
       setIsAssigningCategory(false)
     }
   }
+
+  const handleRemoveCategory = async () => {
+    if (selectedIds.size === 0) {
+      setError("Selecciona al menos un usuario")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    setIsRemovingCategory(true)
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map(userId =>
+          removeUserFromAllCategories(userId, groupName)
+        )
+      )
+      setSuccess(`Categoría removida de ${selectedIds.size} usuario(s)`)
+      setSelectedIds(new Set())
+      await loadGroupData(area)
+      setTimeout(() => setSuccess(null), 3000)
+    } catch {
+      setError("Error al quitar categoría")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setIsRemovingCategory(false)
+    }
+  }
+
+  const handleCopyNames = async () => {
+    if (selectedIds.size === 0) return
+    const names = Array.from(selectedIds)
+      .map(id => enrolledUsers.find(u => u.id === id))
+      .filter(Boolean)
+      .map(u => formatNombre(u!.nombres))
+      .join("\n")
+    await navigator.clipboard.writeText(names)
+    setSuccess(`${selectedIds.size} nombre(s) copiado(s)`)
+    setTimeout(() => setSuccess(null), 2500)
+  }
+
+  const handleExportSelected = () => {
+    if (selectedIds.size === 0) return
+    const rows = Array.from(selectedIds).map(id => {
+      const u = enrolledUsers.find(x => x.id === id)!
+      return {
+        Nombre: formatNombre(u.nombres),
+        Documento: u.numeroDocumento,
+        Código: u.codigoEstudiantil || "",
+        Categoría: userCategories[id] || "—",
+        Asistencias: attendanceStats[id] || 0,
+        Sede: u.sede || "",
+        Estamento: u.estamento || "",
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Selección")
+    XLSX.writeFile(wb, `seleccion_${groupName.replace(/\s+/g, "_")}.xlsx`)
+  }
+
+  const compareUsers = Array.from(selectedIds)
+    .map(id => {
+      const user = enrolledUsers.find(u => u.id === id)
+      if (!user) return null
+      return {
+        user,
+        count: attendanceStats[id] || 0,
+        category: userCategories[id],
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => b.count - a.count)
 
   const facultades: ComboboxOption[] = Array.from(new Set(enrolledUsers.map(u => u.facultad).filter(Boolean)))
     .map(f => ({ value: f!, label: f! }))
@@ -308,9 +411,21 @@ export default function ManagerGroupPage() {
     setFilterFacultad("")
     setFilterPrograma("")
     setFilterCategory("TODOS")
+    setFilterSede("")
+    setFilterEstamento("")
   }
 
-  const hasActiveFilters = searchName || filterCodigo || filterFacultad || filterPrograma || filterCategory !== "TODOS"
+  const hasActiveFilters =
+    searchName ||
+    filterCodigo ||
+    filterFacultad ||
+    filterPrograma ||
+    filterCategory !== "TODOS" ||
+    filterSede ||
+    filterEstamento
+
+  const allFilteredSelected =
+    filteredUsers.length > 0 && filteredUsers.every(u => selectedIds.has(u.id))
 
   // Paginación
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE)
@@ -518,6 +633,40 @@ export default function ManagerGroupPage() {
                     searchPlaceholder="Buscar..."
                     emptyText="No encontrado"
                   />
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Sede</label>
+                    <Select value={filterSede || "TODOS"} onValueChange={(v) => setFilterSede(v === "TODOS" ? "" : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todas las sedes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">Todas las sedes</SelectItem>
+                        {SEDES.map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Estamento</label>
+                    <Select
+                      value={filterEstamento || "TODOS"}
+                      onValueChange={(v) => setFilterEstamento(v === "TODOS" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Todos los estamentos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="TODOS">Todos los estamentos</SelectItem>
+                        {ESTAMENTOS.map((e) => (
+                          <SelectItem key={e} value={e}>{e}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {hasActiveFilters && (
                     <Button variant="outline" onClick={clearFilters} className="w-full">
                       <X className="h-4 w-4 mr-2" />
@@ -529,44 +678,71 @@ export default function ManagerGroupPage() {
             </CardContent>
           </Card>
 
-          {/* Acciones Rápidas */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Button
-              onClick={handleMarkAttendance}
-              disabled={selectedForAttendance.size === 0 || isMarkingAttendance}
-              className="w-full bg-green-600 hover:bg-green-700 h-12 md:h-auto"
-            >
-              <Calendar className="h-4 w-4 mr-2" />
-              {isMarkingAttendance ? "Registrando..." : `Marcar Asistencia (${selectedForAttendance.size})`}
-            </Button>
+          {selectionMode && (
+            <Card className="border-green-200 bg-green-50/50">
+              <CardContent className="pt-4 space-y-3">
+                <p className="text-sm font-medium text-green-900">
+                  {selectedIds.size} seleccionado(s)
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setShowCategoryDialog(true)} disabled={selectedIds.size === 0}>
+                    <UserCheck className="h-4 w-4 mr-1" />
+                    Asignar categoría
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleMarkAttendance}
+                    disabled={selectedIds.size === 0 || isMarkingAttendance}
+                  >
+                    <Calendar className="h-4 w-4 mr-1" />
+                    {isMarkingAttendance ? "Registrando..." : "Marcar asistencia"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRemoveCategory}
+                    disabled={selectedIds.size === 0 || isRemovingCategory}
+                  >
+                    Quitar categoría
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleExportSelected} disabled={selectedIds.size === 0}>
+                    <Download className="h-4 w-4 mr-1" />
+                    Exportar Excel
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleCopyNames} disabled={selectedIds.size === 0}>
+                    <Copy className="h-4 w-4 mr-1" />
+                    Copiar nombres
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowOnlySelected(v => !v)}
+                    disabled={selectedIds.size === 0}
+                  >
+                    {showOnlySelected ? "Ver todos" : "Ver solo seleccionados"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowCompareDialog(true)}
+                    disabled={selectedIds.size < 2}
+                  >
+                    <GitCompareArrows className="h-4 w-4 mr-1" />
+                    Comparar asistencias
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleSelectAllFiltered}>
+                    <CheckSquare className="h-4 w-4 mr-1" />
+                    {allFilteredSelected ? "Deseleccionar todos" : "Seleccionar todos"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-            <Button
-              onClick={() => setShowCategoryDialog(true)}
-              disabled={selectedForCategory.size === 0}
-              variant="outline"
-              className="w-full h-12 md:h-auto"
-            >
-              <UserCheck className="h-4 w-4 mr-2" />
-              Asignar Categoría ({selectedForCategory.size})
-            </Button>
-          </div>
-
-          {/* Seleccionar Todos */}
-          <Card>
-            <CardContent className="pt-4">
-              <Button
-                variant="outline"
-                onClick={handleSelectAllForAttendance}
-                className="w-full"
-              >
-                {selectedForAttendance.size === filteredUsers.length ? "Deseleccionar Todos" : "Seleccionar Todos"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Lista de Usuarios - Vista Móvil */}
+          {/* Lista de Usuarios */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between px-2">
+            <div className="flex items-center justify-between gap-2 px-2 flex-wrap">
               <h3 className="text-lg font-semibold">
                 Usuarios ({filteredUsers.length})
                 {totalPages > 1 && (
@@ -575,23 +751,30 @@ export default function ManagerGroupPage() {
                   </span>
                 )}
               </h3>
+              <Button
+                variant={selectionMode ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => {
+                  if (selectionMode) exitSelectionMode()
+                  else setSelectionMode(true)
+                }}
+              >
+                {selectionMode ? "Cancelar selección" : "Seleccionar"}
+              </Button>
             </div>
 
             {paginatedUsers.map((user) => (
               <Card key={user.id} className="overflow-hidden">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
-                    {/* Checkboxes */}
-                    <div className="flex flex-col gap-2 pt-1">
-                      <Checkbox
-                        checked={selectedForAttendance.has(user.id)}
-                        onCheckedChange={() => handleSelectForAttendance(user.id)}
-                      />
-                      <Checkbox
-                        checked={selectedForCategory.has(user.id)}
-                        onCheckedChange={() => handleSelectForCategory(user.id)}
-                      />
-                    </div>
+                    {selectionMode && (
+                      <div className="pt-1">
+                        <Checkbox
+                          checked={selectedIds.has(user.id)}
+                          onCheckedChange={() => toggleUserSelection(user.id)}
+                        />
+                      </div>
+                    )}
 
                     {/* Avatar */}
                     <Avatar className="h-12 w-12 flex-shrink-0">
@@ -704,11 +887,55 @@ export default function ManagerGroupPage() {
             </TabsContent>
 
             <TabsContent value="asistencias" className="mt-4 outline-none">
-              <GroupAttendanceReport groupName={groupName} area={area} backLink={null} />
+              <GroupAttendanceReport
+                groupName={groupName}
+                area={area}
+                backLink={null}
+                userCategories={userCategories}
+                managerDisplayName={managerDisplayName}
+              />
             </TabsContent>
           </Tabs>
         </div>
       </div>
+
+      <Dialog open={showCompareDialog} onOpenChange={setShowCompareDialog}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Comparar asistencias</DialogTitle>
+            <DialogDescription>
+              Comparación de {compareUsers.length} participante(s) seleccionado(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {compareUsers.map((item, index) => {
+              const maxCount = compareUsers[0]?.count || 1
+              const widthPct = maxCount > 0 ? Math.round((item.count / maxCount) * 100) : 0
+              return (
+                <div key={item.user.id} className="p-3 bg-gray-50 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">
+                        {index + 1}. {formatNombre(item.user.nombres)}
+                      </p>
+                      {item.category && (
+                        <p className="text-xs text-gray-500">{item.category}</p>
+                      )}
+                    </div>
+                    <span className="font-bold text-green-700 shrink-0">{item.count}</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-600 rounded-full transition-all"
+                      style={{ width: `${widthPct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog de Categorías */}
       <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
@@ -716,7 +943,7 @@ export default function ManagerGroupPage() {
           <DialogHeader>
             <DialogTitle>Asignar Categoría</DialogTitle>
             <DialogDescription>
-              Selecciona la categoría para {selectedForCategory.size} usuario(s)
+              Selecciona la categoría para {selectedIds.size} usuario(s)
             </DialogDescription>
           </DialogHeader>
           

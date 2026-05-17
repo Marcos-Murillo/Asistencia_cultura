@@ -1,5 +1,6 @@
 import type { UserRole } from './types'
 import type { Area } from './firebase-config'
+import { sortUsersByNombres } from './utils'
 
 /**
  * Interfaz que define los permisos de un rol en el sistema
@@ -210,23 +211,26 @@ export function filterGroupsByAssignment<T extends { id: string; nombre: string 
  * 
  * **Validates: Requirements 6.11, 7.5**
  */
-export function filterStudentsByAssignment<T extends { id: string; grupoCultural?: string }>(
+export function filterStudentsByAssignment<T extends { id: string; grupoCultural?: string; nombres?: string }>(
   students: T[],
   permissions: RolePermissions
 ): T[] {
   // Si el usuario puede ver todos los usuarios, retornar todos
   if (permissions.canViewAllUsers) {
-    return students
+    return sortUsersByNombres(students)
   }
-  
+
   // Si no tiene grupos asignados, retornar array vacío
   if (permissions.assignedGroups.length === 0) {
     return []
   }
-  
+
   // Filtrar solo estudiantes inscritos en los grupos asignados
-  return students.filter(student => 
-    student.grupoCultural && permissions.assignedGroups.includes(student.grupoCultural)
+  return sortUsersByNombres(
+    students.filter(
+      (student) =>
+        student.grupoCultural && permissions.assignedGroups.includes(student.grupoCultural)
+    )
   )
 }
 

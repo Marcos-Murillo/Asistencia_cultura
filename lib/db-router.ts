@@ -12,6 +12,7 @@ import type {
   UserProfile,
   Event,
 } from "./types"
+import { sortUsersByNombres } from "./utils"
 
 // CulturalGroup interface (from firestore.ts)
 export interface CulturalGroup {
@@ -231,7 +232,7 @@ export async function getAllUsers(area: Area): Promise<UserProfile[]> {
     })
 
     console.log("[db-router] Retrieved", users.length, "users from area:", area)
-    return users.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    return sortUsersByNombres(users)
   } catch (error) {
     console.error("[db-router] Error getting all users:", error)
     throw error
@@ -1238,7 +1239,7 @@ export async function getGroupTracking(area: Area): Promise<Array<{
             lastAttendance: stats.lastAttendance,
           }
         })
-        .sort((a, b) => b.totalCount - a.totalCount)
+        .sort((a, b) => a.userName.localeCompare(b.userName, "es", { sensitivity: "base" }))
 
       result.push({
         groupName,
@@ -1601,7 +1602,7 @@ export async function getGroupEnrolledUsersRouter(
     }
 
     console.log("[db-router] Retrieved", enrolledUsers.length, "user profiles for group:", grupoCultural, "in area:", area)
-    return enrolledUsers.sort((a, b) => b.fechaInscripcion.getTime() - a.fechaInscripcion.getTime())
+    return sortUsersByNombres(enrolledUsers)
   } catch (error) {
     console.error("[db-router] Error getting group enrolled users:", error)
     return []

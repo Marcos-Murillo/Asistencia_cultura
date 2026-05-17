@@ -28,7 +28,7 @@ import { FACULTADES, PROGRAMAS_POR_FACULTAD } from "@/lib/data"
 import type { UserProfile } from "@/lib/types"
 import Loading from "./loading"
 import { useArea } from "@/contexts/area-context"
-import { formatNombre } from "@/lib/utils"
+import { formatNombre, sortUsersByNombres } from "@/lib/utils"
 
 type EnrolledUser = UserProfile & { fechaInscripcion: Date }
 
@@ -65,7 +65,7 @@ export default function GrupoDetallePage() {
 
   // Filtrar usuarios
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    const filtered = users.filter(user => {
       const matchesSearch = searchTerm === "" || 
         user.nombres.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.correo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -76,6 +76,7 @@ export default function GrupoDetallePage() {
 
       return matchesSearch && matchesFaculty && matchesProgram
     })
+    return sortUsersByNombres(filtered)
   }, [users, searchTerm, filterFaculty, filterProgram])
 
   // Paginación
