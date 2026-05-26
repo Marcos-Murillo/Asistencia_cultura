@@ -101,7 +101,7 @@ export default function EventoAsistentesPage() {
       const row: Record<string, any> = {}
       selectedColumns.forEach(key => {
         switch (key) {
-          case "nombres": row["Nombres"] = formatNombre(a.nombres); break
+          case "nombres": row["Nombres"] = formatNombre(a.nombres).toUpperCase(); break
           case "correo": row["Correo"] = a.correo; break
           case "numeroDocumento": row["Documento"] = a.numeroDocumento; break
           case "tipoDocumento": row["Tipo Documento"] = a.tipoDocumento; break

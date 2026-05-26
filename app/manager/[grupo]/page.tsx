@@ -348,7 +348,7 @@ export default function ManagerGroupPage() {
     const names = Array.from(selectedIds)
       .map(id => enrolledUsers.find(u => u.id === id))
       .filter(Boolean)
-      .map(u => formatNombre(u!.nombres))
+      .map(u => formatNombre(u!.nombres).toUpperCase())
       .join("\n")
     await navigator.clipboard.writeText(names)
     setSuccess(`${selectedIds.size} nombre(s) copiado(s)`)
@@ -360,7 +360,7 @@ export default function ManagerGroupPage() {
     const rows = Array.from(selectedIds).map(id => {
       const u = enrolledUsers.find(x => x.id === id)!
       return {
-        Nombre: formatNombre(u.nombres),
+        Nombre: formatNombre(u.nombres).toUpperCase(),
         Documento: u.numeroDocumento,
         Código: u.codigoEstudiantil || "",
         Categoría: userCategories[id] || "—",

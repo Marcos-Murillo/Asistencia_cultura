@@ -193,6 +193,7 @@ export function GroupAttendanceReport({
         : "bg-orange-100 text-orange-800"
 
   const excelColumns: ExcelColumn[] = [
+    { key: "codigoEstudiantil", label: "Código" },
     { key: "numeroDocumento", label: "Documento" },
     { key: "genero", label: "Género" },
     { key: "estamento", label: "Estamento" },
@@ -217,11 +218,14 @@ export function GroupAttendanceReport({
 
     return Array.from(userMap.values()).map(({ record: r, count }) => {
       const row: Record<string, unknown> = {
-        Nombres: formatNombre(r.nombres),
+        Nombres: formatNombre(r.nombres).toUpperCase(),
         "Total Asistencias": count,
       }
       selectedColumns.forEach((key) => {
         switch (key) {
+          case "codigoEstudiantil":
+            row["Código"] = r.codigoEstudiantil || ""
+            break
           case "numeroDocumento":
             row["Documento"] = r.numeroDocumento
             break

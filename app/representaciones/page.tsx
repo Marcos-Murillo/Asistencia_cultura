@@ -330,7 +330,7 @@ export default function RepresentacionesPage() {
 
   function downloadExcel(rep: Representacion, selectedCols: string[]) {
     const data = rep.miembros.map(m => {
-      const row: Record<string, any> = { Nombres: formatNombre(m.nombres) }
+      const row: Record<string, any> = { Nombres: formatNombre(m.nombres).toUpperCase() }
       selectedCols.forEach(k => {
         switch (k) {
           case "numeroDocumento": row["Documento"] = m.numeroDocumento; break
@@ -350,7 +350,7 @@ export default function RepresentacionesPage() {
 
   function downloadExcelEvento(reps: Representacion[], selectedCols: string[]) {
     const data = reps.flatMap(rep => rep.miembros.map(m => {
-      const row: Record<string, any> = { Nombres: formatNombre(m.nombres), Grupo: m.grupoCultural }
+      const row: Record<string, any> = { Nombres: formatNombre(m.nombres).toUpperCase(), Grupo: m.grupoCultural }
       selectedCols.forEach(k => {
         switch (k) {
           case "numeroDocumento": row["Documento"] = m.numeroDocumento; break

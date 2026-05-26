@@ -302,6 +302,7 @@ export default function EstadisticasPage() {
   }
 
   const excelColumns: ExcelColumn[] = [
+    { key: "codigoEstudiantil", label: "Código" },
     { key: "numeroDocumento", label: "Documento" },
     { key: "tipoDocumento", label: "Tipo Doc." },
     { key: "genero", label: "Género" },
@@ -335,9 +336,10 @@ export default function EstadisticasPage() {
     })
 
     const data = Array.from(userMap.values()).map(({ record: r, count }) => {
-      const row: Record<string, any> = { Nombres: r.nombres }
+      const row: Record<string, any> = { Nombres: (r.nombres || "").toUpperCase() }
       selectedColumns.forEach(key => {
         switch (key) {
+          case "codigoEstudiantil": row["Código"] = r.codigoEstudiantil || ""; break
           case "numeroDocumento": row["Documento"] = r.numeroDocumento; break
           case "tipoDocumento": row["Tipo Doc."] = r.tipoDocumento; break
           case "genero": row["Género"] = r.genero; break

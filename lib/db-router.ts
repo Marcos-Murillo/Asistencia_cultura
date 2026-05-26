@@ -1927,6 +1927,7 @@ export interface RepresentacionMember {
   numeroDocumento: string
   genero: string
   estamento: string
+  codigoEstudiantil?: string
   facultad?: string
   programaAcademico?: string
   grupoCultural: string

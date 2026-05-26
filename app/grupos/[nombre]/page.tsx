@@ -121,7 +121,7 @@ export default function GrupoDetallePage() {
       selectedColumns.forEach(key => {
         switch (key) {
           case "nombres":
-            row["Nombres"] = formatNombre(user.nombres)
+            row["Nombres"] = formatNombre(user.nombres).toUpperCase()
             break
           case "correo":
             row["Correo"] = user.correo

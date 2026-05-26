@@ -145,7 +145,7 @@ export default function EventoAsistentesPage() {
       selectedColumns.forEach(key => {
         switch (key) {
           case "nombres":
-            row["Nombres"] = formatNombre(a.nombres)
+            row["Nombres"] = formatNombre(a.nombres).toUpperCase()
             break
           case "correo":
             row["Correo"] = a.correo
