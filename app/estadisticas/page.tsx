@@ -19,7 +19,7 @@ import { GRUPOS_DEPORTIVOS } from "@/lib/deporte-groups"
 import Link from "next/link"
 import { GroupTrackingTable } from "@/components/group-tracking-table"
 import AttendanceFilters, { type FilterState } from "@/components/attendance-filters"
-import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter, getRealEventAttendanceRecords, getAllRepresentaciones } from "@/lib/db-router"
+import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceRecordsRouter, getRealEventAttendanceRecords, getAllRepresentaciones, getCinecluAttendanceRecords } from "@/lib/db-router"
 import { generateEventStats } from "@/lib/event-stats"
 import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
 import type { Representacion } from "@/lib/db-router"
@@ -92,6 +92,7 @@ export default function EstadisticasPage() {
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [allEventRecords, setAllEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [allRealEventRecords, setAllRealEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
+  const [allCinecluEventRecords, setAllCinecluEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [realEventStats, setRealEventStats] = useState<EventStats | null>(null)
   const [allRepresentaciones, setAllRepresentaciones] = useState<Representacion[]>([])
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
@@ -182,6 +183,28 @@ export default function EstadisticasPage() {
 
         const calculatedRealEventStats = generateEventStats(realEventRecordsData)
         setRealEventStats(calculatedRealEventStats)
+
+        // Load cineclú records (solo cultura)
+        if (area === "cultura") {
+          try {
+            const cinecluData = await getCinecluAttendanceRecords(area)
+            setAllCinecluEventRecords(cinecluData.map(r => ({
+              entry: {
+                id: r.entry.id,
+                userId: r.entry.userId,
+                eventId: r.entry.cinecluEventId,
+                timestamp: r.entry.timestamp,
+              },
+              user: r.user,
+              eventName: r.eventName,
+            })))
+          } catch (e) {
+            console.error("[Estadisticas] Error loading cineclú:", e)
+            setAllCinecluEventRecords([])
+          }
+        } else {
+          setAllCinecluEventRecords([])
+        }
 
         // Load representaciones
         try {
@@ -408,16 +431,30 @@ export default function EstadisticasPage() {
       const filteredAttendance = filterByDate(allAttendanceRecords)
       const filteredEvents = filterEventByDate(allEventRecords)
       const filteredRealEvents = filterEventByDate(allRealEventRecords)
+      const filteredCinecluEvents = filterEventByDate(allCinecluEventRecords)
 
       const filteredStats = generateStatsFromRecords(filteredAttendance)
       const filteredEventStats = generateEventStats(filteredEvents)
       const filteredRealEventStats = generateEventStats(filteredRealEvents)
+      const filteredCinecluEventStats = generateEventStats(filteredCinecluEvents)
 
       const dateRange = pdfFechaDesde || pdfFechaHasta
         ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
         : undefined
 
-      await generatePDFReport(filteredStats, filteredAttendance, filteredEvents, area, filteredEventStats, filteredRealEvents, filteredRealEventStats, dateRange, allRepresentaciones.length > 0 ? allRepresentaciones : undefined)
+      await generatePDFReport(
+        filteredStats,
+        filteredAttendance,
+        filteredEvents,
+        area,
+        filteredEventStats,
+        filteredRealEvents,
+        filteredRealEventStats,
+        dateRange,
+        allRepresentaciones.length > 0 ? allRepresentaciones : undefined,
+        filteredCinecluEvents.length > 0 ? filteredCinecluEvents : undefined,
+        filteredCinecluEventStats.totalParticipants > 0 ? filteredCinecluEventStats : undefined,
+      )
     } catch (error) {
       console.error("[Estadisticas] Error generating PDF:", error)
       alert("Error al generar el reporte PDF. Por favor intenta nuevamente.")

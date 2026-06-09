@@ -64,6 +64,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Cineclú (proyecciones de cine)
+    match /cineclu_events/{eventId} {
+      allow read, write: if true;
+    }
+    match /cineclu_attendance_records/{recordId} {
+      allow read, write: if true;
+    }
+
     // Torneos deportivos
     match /torneos/{torneoId} {
       allow read, write: if true;

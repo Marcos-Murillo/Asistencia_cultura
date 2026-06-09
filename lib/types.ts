@@ -181,6 +181,20 @@ export interface EventStats {
   byEvent: Record<string, number>
 }
 
+export interface CinecluEvent {
+  id: string
+  pelicula: string
+  fecha: Date
+  createdAt: Date
+}
+
+export interface CinecluAttendanceEntry {
+  id: string
+  userId: string
+  cinecluEventId: string
+  timestamp: Date
+}
+
 export interface SimilarUser {
   user: UserProfile
   similarity: number

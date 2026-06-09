@@ -14,6 +14,8 @@ export async function generatePDFReport(
   realEventStats?: EventStats,
   dateRange?: { desde?: string; hasta?: string },
   representaciones?: Representacion[],
+  cinecluEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
+  cinecluEventStats?: EventStats,
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
   console.log("[PDF] Area:", area)
@@ -62,20 +64,22 @@ export async function generatePDFReport(
   const totalGruposCulturales = stats.totalParticipants
   const totalConvocatorias = eventStats?.totalParticipants || 0
   const totalRealEventos = realEventStats?.totalParticipants || 0
+  const totalCineclu = cinecluEventStats?.totalParticipants || 0
   // Contar participaciones únicas en representaciones (por userId)
   const totalRepresentaciones = representaciones
     ? new Set(representaciones.flatMap(r => r.miembros.map(m => m.userId))).size
     : 0
-  const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos
+  const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos + totalCineclu
 
   const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
     .size
 
-  // Combinar usuarios de grupos, convocatorias y eventos reales
+  // Combinar usuarios de grupos, convocatorias, eventos reales y cineclú
   const allUniqueUsers = new Set([
     ...attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`),
     ...eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
     ...(realEventRecords || []).map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
+    ...(cinecluEventRecords || []).map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
   ]).size
 
   const summaryData = [
@@ -83,6 +87,7 @@ export async function generatePDFReport(
     [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
     ["Inscripciones en Eventos", totalRealEventos.toString()],
+    ["Asistencias en Cineclú", totalCineclu.toString()],
     ["Artistas en Representaciones", totalRepresentaciones.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
@@ -728,6 +733,101 @@ export async function generatePDFReport(
       body: Object.entries(realEventStats.byProgram).sort(([,a],[,b]) => b.total - a.total).map(([p,d]) => [p, d.mujer.toString(), d.hombre.toString(), d.otro.toString(), d.total.toString()]),
       theme: "grid",
       headStyles: { fillColor: [37, 99, 235], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 6 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+  }
+
+  // ── SECCIÓN EVENTOS CINECLÚ ───────────────────────────────────────────────
+  if (cinecluEventStats && cinecluEventStats.totalParticipants > 0) {
+    doc.addPage()
+    currentY = 20
+
+    doc.setFontSize(18)
+    doc.setFont("helvetica", "bold")
+    doc.text("EVENTOS CINECLÚ", 14, currentY)
+    currentY += 8
+
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "italic")
+    doc.setTextColor(80, 80, 80)
+    doc.text(
+      "Asistencias registradas en proyecciones del Cineclú de la Vicerrectoría de Cultura.",
+      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
+    )
+    doc.setTextColor(0, 0, 0)
+    currentY += 14
+
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("ASISTENCIAS EN CINECLÚ POR GÉNERO", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Género", "Cantidad"]],
+      body: [
+        ["Mujer", cinecluEventStats.byGender.mujer.toString()],
+        ["Hombre", cinecluEventStats.byGender.hombre.toString()],
+        ["Otro", cinecluEventStats.byGender.otro.toString()],
+        ["TOTAL", cinecluEventStats.totalParticipants.toString()],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("ASISTENCIAS POR PROYECCIÓN", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Proyección", "Cantidad"]],
+      body: Object.entries(cinecluEventStats.byEvent).sort(([, a], [, b]) => b - a).map(([e, c]) => [e, c.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 8 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("ASISTENCIAS EN CINECLÚ POR FACULTAD", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Facultad", "Mujer", "Hombre", "Otro", "Total"]],
+      body: Object.entries(cinecluEventStats.byFaculty).sort(([, a], [, b]) => b.total - a.total).map(([f, d]) => [f, d.mujer.toString(), d.hombre.toString(), d.otro.toString(), d.total.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 7 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 15
+
+    if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20 }
+
+    doc.setFontSize(14)
+    doc.setFont("helvetica", "bold")
+    doc.text("ASISTENCIAS EN CINECLÚ POR PROGRAMA", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Programa Académico", "Mujer", "Hombre", "Otro", "Total"]],
+      body: Object.entries(cinecluEventStats.byProgram).sort(([, a], [, b]) => b.total - a.total).map(([p, d]) => [p, d.mujer.toString(), d.hombre.toString(), d.otro.toString(), d.total.toString()]),
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold" },
       margin: { left: 14, right: 14 },
       styles: { fontSize: 6 },
     })

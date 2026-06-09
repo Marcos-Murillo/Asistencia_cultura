@@ -1916,6 +1916,197 @@ export async function getRealEventAttendanceRecords(area: Area): Promise<Array<{
 }
 
 // ============================================================================
+// CINECLÚ (proyecciones de cine con asistencia presencial)
+// Colección: cineclu_events / cineclu_attendance_records
+// ============================================================================
+
+const CINECLU_EVENTS_COLLECTION = "cineclu_events"
+const CINECLU_ATTENDANCE_COLLECTION = "cineclu_attendance_records"
+
+export async function getUserByNumeroDocumento(area: Area, numeroDocumento: string): Promise<UserProfile | null> {
+  validateAreaSpecified(area)
+  const trimmed = numeroDocumento.trim()
+  if (!trimmed) return null
+  try {
+    const db = getFirestoreForArea(area)
+    const snap = await getDocs(query(collection(db, USERS_COLLECTION), where("numeroDocumento", "==", trimmed)))
+    if (snap.empty) return null
+    const d = snap.docs[0]
+    const data = d.data()
+    return {
+      id: d.id,
+      ...data,
+      createdAt: timestampToDate(data.createdAt),
+      lastAttendance: timestampToDate(data.lastAttendance),
+    } as UserProfile
+  } catch (error) {
+    console.error("[db-router] Error getting user by document:", error)
+    return null
+  }
+}
+
+export async function getAllCinecluEvents(area: Area): Promise<(import("./types").CinecluEvent & { asistentes: number })[]> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const [eventsSnap, attSnap] = await Promise.all([
+      getDocs(collection(db, CINECLU_EVENTS_COLLECTION)),
+      getDocs(collection(db, CINECLU_ATTENDANCE_COLLECTION)),
+    ])
+    const counts: Record<string, number> = {}
+    attSnap.forEach(d => {
+      const eventId = d.data().cinecluEventId as string
+      counts[eventId] = (counts[eventId] || 0) + 1
+    })
+    const events: (import("./types").CinecluEvent & { asistentes: number })[] = []
+    eventsSnap.forEach(d => {
+      const data = d.data()
+      events.push({
+        id: d.id,
+        pelicula: data.pelicula,
+        fecha: timestampToDate(data.fecha),
+        createdAt: timestampToDate(data.createdAt),
+        asistentes: counts[d.id] || 0,
+      })
+    })
+    return events.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting cineclu events:", error)
+    throw error
+  }
+}
+
+export async function createCinecluEvent(area: Area, data: { pelicula: string; fecha: Date }): Promise<string> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const docRef = await addDoc(collection(db, CINECLU_EVENTS_COLLECTION), {
+      pelicula: data.pelicula.trim(),
+      fecha: Timestamp.fromDate(new Date(data.fecha)),
+      createdAt: serverTimestamp(),
+    })
+    return docRef.id
+  } catch (error) {
+    console.error("[db-router] Error creating cineclu event:", error)
+    throw error
+  }
+}
+
+export async function deleteCinecluEvent(area: Area, eventId: string): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    await deleteDoc(doc(db, CINECLU_EVENTS_COLLECTION, eventId))
+    const attRef = collection(db, CINECLU_ATTENDANCE_COLLECTION)
+    const q = query(attRef, where("cinecluEventId", "==", eventId))
+    const snap = await getDocs(q)
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)))
+  } catch (error) {
+    console.error("[db-router] Error deleting cineclu event:", error)
+    throw error
+  }
+}
+
+export async function getCinecluAttendees(
+  area: Area,
+  eventId: string
+): Promise<Array<UserProfile & { fechaAsistencia: Date }>> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const q = query(collection(db, CINECLU_ATTENDANCE_COLLECTION), where("cinecluEventId", "==", eventId))
+    const snap = await getDocs(q)
+    const attendees: Array<UserProfile & { fechaAsistencia: Date }> = []
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data()
+      const userSnap = await getDoc(doc(db, USERS_COLLECTION, data.userId))
+      if (userSnap.exists()) {
+        const u = userSnap.data()
+        attendees.push({
+          id: userSnap.id,
+          ...u,
+          createdAt: timestampToDate(u.createdAt),
+          lastAttendance: timestampToDate(u.lastAttendance),
+          fechaAsistencia: timestampToDate(data.timestamp),
+        } as UserProfile & { fechaAsistencia: Date })
+      }
+    }
+    return attendees.sort((a, b) => b.fechaAsistencia.getTime() - a.fechaAsistencia.getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting cineclu attendees:", error)
+    return []
+  }
+}
+
+export async function saveCinecluAttendance(area: Area, userId: string, cinecluEventId: string): Promise<void> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const attRef = collection(db, CINECLU_ATTENDANCE_COLLECTION)
+    const existing = query(attRef, where("userId", "==", userId), where("cinecluEventId", "==", cinecluEventId))
+    const snap = await getDocs(existing)
+    if (!snap.empty) throw new Error("Este usuario ya tiene registrada su asistencia en esta proyección.")
+    await addDoc(attRef, {
+      userId,
+      cinecluEventId,
+      timestamp: Timestamp.fromDate(new Date()),
+    })
+    await updateDoc(doc(db, USERS_COLLECTION, userId), { lastAttendance: Timestamp.fromDate(new Date()) })
+  } catch (error) {
+    console.error("[db-router] Error saving cineclu attendance:", error)
+    throw error
+  }
+}
+
+export async function getCinecluAttendanceRecords(area: Area): Promise<Array<{
+  entry: import("./types").CinecluAttendanceEntry
+  user: UserProfile
+  eventName: string
+}>> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const [usersSnap, attSnap, eventsSnap] = await Promise.all([
+      getDocs(collection(db, USERS_COLLECTION)),
+      getDocs(collection(db, CINECLU_ATTENDANCE_COLLECTION)),
+      getDocs(collection(db, CINECLU_EVENTS_COLLECTION)),
+    ])
+    const users = new Map<string, UserProfile>()
+    usersSnap.forEach(d => {
+      const data = d.data()
+      users.set(d.id, { id: d.id, ...data, createdAt: timestampToDate(data.createdAt), lastAttendance: timestampToDate(data.lastAttendance) } as UserProfile)
+    })
+    const events = new Map<string, string>()
+    eventsSnap.forEach(d => {
+      const data = d.data()
+      const fecha = timestampToDate(data.fecha).toLocaleDateString("es-CO")
+      events.set(d.id, `${data.pelicula} (${fecha})`)
+    })
+    const records: Array<{ entry: import("./types").CinecluAttendanceEntry; user: UserProfile; eventName: string }> = []
+    attSnap.forEach(d => {
+      const data = d.data()
+      const user = users.get(data.userId)
+      if (user) {
+        records.push({
+          entry: {
+            id: d.id,
+            userId: data.userId,
+            cinecluEventId: data.cinecluEventId,
+            timestamp: timestampToDate(data.timestamp),
+          },
+          user,
+          eventName: events.get(data.cinecluEventId) || "Proyección desconocida",
+        })
+      }
+    })
+    return records
+  } catch (error) {
+    console.error("[db-router] Error getting cineclu attendance records:", error)
+    throw error
+  }
+}
+
+// ============================================================================
 // REPRESENTACIONES (listas de usuarios por grupo para eventos)
 // ============================================================================
 
