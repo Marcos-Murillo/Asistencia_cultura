@@ -2007,6 +2007,39 @@ export async function deleteCinecluEvent(area: Area, eventId: string): Promise<v
   }
 }
 
+export async function getUserCinecluAttendance(
+  area: Area,
+  userId: string,
+): Promise<Array<import("./types").CinecluEvent & { fechaAsistencia: Date }>> {
+  validateAreaSpecified(area)
+  try {
+    const db = getFirestoreForArea(area)
+    const q = query(collection(db, CINECLU_ATTENDANCE_COLLECTION), where("userId", "==", userId))
+    const snap = await getDocs(q)
+    const result: Array<import("./types").CinecluEvent & { fechaAsistencia: Date }> = []
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data()
+      const eventSnap = await getDoc(doc(db, CINECLU_EVENTS_COLLECTION, data.cinecluEventId))
+      if (eventSnap.exists()) {
+        const e = eventSnap.data()
+        result.push({
+          id: eventSnap.id,
+          pelicula: e.pelicula,
+          fecha: timestampToDate(e.fecha),
+          createdAt: timestampToDate(e.createdAt),
+          fechaAsistencia: timestampToDate(data.timestamp),
+        })
+      }
+    }
+
+    return result.sort((a, b) => b.fechaAsistencia.getTime() - a.fechaAsistencia.getTime())
+  } catch (error) {
+    console.error("[db-router] Error getting user cineclu attendance:", error)
+    return []
+  }
+}
+
 export async function getCinecluAttendees(
   area: Area,
   eventId: string

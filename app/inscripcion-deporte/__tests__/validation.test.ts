@@ -90,12 +90,12 @@ describe('Codigo Estudiantil Validation', () => {
       expect(isValid).toBe(false)
     })
     
-    test('codigo estudiantil should be required for EGRESADO estamento', () => {
+    test('codigo estudiantil should not be required for EGRESADO estamento', () => {
       const estamento = 'EGRESADO'
       const codigoEstudiantil = ''
       
-      const isValid = estamento === 'EGRESADO' ? !!codigoEstudiantil : true
-      expect(isValid).toBe(false)
+      const isValid = estamento === 'ESTUDIANTE' ? !!codigoEstudiantil : true
+      expect(isValid).toBe(true)
     })
     
     test('codigo estudiantil should not be required for other estamentos', () => {
@@ -103,7 +103,7 @@ describe('Codigo Estudiantil Validation', () => {
       
       otherEstamentos.forEach(estamento => {
         const codigoEstudiantil = ''
-        const isValid = (estamento === 'ESTUDIANTE' || estamento === 'EGRESADO') ? !!codigoEstudiantil : true
+        const isValid = estamento === 'ESTUDIANTE' ? !!codigoEstudiantil : true
         expect(isValid).toBe(true)
       })
     })

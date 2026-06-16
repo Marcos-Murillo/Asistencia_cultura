@@ -158,6 +158,21 @@ export default function ManagerGroupPage() {
     userCategories,
   ])
 
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [
+    searchName,
+    filterFacultad,
+    filterPrograma,
+    filterCodigo,
+    filterCategory,
+    filterSede,
+    filterEstamento,
+    showOnlySelected,
+    enrolledUsers,
+    userCategories,
+  ])
+
   async function loadGroupData(currentArea: Area) {
     setLoading(true)
     try {
@@ -233,7 +248,6 @@ export default function ManagerGroupPage() {
     }
 
     setFilteredUsers(sortUsersByNombres(filtered))
-    setCurrentPage(1) // Reset a la primera página cuando se filtran
   }
 
   const exitSelectionMode = () => {

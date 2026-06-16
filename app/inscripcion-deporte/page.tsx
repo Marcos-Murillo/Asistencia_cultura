@@ -20,6 +20,7 @@ import {
   ESTAMENTOS,
   FACULTADES,
   PROGRAMAS_POR_FACULTAD,
+  isDocenteEstamento,
 } from "@/lib/data"
 import {
   saveUserProfile,
@@ -68,7 +69,8 @@ export default function InscripcionDeporte() {
   const [codigoEstudiantilError, setCodigoEstudiantilError] = useState("")
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
-  const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
+  const requiresFacultyOnly = isDocenteEstamento(formData.estamento)
+  const totalSteps = selectedUser ? 1 : (requiresAcademicInfo || requiresFacultyOnly) ? 4 : 3
 
   // Cargar grupos deportivos desde la base de datos
   useEffect(() => {
@@ -141,14 +143,21 @@ export default function InscripcionDeporte() {
         newData.programaAcademico = ""
       }
 
-      if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO") {
+      if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO" && !isDocenteEstamento(value)) {
         newData.codigoEstudiantil = ""
         newData.facultad = ""
         newData.programaAcademico = ""
       }
 
       if (field === "estamento" && value === "EGRESADO") {
-        // Egresados también tienen código estudiantil
+        newData.codigoEstudiantil = ""
+        setCodigoEstudiantilError("")
+      }
+
+      if (field === "estamento" && isDocenteEstamento(value)) {
+        newData.codigoEstudiantil = ""
+        newData.programaAcademico = ""
+        setCodigoEstudiantilError("")
       }
 
       // Validate codigoEstudiantil in real-time
@@ -231,13 +240,10 @@ export default function InscripcionDeporte() {
           )
         }
         if (formData.estamento === "EGRESADO") {
-          return !!(
-            formData.codigoEstudiantil && 
-            formData.codigoEstudiantil.length === 9 &&
-            !codigoEstudiantilError &&
-            formData.facultad && 
-            formData.programaAcademico
-          )
+          return !!(formData.facultad && formData.programaAcademico)
+        }
+        if (isDocenteEstamento(formData.estamento)) {
+          return !!formData.facultad
         }
         return true
       case 4:
@@ -352,10 +358,13 @@ export default function InscripcionDeporte() {
           sede: formData.sede as any,
           estamento: formData.estamento as any,
           area: 'deporte' as const,
-          ...(formData.codigoEstudiantil && {
-            codigoEstudiantil: formData.codigoEstudiantil,
-          }),
-          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
+          ...(formData.estamento === "ESTUDIANTE" &&
+            formData.codigoEstudiantil && {
+              codigoEstudiantil: formData.codigoEstudiantil,
+            }),
+          ...((formData.estamento === "ESTUDIANTE" ||
+            formData.estamento === "EGRESADO" ||
+            isDocenteEstamento(formData.estamento)) &&
             formData.facultad && {
               facultad: formData.facultad,
             }),
@@ -654,11 +663,31 @@ export default function InscripcionDeporte() {
         )
 
       case 3:
+        if (isDocenteEstamento(formData.estamento)) {
+          return (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="facultad">Facultad a la que Pertenece *</Label>
+                <Select value={formData.facultad} onValueChange={(value) => handleInputChange("facultad", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona tu facultad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FACULTADES.map((facultad) => (
+                      <SelectItem key={facultad} value={facultad}>
+                        {facultad}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )
+        }
         if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              {/* Código Estudiantil para ESTUDIANTE y EGRESADO */}
-              {(formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") && (
+              {formData.estamento === "ESTUDIANTE" && (
                 <div className="space-y-2">
                   <Label htmlFor="codigoEstudiantil">Código Estudiantil * (9 dígitos, ej: 202625413)</Label>
                   <Input
@@ -871,7 +900,9 @@ export default function InscripcionDeporte() {
       case 3:
         return formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
           ? "Información Académica"
-          : "Seleccionar Grupo Deportivo"
+          : isDocenteEstamento(formData.estamento)
+            ? "Facultad"
+            : "Seleccionar Grupo Deportivo"
       case 4:
         return "Seleccionar Grupo Deportivo"
       default:

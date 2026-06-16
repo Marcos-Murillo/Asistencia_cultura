@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { User, CheckCircle, AlertCircle } from "lucide-react"
+import { CulturaUserProfile } from "@/components/cultura-user-profile"
 import {
   GENEROS,
   GENEROS_LABELS,
@@ -20,6 +21,7 @@ import {
   ESTAMENTOS,
   FACULTADES,
   PROGRAMAS_POR_FACULTAD,
+  isDocenteEstamento,
 } from "@/lib/data"
 import {
   saveUserProfile,
@@ -27,6 +29,7 @@ import {
   getUserEnrollments,
   enrollUserToGroup,
   getAllCulturalGroups as getAllCulturalGroupsRouter,
+  getUserByNumeroDocumento,
 } from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, GroupEnrollment } from "@/lib/types"
 
@@ -65,8 +68,15 @@ export default function RegistroAsistencia() {
   const [isEnrolling, setIsEnrolling] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const [authMode, setAuthMode] = useState<"login" | "registro" | "perfil">("login")
+  const [loginDocumento, setLoginDocumento] = useState("")
+  const [loginCorreo, setLoginCorreo] = useState("")
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [showPostRegistroQuestion, setShowPostRegistroQuestion] = useState(false)
+
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
-  const totalSteps = selectedUser ? 1 : requiresAcademicInfo ? 4 : 3
+  const requiresFacultyOnly = isDocenteEstamento(formData.estamento)
+  const totalSteps = selectedUser ? 1 : (requiresAcademicInfo || requiresFacultyOnly) ? 4 : 3
 
   // Cargar grupos culturales desde la base de datos
   useEffect(() => {
@@ -95,6 +105,38 @@ export default function RegistroAsistencia() {
 
     loadGroups()
   }, [])
+
+  async function handleLoginSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setIsLoggingIn(true)
+    try {
+      const user = await getUserByNumeroDocumento("cultura", loginDocumento.trim())
+      if (!user) {
+        setError("No encontramos un usuario con ese número de documento. Si no tienes un usuario, selecciona “No tengo un usuario”.")
+        return
+      }
+
+      const correoOk = user.correo?.toLowerCase?.() === loginCorreo.trim().toLowerCase()
+      if (!correoOk) {
+        setError("El correo no coincide con el registrado para ese documento. Verifica e intenta nuevamente.")
+        return
+      }
+
+      setSelectedUser(user)
+      await loadUserEnrollments(user.id)
+      setAuthMode("perfil")
+      setShowPostRegistroQuestion(false)
+      toast({
+        title: "Ingreso exitoso",
+        description: `¡Hola ${user.nombres}!`,
+      })
+    } catch (err) {
+      setError("No fue posible iniciar sesión. Intenta nuevamente.")
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
 
   useEffect(() => {
     const checkSimilarity = async () => {
@@ -139,14 +181,19 @@ export default function RegistroAsistencia() {
         newData.programaAcademico = ""
       }
 
-      if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO") {
+      if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO" && !isDocenteEstamento(value)) {
         newData.codigoEstudiantil = ""
         newData.facultad = ""
         newData.programaAcademico = ""
       }
 
       if (field === "estamento" && value === "EGRESADO") {
-        // Egresados también tienen código estudiantil
+        newData.codigoEstudiantil = ""
+      }
+
+      if (field === "estamento" && isDocenteEstamento(value)) {
+        newData.codigoEstudiantil = ""
+        newData.programaAcademico = ""
       }
 
       return newData
@@ -214,7 +261,10 @@ export default function RegistroAsistencia() {
           return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
         }
         if (formData.estamento === "EGRESADO") {
-          return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
+          return !!(formData.facultad && formData.programaAcademico)
+        }
+        if (isDocenteEstamento(formData.estamento)) {
+          return !!formData.facultad
         }
         return true
       case 4:
@@ -292,6 +342,7 @@ export default function RegistroAsistencia() {
 
     try {
       let userId: string
+      const isNewUser = !selectedUser
 
       if (selectedUser) {
         userId = selectedUser.id
@@ -309,11 +360,13 @@ export default function RegistroAsistencia() {
           telefono: formData.telefono,
           sede: formData.sede as any,
           estamento: formData.estamento as any,
-          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
+          ...(formData.estamento === "ESTUDIANTE" &&
             formData.codigoEstudiantil && {
               codigoEstudiantil: formData.codigoEstudiantil,
             }),
-          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
+          ...((formData.estamento === "ESTUDIANTE" ||
+            formData.estamento === "EGRESADO" ||
+            isDocenteEstamento(formData.estamento)) &&
             formData.facultad && {
               facultad: formData.facultad,
             }),
@@ -339,31 +392,34 @@ export default function RegistroAsistencia() {
         description: `Te has inscrito al grupo ${formData.grupoCultural} correctamente.`,
       })
 
-      setTimeout(() => {
-        setFormData({
-          nombres: "",
-          correo: "",
-          genero: "",
-          etnia: "",
-          tipoDocumento: "",
-          numeroDocumento: "",
-          edad: "",
-          telefono: "",
-          sede: "",
-          estamento: "",
-          codigoEstudiantil: "",
-          facultad: "",
-          programaAcademico: "",
-          grupoCultural: "",
-          eventoId: "",
-        })
-        setCurrentStep(1)
-        setSuccess(false)
-        setSelectedUser(null)
-        setSimilarUsers([])
-        setUserEnrollments([])
-        setIsSubmitting(false)
-      }, 3000)
+      // Después del registro/inscripción inicial, llevar al perfil y preguntar si quiere inscribirse a más cosas
+      const nextUser: UserProfile = selectedUser
+        ? selectedUser
+        : ({
+            id: userId,
+            area: "cultura",
+            nombres: formData.nombres,
+            correo: formData.correo,
+            genero: formData.genero as any,
+            etnia: formData.etnia as any,
+            tipoDocumento: formData.tipoDocumento as any,
+            numeroDocumento: formData.numeroDocumento,
+            edad: Number.parseInt(formData.edad),
+            telefono: formData.telefono,
+            sede: formData.sede as any,
+            estamento: formData.estamento as any,
+            codigoEstudiantil: formData.codigoEstudiantil || undefined,
+            facultad: formData.facultad || undefined,
+            programaAcademico: formData.programaAcademico || undefined,
+            createdAt: new Date(),
+            lastAttendance: new Date(),
+          } as UserProfile)
+
+      setSelectedUser(nextUser)
+      await loadUserEnrollments(userId)
+      setAuthMode("perfil")
+      setShowPostRegistroQuestion(isNewUser)
+      setIsSubmitting(false)
     } catch (error: any) {
       console.error("[v0] Error saving enrollment:", error)
       console.error("[v0] Error details:", error.message, error.code)
@@ -386,6 +442,89 @@ export default function RegistroAsistencia() {
         variant: "destructive",
       })
     }
+  }
+
+  const renderLogin = () => {
+    return (
+      <div className="space-y-6">
+        <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
+          <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">Sistema de Gestión Cultural</CardTitle>
+          <CardDescription className="text-base md:text-lg">Ingresa con tu documento y correo</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="login-documento">Número de Documento</Label>
+              <Input
+                id="login-documento"
+                value={loginDocumento}
+                onChange={(e) => setLoginDocumento(e.target.value)}
+                placeholder="Ingresa tu documento"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-correo">Correo Institucional</Label>
+              <Input
+                id="login-correo"
+                type="email"
+                value={loginCorreo}
+                onChange={(e) => setLoginCorreo(e.target.value)}
+                placeholder="correo@correounivalle.edu.co"
+                required
+              />
+            </div>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <Button type="submit" disabled={isLoggingIn} className="w-full">
+              {isLoggingIn ? "Verificando..." : "Ingresar"}
+            </Button>
+
+            <div className="text-center space-y-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setError("")
+                  setAuthMode("registro")
+                }}
+                className="w-full"
+              >
+                No tengo un usuario
+              </Button>
+              <p className="text-xs text-gray-600">
+                Si tienes algún problema al ingresar comunícanos a{" "}
+                <a className="underline" href="mailto:areacultura.cdr@correounivalle.edu.co">
+                  areacultura.cdr@correounivalle.edu.co
+                </a>
+              </p>
+            </div>
+          </form>
+        </CardContent>
+      </div>
+    )
+  }
+
+  const renderPerfil = () => {
+    if (!selectedUser) return null
+
+    return (
+      <CulturaUserProfile
+        user={selectedUser}
+        showPostRegistroQuestion={showPostRegistroQuestion}
+        onDismissQuestion={() => setShowPostRegistroQuestion(false)}
+        gruposDisponibles={gruposCulturales}
+        onLogout={() => {
+          setAuthMode("login")
+          setSelectedUser(null)
+          setUserEnrollments([])
+          setShowEnrollmentForm(false)
+          setShowPostRegistroQuestion(false)
+          setError("")
+        }}
+      />
+    )
   }
 
   const renderStep = () => {
@@ -615,11 +754,31 @@ export default function RegistroAsistencia() {
         )
 
       case 3:
+        if (isDocenteEstamento(formData.estamento)) {
+          return (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="facultad">Facultad a la que Pertenece *</Label>
+                <Select value={formData.facultad} onValueChange={(value) => handleInputChange("facultad", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona tu facultad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FACULTADES.map((facultad) => (
+                      <SelectItem key={facultad} value={facultad}>
+                        {facultad}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )
+        }
         if (formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") {
           return (
             <div className="space-y-4">
-              {/* Código Estudiantil para ESTUDIANTE y EGRESADO */}
-              {(formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") && (
+              {formData.estamento === "ESTUDIANTE" && (
                 <div className="space-y-2">
                   <Label htmlFor="codigoEstudiantil">Código Estudiantil * (9 dígitos, ej: 202625413)</Label>
                   <Input
@@ -833,7 +992,9 @@ export default function RegistroAsistencia() {
       case 3:
         return formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
           ? "Información Académica"
-          : "Seleccionar Grupo Cultural"
+          : isDocenteEstamento(formData.estamento)
+            ? "Facultad"
+            : "Seleccionar Grupo Cultural"
       case 4:
         return "Seleccionar Grupo Cultural"
       default:
@@ -842,71 +1003,93 @@ export default function RegistroAsistencia() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className={authMode === "perfil" ? "min-h-screen" : "min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100"}>
+      {authMode === "perfil" ? (
+        renderPerfil()
+      ) : (
       <div className="p-3 md:p-4">
         <div className="max-w-2xl mx-auto">
           <Card className="shadow-lg">
-            <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
-              <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">
-                Sistema de Inscripción a Grupos Culturales
-              </CardTitle>
-              <CardDescription className="text-base md:text-lg">Universidad del Valle</CardDescription>
-              {!selectedUser && (
-                <>
-                  <div className="flex justify-center mt-3 md:mt-4">
-                    <div className="flex space-x-2">
-                      {Array.from({ length: totalSteps }, (_, i) => (
-                        <div
-                          key={i}
-                          className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
-                        />
-                      ))}
-                    </div>
+            {authMode === "login" ? (
+              renderLogin()
+            ) : (
+              <>
+                <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
+                  <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">
+                    Sistema de Inscripción a Grupos Culturales
+                  </CardTitle>
+                  <CardDescription className="text-base md:text-lg">Universidad del Valle</CardDescription>
+                  {!selectedUser && (
+                    <>
+                      <div className="flex justify-center mt-3 md:mt-4">
+                        <div className="flex space-x-2">
+                          {Array.from({ length: totalSteps }, (_, i) => (
+                            <div
+                              key={i}
+                              className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-xs md:text-sm text-gray-600 mt-2">
+                        Paso {currentStep} de {totalSteps}: {getStepTitle()}
+                      </p>
+                    </>
+                  )}
+                  {selectedUser && <p className="text-xs md:text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
+                </CardHeader>
+                <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
+                  {renderStep()}
+
+                  <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 md:pt-6">
+                    <Button
+                      variant="outline"
+                      onClick={handlePrevious}
+                      disabled={currentStep === 1 || !!selectedUser}
+                      className="w-full sm:w-auto px-6 bg-transparent order-2 sm:order-1"
+                    >
+                      Anterior
+                    </Button>
+
+                    {(currentStep === totalSteps && !selectedUser) || (selectedUser && !showEnrollmentForm && formData.grupoCultural) ? (
+                      <Button
+                        onClick={handleSubmit}
+                        disabled={!formData.grupoCultural || isSubmitting}
+                        className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSubmitting ? "Inscribiendo..." : "Inscribirme al Grupo"}
+                      </Button>
+                    ) : !selectedUser ? (
+                      <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
+                        Siguiente
+                      </Button>
+                    ) : null}
                   </div>
-                  <p className="text-xs md:text-sm text-gray-600 mt-2">
-                    Paso {currentStep} de {totalSteps}: {getStepTitle()}
-                  </p>
-                </>
-              )}
-              {selectedUser && <p className="text-xs md:text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
-            </CardHeader>
-            <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
-              {renderStep()}
 
-              <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 md:pt-6">
-                <Button
-                  variant="outline"
-                  onClick={handlePrevious}
-                  disabled={currentStep === 1 || !!selectedUser}
-                  className="w-full sm:w-auto px-6 bg-transparent order-2 sm:order-1"
-                >
-                  Anterior
-                </Button>
-
-                {(currentStep === totalSteps && !selectedUser) || (selectedUser && !showEnrollmentForm && formData.grupoCultural) ? (
-                  <Button 
-                    onClick={handleSubmit} 
-                    disabled={!formData.grupoCultural || isSubmitting}
-                    className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => {
+                      setAuthMode("login")
+                      setError("")
+                    }}
                   >
-                    {isSubmitting ? "Inscribiendo..." : "Inscribirme al Grupo"}
+                    Volver al login
                   </Button>
-                ) : !selectedUser ? (
-                  <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
-                    Siguiente
-                  </Button>
-                ) : null}
-              </div>
-            </CardContent>
+                </CardContent>
+              </>
+            )}
           </Card>
         </div>
       </div>
-      {error && (
+      )}
+      {authMode !== "perfil" && error && (
         <Alert variant="destructive" className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md z-50">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {success && (
+      {authMode !== "perfil" && success && (
         <Alert
           variant="default"
           className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md bg-green-50 border-green-200 z-50"

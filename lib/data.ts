@@ -63,6 +63,10 @@ export const ESTAMENTOS = [
   "INVITADO",
 ] as const
 
+export function isDocenteEstamento(estamento: string): boolean {
+  return estamento === "DOCENTE" || estamento === "DOCENTE HORA CATEDRA"
+}
+
 export const FACULTADES = [
   "FACULTAD DE ARTES INTEGRADAS",
   "FACULTAD DE CIENCIAS DE LA ADMINISTRACIÓN",
