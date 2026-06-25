@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { User, CheckCircle, AlertCircle } from "lucide-react"
+import { User, AlertCircle } from "lucide-react"
 import { CulturaUserProfile } from "@/components/cultura-user-profile"
 import {
   GENEROS,
@@ -26,12 +26,10 @@ import {
 import {
   saveUserProfile,
   findSimilarUsers,
-  getUserEnrollments,
-  enrollUserToGroup,
   getAllCulturalGroups as getAllCulturalGroupsRouter,
   getUserByNumeroDocumento,
 } from "@/lib/db-router"
-import type { FormData, SimilarUser, UserProfile, GroupEnrollment } from "@/lib/types"
+import type { FormData, SimilarUser, UserProfile } from "@/lib/types"
 
 export default function RegistroAsistencia() {
   const { toast } = useToast()
@@ -58,14 +56,9 @@ export default function RegistroAsistencia() {
   const [isCheckingSimilarity, setIsCheckingSimilarity] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [error, setError] = useState("")
-  const [success, setSuccess] = useState(false)
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [currentStep, setCurrentStep] = useState(1)
-  const [userEnrollments, setUserEnrollments] = useState<GroupEnrollment[]>([])
-  const [showEnrollmentForm, setShowEnrollmentForm] = useState(false)
-  const [selectedGroupToEnroll, setSelectedGroupToEnroll] = useState("")
-  const [isEnrolling, setIsEnrolling] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const [authMode, setAuthMode] = useState<"login" | "registro" | "perfil">("login")
@@ -76,7 +69,7 @@ export default function RegistroAsistencia() {
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const requiresFacultyOnly = isDocenteEstamento(formData.estamento)
-  const totalSteps = selectedUser ? 1 : (requiresAcademicInfo || requiresFacultyOnly) ? 4 : 3
+  const totalSteps = (requiresAcademicInfo || requiresFacultyOnly) ? 3 : 2
 
   // Cargar grupos culturales desde la base de datos
   useEffect(() => {
@@ -124,7 +117,6 @@ export default function RegistroAsistencia() {
       }
 
       setSelectedUser(user)
-      await loadUserEnrollments(user.id)
       setAuthMode("perfil")
       setShowPostRegistroQuestion(false)
       toast({
@@ -202,32 +194,12 @@ export default function RegistroAsistencia() {
 
   const handleSelectUser = async (user: UserProfile) => {
     setSelectedUser(user)
-    setFormData({
-      nombres: user.nombres,
-      correo: user.correo,
-      genero: user.genero,
-      etnia: user.etnia,
-      tipoDocumento: user.tipoDocumento,
-      numeroDocumento: user.numeroDocumento,
-      edad: user.edad.toString(),
-      telefono: user.telefono,
-      sede: user.sede,
-      estamento: user.estamento,
-      codigoEstudiantil: user.codigoEstudiantil || "",
-      facultad: user.facultad || "",
-      programaAcademico: user.programaAcademico || "",
-      grupoCultural: "",
-      eventoId: "",
-    })
     setShowSuggestions(false)
-    setCurrentStep(1) // Go directly to cultural group selection
-
-    // Cargar inscripciones del usuario
-    await loadUserEnrollments(user.id)
-
+    setAuthMode("perfil")
+    setShowPostRegistroQuestion(false)
     toast({
       title: "Usuario reconocido",
-      description: `¡Hola ${user.nombres}! Selecciona el grupo al que deseas inscribirte.`,
+      description: `¡Hola ${user.nombres}! Ya tienes una cuenta registrada.`,
     })
   }
 
@@ -237,10 +209,6 @@ export default function RegistroAsistencia() {
   }
 
   const validateStep = (step: number): boolean => {
-    if (selectedUser) {
-      return !!formData.grupoCultural
-    }
-
     switch (step) {
       case 1:
         return !!(
@@ -267,8 +235,6 @@ export default function RegistroAsistencia() {
           return !!formData.facultad
         }
         return true
-      case 4:
-        return !!formData.grupoCultural
       default:
         return false
     }
@@ -290,157 +256,99 @@ export default function RegistroAsistencia() {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
   }
 
-  // Cargar inscripciones del usuario cuando se selecciona uno
-  async function loadUserEnrollments(userId: string) {
-    try {
-      const enrollments = await getUserEnrollments('cultura', userId)
-      setUserEnrollments(enrollments)
-    } catch (error) {
-      console.error("Error cargando inscripciones:", error)
-      setUserEnrollments([])
-    }
-  }
-
-  // Inscribir usuario a un grupo
-  async function handleEnrollToGroup() {
-    if (!selectedGroupToEnroll || !selectedUser) return
-
-    setIsEnrolling(true)
-    try {
-      await enrollUserToGroup('cultura', selectedUser.id, selectedGroupToEnroll)
-      await loadUserEnrollments(selectedUser.id)
-      setShowEnrollmentForm(false)
-      setSelectedGroupToEnroll("")
+  async function handleSubmit() {
+    if (!validateStep(currentStep)) {
       toast({
-        title: "Inscripción exitosa",
-        description: `Te has inscrito al grupo ${selectedGroupToEnroll}`,
-      })
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "No se pudo completar la inscripción",
+        title: "Campos requeridos",
+        description: "Por favor completa todos los campos antes de continuar.",
         variant: "destructive",
       })
-    } finally {
-      setIsEnrolling(false)
-    }
-  }
-
-  async function handleSubmit() {
-    if (!formData.grupoCultural) {
-      setError("Debes seleccionar un grupo cultural")
       return
     }
 
-    if (isSubmitting) {
-      console.log("[v0] Submit already in progress, ignoring duplicate click")
-      return
-    }
+    if (isSubmitting) return
 
     setError("")
     setIsSubmitting(true)
 
     try {
-      let userId: string
-      const isNewUser = !selectedUser
-
-      if (selectedUser) {
-        userId = selectedUser.id
-        console.log("[v0] Using existing user ID:", userId)
-      } else {
-        const userProfile = {
-          area: 'cultura' as const,
-          nombres: formData.nombres,
-          correo: formData.correo,
-          genero: formData.genero as any,
-          etnia: formData.etnia as any,
-          tipoDocumento: formData.tipoDocumento as any,
-          numeroDocumento: formData.numeroDocumento,
-          edad: Number.parseInt(formData.edad),
-          telefono: formData.telefono,
-          sede: formData.sede as any,
-          estamento: formData.estamento as any,
-          ...(formData.estamento === "ESTUDIANTE" &&
-            formData.codigoEstudiantil && {
-              codigoEstudiantil: formData.codigoEstudiantil,
-            }),
-          ...((formData.estamento === "ESTUDIANTE" ||
-            formData.estamento === "EGRESADO" ||
-            isDocenteEstamento(formData.estamento)) &&
-            formData.facultad && {
-              facultad: formData.facultad,
-            }),
-          ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
-            formData.programaAcademico && {
-              programaAcademico: formData.programaAcademico,
-            }),
-        }
-
-        console.log("[v0] Creating new user profile:", userProfile)
-        userId = await saveUserProfile('cultura', userProfile)
-        console.log("[v0] New user created with ID:", userId)
+      const userProfile = {
+        area: 'cultura' as const,
+        nombres: formData.nombres,
+        correo: formData.correo,
+        genero: formData.genero as UserProfile["genero"],
+        etnia: formData.etnia as UserProfile["etnia"],
+        tipoDocumento: formData.tipoDocumento as UserProfile["tipoDocumento"],
+        numeroDocumento: formData.numeroDocumento,
+        edad: Number.parseInt(formData.edad),
+        telefono: formData.telefono,
+        sede: formData.sede as UserProfile["sede"],
+        estamento: formData.estamento as UserProfile["estamento"],
+        ...(formData.estamento === "ESTUDIANTE" &&
+          formData.codigoEstudiantil && {
+            codigoEstudiantil: formData.codigoEstudiantil,
+          }),
+        ...((formData.estamento === "ESTUDIANTE" ||
+          formData.estamento === "EGRESADO" ||
+          isDocenteEstamento(formData.estamento)) &&
+          formData.facultad && {
+            facultad: formData.facultad,
+          }),
+        ...((formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO") &&
+          formData.programaAcademico && {
+            programaAcademico: formData.programaAcademico,
+          }),
       }
 
-      // Solo inscribir al grupo, no registrar asistencia
-      console.log("[v0] Enrolling user to group:", userId, "group:", formData.grupoCultural)
-      await enrollUserToGroup('cultura', userId, formData.grupoCultural)
-      console.log("[v0] User enrolled successfully")
+      const userId = await saveUserProfile('cultura', userProfile)
 
-      setSuccess(true)
-      toast({
-        title: "¡Inscripción exitosa!",
-        description: `Te has inscrito al grupo ${formData.grupoCultural} correctamente.`,
-      })
-
-      // Después del registro/inscripción inicial, llevar al perfil y preguntar si quiere inscribirse a más cosas
-      const nextUser: UserProfile = selectedUser
-        ? selectedUser
-        : ({
-            id: userId,
-            area: "cultura",
-            nombres: formData.nombres,
-            correo: formData.correo,
-            genero: formData.genero as any,
-            etnia: formData.etnia as any,
-            tipoDocumento: formData.tipoDocumento as any,
-            numeroDocumento: formData.numeroDocumento,
-            edad: Number.parseInt(formData.edad),
-            telefono: formData.telefono,
-            sede: formData.sede as any,
-            estamento: formData.estamento as any,
-            codigoEstudiantil: formData.codigoEstudiantil || undefined,
-            facultad: formData.facultad || undefined,
-            programaAcademico: formData.programaAcademico || undefined,
-            createdAt: new Date(),
-            lastAttendance: new Date(),
-          } as UserProfile)
+      const nextUser: UserProfile = {
+        id: userId,
+        area: "cultura",
+        nombres: formData.nombres,
+        correo: formData.correo,
+        genero: formData.genero as UserProfile["genero"],
+        etnia: formData.etnia as UserProfile["etnia"],
+        tipoDocumento: formData.tipoDocumento as UserProfile["tipoDocumento"],
+        numeroDocumento: formData.numeroDocumento,
+        edad: Number.parseInt(formData.edad),
+        telefono: formData.telefono,
+        sede: formData.sede as UserProfile["sede"],
+        estamento: formData.estamento as UserProfile["estamento"],
+        codigoEstudiantil: formData.codigoEstudiantil || undefined,
+        facultad: formData.facultad || undefined,
+        programaAcademico: formData.programaAcademico || undefined,
+        createdAt: new Date(),
+        lastAttendance: new Date(),
+      }
 
       setSelectedUser(nextUser)
-      await loadUserEnrollments(userId)
       setAuthMode("perfil")
-      setShowPostRegistroQuestion(isNewUser)
-      setIsSubmitting(false)
-    } catch (error: any) {
-      console.error("[v0] Error saving enrollment:", error)
-      console.error("[v0] Error details:", error.message, error.code)
-      
-      let errorMessage = "Hubo un problema al inscribirte. Por favor intenta nuevamente."
-      
-      if (error.message) {
-        errorMessage = error.message
-      } else if (error.code === "permission-denied") {
+      setShowPostRegistroQuestion(true)
+      toast({
+        title: "¡Registro exitoso!",
+        description: "Tu cuenta fue creada. Desde tu perfil puedes inscribirte a actividades.",
+      })
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string }
+      let errorMessage = "Hubo un problema al registrar tu cuenta. Por favor intenta nuevamente."
+
+      if (err.message) {
+        errorMessage = err.message
+      } else if (err.code === "permission-denied") {
         errorMessage = "Error de permisos. Verifica la configuración de Firestore."
-      } else if (error.code === "unavailable") {
+      } else if (err.code === "unavailable") {
         errorMessage = "No se pudo conectar con el servidor. Verifica tu conexión."
       }
-      
+
       setError(errorMessage)
-      setIsSubmitting(false)
       toast({
-        title: "Error en la inscripción",
+        title: "Error en el registro",
         description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -514,12 +422,11 @@ export default function RegistroAsistencia() {
         user={selectedUser}
         showPostRegistroQuestion={showPostRegistroQuestion}
         onDismissQuestion={() => setShowPostRegistroQuestion(false)}
+        onUserUpdated={(updated) => setSelectedUser(updated)}
         gruposDisponibles={gruposCulturales}
         onLogout={() => {
           setAuthMode("login")
           setSelectedUser(null)
-          setUserEnrollments([])
-          setShowEnrollmentForm(false)
           setShowPostRegistroQuestion(false)
           setError("")
         }}
@@ -528,25 +435,6 @@ export default function RegistroAsistencia() {
   }
 
   const renderStep = () => {
-    if (selectedUser) {
-      return (
-        <div className="space-y-4">
-          <Alert className="border-green-200 bg-green-50">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-green-800">
-              <strong>Usuario reconocido:</strong> {selectedUser.nombres}
-              <br />
-              <span className="text-sm text-green-600">
-                Última asistencia: {selectedUser.lastAttendance.toLocaleDateString()}
-              </span>
-            </AlertDescription>
-          </Alert>
-
-          {renderCulturalGroupStep()}
-        </div>
-      )
-    }
-
     switch (currentStep) {
       case 1:
         return (
@@ -847,143 +735,14 @@ export default function RegistroAsistencia() {
             </div>
           )
         }
-        // Si no es estudiante ni egresado, ir directamente a selección de grupo cultural
-        return renderCulturalGroupStep()
-
-      case 4:
-        return renderCulturalGroupStep()
+        return null
 
       default:
         return null
     }
   }
 
-  const renderCulturalGroupStep = () => {
-    const isRecognizedUser = !!selectedUser
-    const hasEnrollments = userEnrollments.length > 0
-    const enrolledGroups = userEnrollments.map(e => e.grupoCultural)
-
-    // Si es usuario reconocido y no tiene inscripciones
-    if (isRecognizedUser && !hasEnrollments && !showEnrollmentForm) {
-      return (
-        <div className="space-y-6">
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              <strong>Inscríbete en un grupo cultural para comenzar.</strong>
-              <p className="text-sm mt-1">Una vez inscrito, el director o monitor del grupo registrará tu asistencia.</p>
-            </AlertDescription>
-          </Alert>
-
-          <Button 
-            onClick={() => setShowEnrollmentForm(true)} 
-            className="w-full bg-blue-600 hover:bg-blue-700"
-          >
-            Inscribirme en un Grupo
-          </Button>
-        </div>
-      )
-    }
-
-    // Si está mostrando el formulario de inscripción
-    if (isRecognizedUser && showEnrollmentForm) {
-      const availableGroups = gruposCulturales.filter((g: string) => !enrolledGroups.includes(g))
-      
-      return (
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="groupEnrollment">Selecciona el Grupo Cultural al que deseas inscribirte</Label>
-            <Select value={selectedGroupToEnroll} onValueChange={setSelectedGroupToEnroll}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un grupo cultural" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableGroups.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowEnrollmentForm(false)
-                setSelectedGroupToEnroll("")
-              }}
-              className="flex-1 bg-transparent"
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleEnrollToGroup} 
-              disabled={!selectedGroupToEnroll || isEnrolling}
-              className="flex-1 bg-green-600 hover:bg-green-700"
-            >
-              {isEnrolling ? "Inscribiendo..." : "Confirmar Inscripción"}
-            </Button>
-          </div>
-        </div>
-      )
-    }
-
-    // Si es usuario reconocido con inscripciones o usuario nuevo
-    return (
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="grupoCultural">
-            {isRecognizedUser && hasEnrollments ? "Selecciona el grupo al que deseas inscribirte" : "Grupo Cultural *"}
-          </Label>
-          <Select value={formData.grupoCultural} onValueChange={(value) => handleInputChange("grupoCultural", value)} disabled={loadingGroups}>
-            <SelectTrigger>
-              <SelectValue placeholder={loadingGroups ? "Cargando grupos..." : "Selecciona el grupo cultural"} />
-            </SelectTrigger>
-            <SelectContent>
-              {isRecognizedUser ? (
-                // Para usuarios reconocidos, mostrar solo grupos disponibles (no inscritos)
-                gruposCulturales.filter((g: string) => !enrolledGroups.includes(g)).map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))
-              ) : (
-                // Para usuarios nuevos, mostrar todos los grupos
-                gruposCulturales.map((grupo) => (
-                  <SelectItem key={grupo} value={grupo}>
-                    {grupo}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {isRecognizedUser && hasEnrollments && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-sm text-blue-800">
-              <strong>Grupos inscritos:</strong> {enrolledGroups.join(", ")}
-            </p>
-          </div>
-        )}
-
-        <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
-          {isRecognizedUser 
-            ? "Selecciona un nuevo grupo al que deseas inscribirte."
-            : "Selecciona el grupo cultural al que deseas inscribirte."
-          }
-        </div>
-      </div>
-    )
-  }
-
   const getStepTitle = () => {
-    if (selectedUser) {
-      return "Seleccionar Grupo Cultural"
-    }
-
     switch (currentStep) {
       case 1:
         return "Información Personal"
@@ -992,11 +751,7 @@ export default function RegistroAsistencia() {
       case 3:
         return formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
           ? "Información Académica"
-          : isDocenteEstamento(formData.estamento)
-            ? "Facultad"
-            : "Seleccionar Grupo Cultural"
-      case 4:
-        return "Seleccionar Grupo Cultural"
+          : "Facultad"
       default:
         return ""
     }
@@ -1016,27 +771,22 @@ export default function RegistroAsistencia() {
               <>
                 <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
                   <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">
-                    Sistema de Inscripción a Grupos Culturales
+                    Registro de Usuario
                   </CardTitle>
-                  <CardDescription className="text-base md:text-lg">Universidad del Valle</CardDescription>
-                  {!selectedUser && (
-                    <>
-                      <div className="flex justify-center mt-3 md:mt-4">
-                        <div className="flex space-x-2">
-                          {Array.from({ length: totalSteps }, (_, i) => (
-                            <div
-                              key={i}
-                              className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-xs md:text-sm text-gray-600 mt-2">
-                        Paso {currentStep} de {totalSteps}: {getStepTitle()}
-                      </p>
-                    </>
-                  )}
-                  {selectedUser && <p className="text-xs md:text-sm text-green-600 mt-2 font-medium">{getStepTitle()}</p>}
+                  <CardDescription className="text-base md:text-lg">Sistema de Gestión Cultural — Universidad del Valle</CardDescription>
+                  <div className="flex justify-center mt-3 md:mt-4">
+                    <div className="flex space-x-2">
+                      {Array.from({ length: totalSteps }, (_, i) => (
+                        <div
+                          key={i}
+                          className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${i + 1 <= currentStep ? "bg-blue-600" : "bg-gray-300"}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-xs md:text-sm text-gray-600 mt-2">
+                    Paso {currentStep} de {totalSteps}: {getStepTitle()}
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
                   {renderStep()}
@@ -1045,25 +795,25 @@ export default function RegistroAsistencia() {
                     <Button
                       variant="outline"
                       onClick={handlePrevious}
-                      disabled={currentStep === 1 || !!selectedUser}
+                      disabled={currentStep === 1}
                       className="w-full sm:w-auto px-6 bg-transparent order-2 sm:order-1"
                     >
                       Anterior
                     </Button>
 
-                    {(currentStep === totalSteps && !selectedUser) || (selectedUser && !showEnrollmentForm && formData.grupoCultural) ? (
+                    {currentStep === totalSteps ? (
                       <Button
                         onClick={handleSubmit}
-                        disabled={!formData.grupoCultural || isSubmitting}
+                        disabled={isSubmitting}
                         className="w-full sm:w-auto px-6 bg-green-600 hover:bg-green-700 order-1 sm:order-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isSubmitting ? "Inscribiendo..." : "Inscribirme al Grupo"}
+                        {isSubmitting ? "Registrando..." : "Completar registro"}
                       </Button>
-                    ) : !selectedUser ? (
+                    ) : (
                       <Button onClick={handleNext} className="w-full sm:w-auto px-6 order-1 sm:order-2">
                         Siguiente
                       </Button>
-                    ) : null}
+                    )}
                   </div>
 
                   <Button
@@ -1087,16 +837,6 @@ export default function RegistroAsistencia() {
       {authMode !== "perfil" && error && (
         <Alert variant="destructive" className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md z-50">
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {authMode !== "perfil" && success && (
-        <Alert
-          variant="default"
-          className="fixed bottom-4 left-4 right-4 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 md:max-w-md bg-green-50 border-green-200 z-50"
-        >
-          <AlertDescription className="text-green-800">
-            Te has inscrito al grupo exitosamente.
-          </AlertDescription>
         </Alert>
       )}
       <Toaster />

@@ -976,6 +976,29 @@ export async function getUserEnrollments(area: Area, userId: string): Promise<Ar
   }
 }
 
+// Update user codigo estudiantil (area-aware)
+export async function updateUserCodigoEstudiantil(
+  area: Area,
+  userId: string,
+  codigoEstudiantil: string,
+): Promise<void> {
+  validateAreaSpecified(area)
+
+  const codigo = codigoEstudiantil.replace(/\D/g, "").slice(0, 9)
+  if (codigo.length !== 9) {
+    throw new Error("El código estudiantil debe tener exactamente 9 dígitos")
+  }
+
+  try {
+    const db = getFirestoreForArea(area)
+    await updateDoc(doc(db, USERS_COLLECTION, userId), { codigoEstudiantil: codigo })
+    console.log("[db-router] User codigo estudiantil updated:", userId, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error updating user codigo estudiantil:", error)
+    throw error
+  }
+}
+
 // Update user role (area-aware)
 export async function updateUserRole(area: Area, userId: string, role: string): Promise<void> {
   validateAreaSpecified(area)

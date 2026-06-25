@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 import {
   Calendar,
@@ -51,8 +52,10 @@ import {
   getUserRealEventEnrollments,
   saveEventAttendance,
   saveRealEventAttendance,
+  updateUserCodigoEstudiantil,
 } from "@/lib/db-router"
 import type { Event, UserProfile } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 type GroupActivity = {
   grupo: string
@@ -88,7 +91,14 @@ interface CulturaUserProfileProps {
   showPostRegistroQuestion: boolean
   onDismissQuestion: () => void
   onLogout: () => void
+  onUserUpdated: (user: UserProfile) => void
   gruposDisponibles: string[]
+}
+
+function needsCodigoEstudiantil(user: UserProfile): boolean {
+  if (user.estamento !== "ESTUDIANTE") return false
+  const codigo = user.codigoEstudiantil?.replace(/\D/g, "") ?? ""
+  return codigo.length !== 9
 }
 
 function getInitials(name: string) {
@@ -119,6 +129,7 @@ export function CulturaUserProfile({
   showPostRegistroQuestion,
   onDismissQuestion,
   onLogout,
+  onUserUpdated,
   gruposDisponibles,
 }: CulturaUserProfileProps) {
   const { toast } = useToast()
@@ -126,9 +137,13 @@ export function CulturaUserProfile({
   const [groups, setGroups] = useState<GroupActivity[]>([])
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null)
-  const [showListado, setShowListado] = useState(false)
   const [showGroupDialog, setShowGroupDialog] = useState(false)
   const [showEventDialog, setShowEventDialog] = useState(false)
+  const [showCodigoDialog, setShowCodigoDialog] = useState(() => needsCodigoEstudiantil(user))
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuTutorialActive, setMenuTutorialActive] = useState(false)
+  const [codigoEstudiantil, setCodigoEstudiantil] = useState("")
+  const [isSavingCodigo, setIsSavingCodigo] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState("")
   const [isEnrolling, setIsEnrolling] = useState(false)
   const [loadingAvailable, setLoadingAvailable] = useState(false)
@@ -280,6 +295,40 @@ export function CulturaUserProfile({
     loadProfileData()
   }, [user.id])
 
+  useEffect(() => {
+    if (!needsCodigoEstudiantil(user)) {
+      setShowCodigoDialog(false)
+    }
+  }, [user.codigoEstudiantil, user.estamento])
+
+  async function handleSaveCodigo() {
+    const codigo = codigoEstudiantil.replace(/\D/g, "")
+    if (codigo.length !== 9) {
+      toast({
+        title: "Código inválido",
+        description: "El código estudiantil debe tener exactamente 9 dígitos.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingCodigo(true)
+    try {
+      await updateUserCodigoEstudiantil("cultura", user.id, codigo)
+      onUserUpdated({ ...user, codigoEstudiantil: codigo })
+      setShowCodigoDialog(false)
+      toast({
+        title: "Código guardado",
+        description: "Tu código estudiantil quedó registrado correctamente.",
+      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "No se pudo guardar el código"
+      toast({ title: "Error", description: message, variant: "destructive" })
+    } finally {
+      setIsSavingCodigo(false)
+    }
+  }
+
   async function handleEnrollGroup() {
     if (!selectedGroup) return
     setIsEnrolling(true)
@@ -327,6 +376,25 @@ export function CulturaUserProfile({
   const availableConvocatorias = availableItems.filter((i) => i.tipo === "convocatoria")
   const availableEventos = availableItems.filter((i) => i.tipo === "evento")
 
+  const highlightMenuButton = (showPostRegistroQuestion || menuTutorialActive) && !showCodigoDialog
+
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open)
+    if (open && showPostRegistroQuestion) {
+      onDismissQuestion()
+      setMenuTutorialActive(true)
+    }
+    if (!open && menuTutorialActive) {
+      setMenuTutorialActive(false)
+    }
+  }
+
+  const handleTutorialMenuAction = (action: () => void) => {
+    setMenuTutorialActive(false)
+    onDismissQuestion()
+    action()
+  }
+
   const dialogClass = "border-zinc-800 bg-zinc-900 text-white w-[calc(100vw-2rem)] max-w-lg sm:max-w-xl md:max-w-2xl"
 
   return (
@@ -336,119 +404,126 @@ export function CulturaUserProfile({
       <div className="pointer-events-none absolute bottom-0 right-0 h-56 w-56 sm:h-80 sm:w-80 rounded-full bg-lime-400/10 blur-3xl" />
 
       <div className="relative mx-auto w-full max-w-lg px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-6 md:max-w-3xl lg:max-w-5xl lg:px-8 lg:pb-12 lg:pt-8">
-        {/* Top bar */}
-        <div className="mb-6 sm:mb-8 flex items-start justify-between">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 sm:h-11 sm:w-11 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56 sm:w-64 border-zinc-800 bg-zinc-900 text-white">
-              <DropdownMenuItem
-                className="focus:bg-zinc-800 focus:text-white"
-                onClick={() => setShowGroupDialog(true)}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                Inscribirme a grupo
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="focus:bg-zinc-800 focus:text-white"
-                onClick={openEventEnrollmentDialog}
-              >
-                <Megaphone className="mr-2 h-4 w-4" />
-                Inscribirme a convocatoria o evento
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-zinc-800" />
-              <DropdownMenuItem
-                className="text-red-400 focus:bg-zinc-800 focus:text-red-300"
-                onClick={onLogout}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Cerrar sesión
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        {/* Profile header + menu */}
+        <div className="mb-6 sm:mb-8 flex items-start justify-between gap-3 sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4 md:gap-5">
+            <Avatar className="h-14 w-14 sm:h-16 sm:w-16 md:h-20 md:w-20 shrink-0 border-2 border-lime-400/60 shadow-lg shadow-lime-400/10">
+              <AvatarFallback className="bg-gradient-to-br from-violet-500 to-fuchsia-500 text-base sm:text-lg md:text-xl font-semibold text-white">
+                {getInitials(user.nombres)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm text-zinc-400">Hola,</p>
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight truncate">{firstName}</h1>
+              <p className="text-xs sm:text-sm text-zinc-400 truncate">{user.nombres}</p>
+            </div>
+          </div>
 
-        {/* Profile header */}
-        <div className="mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 md:gap-5">
-          <Avatar className="h-14 w-14 sm:h-16 sm:w-16 md:h-20 md:w-20 border-2 border-lime-400/60 shadow-lg shadow-lime-400/10">
-            <AvatarFallback className="bg-gradient-to-br from-violet-500 to-fuchsia-500 text-base sm:text-lg md:text-xl font-semibold text-white">
-              {getInitials(user.nombres)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="text-xs sm:text-sm text-zinc-400">Hola,</p>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight truncate">{firstName}</h1>
-            <p className="text-xs sm:text-sm text-zinc-400 truncate">{user.nombres}</p>
+          <div className="relative shrink-0">
+            {highlightMenuButton && (
+              <div
+                className={cn(
+                  "absolute z-20 rounded-2xl border border-lime-400/50 bg-zinc-900/95 px-3.5 py-3 text-xs text-lime-50 shadow-xl shadow-lime-400/20 backdrop-blur-sm",
+                  "right-full top-1/2 mr-3 w-[min(240px,calc(100vw-5.5rem))] -translate-y-1/2",
+                  "sm:right-0 sm:top-full sm:mr-0 sm:mt-3 sm:w-72 sm:translate-y-0 sm:text-sm",
+                )}
+              >
+                <p className="font-semibold text-lime-300">¿Cómo inscribirte?</p>
+                <p className="mt-1.5 leading-relaxed text-zinc-300">
+                  Pulsa el botón <span className="font-semibold text-white">⋯</span> para abrir el menú y elegir grupo cultural, convocatoria o evento.
+                </p>
+                <div className="absolute -right-2 top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-lime-400/50 bg-zinc-900/95 sm:hidden" />
+                <div className="absolute -top-2 right-4 hidden h-3 w-3 rotate-45 border-l border-t border-lime-400/50 bg-zinc-900/95 sm:block" />
+              </div>
+            )}
+            <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "relative h-10 w-10 sm:h-11 sm:w-11 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white",
+                    highlightMenuButton &&
+                      "bg-lime-400/15 shadow-[0_0_0_4px_rgba(163,230,53,0.35)] hover:bg-lime-400/25",
+                  )}
+                  aria-label="Menú de inscripciones"
+                >
+                  {highlightMenuButton && (
+                    <>
+                      <span className="pointer-events-none absolute inset-0 rounded-full bg-lime-400/25 animate-ping" />
+                      <span className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-lime-400/80 ring-offset-2 ring-offset-zinc-950 animate-pulse" />
+                    </>
+                  )}
+                  <MoreHorizontal className="relative h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 sm:w-64 border-zinc-800 bg-zinc-900 text-white">
+                {highlightMenuButton && (
+                  <div className="px-2 py-2 text-xs text-lime-300 border-b border-zinc-800">
+                    Elige una opción para inscribirte
+                  </div>
+                )}
+                <DropdownMenuItem
+                  className={cn(
+                    "focus:bg-zinc-800 focus:text-white",
+                    highlightMenuButton && "bg-lime-400/10 text-lime-100",
+                  )}
+                  onClick={() =>
+                    handleTutorialMenuAction(() => setShowGroupDialog(true))
+                  }
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Inscribirme a grupo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={cn(
+                    "focus:bg-zinc-800 focus:text-white",
+                    highlightMenuButton && "bg-lime-400/10 text-lime-100",
+                  )}
+                  onClick={() => handleTutorialMenuAction(openEventEnrollmentDialog)}
+                >
+                  <Megaphone className="mr-2 h-4 w-4" />
+                  Inscribirme a convocatoria o evento
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuItem
+                  className="text-red-400 focus:bg-zinc-800 focus:text-red-300"
+                  onClick={onLogout}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Cerrar sesión
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
         {/* Post-registration question */}
-        {showPostRegistroQuestion && (
+        {showPostRegistroQuestion && !showCodigoDialog && (
           <div className="mb-5 sm:mb-6 rounded-2xl sm:rounded-3xl border border-lime-400/30 bg-gradient-to-br from-violet-900/60 to-fuchsia-900/40 p-4 sm:p-5 backdrop-blur-sm">
             <p className="text-sm sm:text-base font-medium leading-snug">
-              ¿Quieres inscribirte a algún grupo cultural, convocatoria o evento?
+              ¡Tu registro quedó listo! ¿Quieres inscribirte a un grupo cultural, convocatoria o evento?
+            </p>
+            <p className="mt-2 text-xs sm:text-sm text-zinc-300">
+              Mira la esquina superior derecha: el botón <span className="font-semibold text-white">⋯</span> te muestra todas las opciones de inscripción.
             </p>
             <div className="mt-4 flex flex-col xs:flex-row gap-2 sm:flex-row">
               <Button
                 className="flex-1 rounded-full bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
                 onClick={() => {
                   onDismissQuestion()
-                  setShowListado(true)
+                  setMenuTutorialActive(true)
+                  setMenuOpen(true)
                 }}
               >
-                Sí
+                Sí, abrir menú
               </Button>
               <Button
                 variant="outline"
                 className="flex-1 rounded-full border-white/20 bg-transparent text-white hover:bg-white/10"
                 onClick={onDismissQuestion}
               >
-                No
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Listado for new users */}
-        {showListado && (
-          <div className="mb-5 sm:mb-6 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-            <p className="mb-3 text-sm font-medium text-zinc-300">¿Dónde quieres inscribirte?</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Button
-                className="rounded-2xl bg-lime-400 text-zinc-950 hover:bg-lime-300"
-                onClick={() => {
-                  setShowListado(false)
-                  setShowGroupDialog(true)
-                }}
-              >
-                Grupos
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-2xl border-white/20 bg-transparent text-white hover:bg-white/10"
-                onClick={() => {
-                  setShowListado(false)
-                  openEventEnrollmentDialog()
-                }}
-              >
-                Eventos
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-2xl border-white/20 bg-transparent text-white hover:bg-white/10"
-                onClick={() => {
-                  setShowListado(false)
-                  openEventEnrollmentDialog()
-                }}
-              >
-                Convocatorias
+                Más tarde
               </Button>
             </div>
           </div>
@@ -561,6 +636,54 @@ export function CulturaUserProfile({
           </div>
         )}
       </div>
+
+      {/* Código estudiantil — una sola vez para estudiantes sin código */}
+      <Dialog
+        open={showCodigoDialog}
+        onOpenChange={(open) => {
+          if (open) setShowCodigoDialog(true)
+        }}
+      >
+        <DialogContent
+          className={`${dialogClass} [&>button]:hidden`}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-base sm:text-lg">Completa tu código estudiantil</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Como estudiante, necesitamos registrar tu código de 9 dígitos. Solo te lo pediremos esta vez.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="codigo-estudiantil" className="text-zinc-300">
+                Código estudiantil (9 dígitos)
+              </Label>
+              <Input
+                id="codigo-estudiantil"
+                value={codigoEstudiantil}
+                onChange={(e) => setCodigoEstudiantil(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                placeholder="202625413"
+                maxLength={9}
+                inputMode="numeric"
+                className="border-zinc-700 bg-zinc-800 text-white"
+                autoFocus
+              />
+              {codigoEstudiantil.length > 0 && codigoEstudiantil.length !== 9 && (
+                <p className="text-xs text-amber-400">El código debe tener exactamente 9 dígitos</p>
+              )}
+            </div>
+            <Button
+              className="w-full bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
+              disabled={codigoEstudiantil.length !== 9 || isSavingCodigo}
+              onClick={handleSaveCodigo}
+            >
+              {isSavingCodigo ? "Guardando..." : "Guardar código"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Activity detail dialog */}
       <Dialog open={!!selectedActivity} onOpenChange={(open) => !open && setSelectedActivity(null)}>
