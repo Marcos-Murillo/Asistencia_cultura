@@ -4,6 +4,11 @@ import type { AttendanceStats, EventStats, AttendanceRecord, EventAttendanceEntr
 import type { Area } from "./firebase-config"
 import type { Representacion } from "./db-router"
 
+export interface IndicadoresConfig {
+  metaInscritosGrupos: number       // 4.1.3.1.1 – meta planeada inscritos a grupos e iniciativas
+  metaActividadesArtisticas: number // meta planeada actividades artísticas extracurriculares
+}
+
 export async function generatePDFReport(
   stats: AttendanceStats,
   attendanceRecords: AttendanceRecord[],
@@ -16,6 +21,9 @@ export async function generatePDFReport(
   representaciones?: Representacion[],
   cinecluEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   cinecluEventStats?: EventStats,
+  totalUsuariosPlataforma?: number,   // total real de usuarios registrados (sin filtro de fechas)
+  totalInscritosGrupos?: number,      // total de inscritos únicos a grupos culturales (sin filtro de fechas)
+  indicadoresConfig?: IndicadoresConfig,
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
   console.log("[PDF] Area:", area)
@@ -71,11 +79,12 @@ export async function generatePDFReport(
     : 0
   const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos + totalCineclu
 
+  // Usuarios únicos en el período filtrado (para referencia en tablas)
   const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
     .size
 
-  // Combinar usuarios de grupos, convocatorias, eventos reales y cineclú
-  const allUniqueUsers = new Set([
+  // Total de usuarios registrados en la plataforma (sin filtro de fechas — dato fijo)
+  const totalUsuariosRegistrados = totalUsuariosPlataforma ?? new Set([
     ...attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`),
     ...eventRecords.map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
     ...(realEventRecords || []).map((record) => `${record.user.nombres}|${record.user.numeroDocumento}`),
@@ -83,7 +92,7 @@ export async function generatePDFReport(
   ]).size
 
   const summaryData = [
-    ["Total de usuarios únicos", allUniqueUsers.toString()],
+    ["Total de usuarios registrados en la plataforma", totalUsuariosRegistrados.toString()],
     [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
     ["Inscripciones en Eventos", totalRealEventos.toString()],
@@ -1008,6 +1017,243 @@ export async function generatePDFReport(
       })
       currentY = (doc as any).lastAutoTable.finalY + 10
     }
+  }
+
+  // ── SECCIÓN INDICADORES (solo cultura) ──────────────────────────────────────
+  if (area === 'cultura' && indicadoresConfig) {
+    doc.addPage()
+    currentY = 20
+
+    // ── Encabezado de sección ──
+    doc.setFontSize(18)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(30, 64, 175) // azul oscuro
+    doc.text("INDICADORES DE PRODUCTO", pageWidth / 2, currentY, { align: "center" })
+    doc.setTextColor(0, 0, 0)
+    currentY += 8
+
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "italic")
+    doc.setTextColor(80, 80, 80)
+    doc.text(
+      "Seguimiento de metas del Plan de Acción Institucional — Área de Cultura, Bienestar Universitario, Universidad del Valle.",
+      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
+    )
+    doc.setTextColor(0, 0, 0)
+    currentY += 14
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INDICADOR 1: Inscritos a grupos e iniciativas culturales
+    // ─────────────────────────────────────────────────────────────────────────
+    doc.setFontSize(11)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(30, 64, 175)
+    doc.text("INDICADOR 1", 14, currentY)
+    doc.setTextColor(0, 0, 0)
+    currentY += 6
+
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "bold")
+    const titulo1Lines = doc.splitTextToSize(
+      "Número de beneficiarios de la comunidad universitaria que participan en grupos e iniciativas culturales fortaleciendo la formación integral.",
+      pageWidth - 28
+    )
+    doc.text(titulo1Lines, 14, currentY)
+    currentY += titulo1Lines.length * 5 + 4
+
+    // Calcular datos indicador 1
+    // Meta alcanzada = total de inscritos únicos a grupos culturales (group_enrollments sin filtro de fecha)
+    const metaAlcanzada1 = totalInscritosGrupos ?? new Set(attendanceRecords.map(r => r.numeroDocumento)).size
+    const metaPlaneada1 = indicadoresConfig.metaInscritosGrupos
+    const porcentaje1 = metaPlaneada1 > 0 ? Math.round((metaAlcanzada1 / metaPlaneada1) * 100) : 0
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Meta Planeada", "Meta Alcanzada", "Porcentaje de Avance"]],
+      body: [[
+        metaPlaneada1.toLocaleString("es-CO"),
+        metaAlcanzada1.toLocaleString("es-CO"),
+        `${porcentaje1}%`,
+      ]],
+      theme: "grid",
+      headStyles: { fillColor: [30, 64, 175], fontStyle: "bold", fontSize: 10, halign: "center" },
+      bodyStyles: { fontSize: 12, fontStyle: "bold", halign: "center" },
+      columnStyles: {
+        2: {
+          textColor: porcentaje1 >= 100
+            ? [22, 163, 74]   // verde si cumple
+            : porcentaje1 >= 75
+              ? [202, 138, 4] // amarillo si está cerca
+              : [220, 38, 38], // rojo si está lejos
+        }
+      },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 6
+
+    // Barra de progreso visual
+    const barTotalWidth = pageWidth - 28
+    const barH = 8
+    doc.setFillColor(229, 231, 235) // gris claro fondo
+    doc.roundedRect(14, currentY, barTotalWidth, barH, 2, 2, "F")
+    const fillWidth = Math.min((porcentaje1 / 100) * barTotalWidth, barTotalWidth)
+    const barColor: [number, number, number] = porcentaje1 >= 100 ? [22, 163, 74] : porcentaje1 >= 75 ? [202, 138, 4] : [59, 130, 246]
+    doc.setFillColor(...barColor)
+    doc.roundedRect(14, currentY, fillWidth, barH, 2, 2, "F")
+    doc.setFontSize(7)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(255, 255, 255)
+    if (fillWidth > 20) {
+      doc.text(`${porcentaje1}%`, 14 + fillWidth / 2, currentY + 5.5, { align: "center" })
+    }
+    doc.setTextColor(0, 0, 0)
+    currentY += barH + 16
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INDICADOR 2: Actividades artísticas y culturales extracurriculares
+    // ─────────────────────────────────────────────────────────────────────────
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+
+    doc.setFontSize(11)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(124, 58, 237) // violeta
+    doc.text("INDICADOR 2", 14, currentY)
+    doc.setTextColor(0, 0, 0)
+    currentY += 6
+
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "bold")
+    const titulo2Lines = doc.splitTextToSize(
+      "Número de estudiantes de la Universidad del Valle beneficiados por la realización de actividades artísticas y culturales extracurriculares a nivel local, regional, nacional e internacional.",
+      pageWidth - 28
+    )
+    doc.text(titulo2Lines, 14, currentY)
+    currentY += titulo2Lines.length * 5 + 4
+
+    doc.setFontSize(8)
+    doc.setFont("helvetica", "italic")
+    doc.setTextColor(100, 100, 100)
+    doc.text("Incluye: convocatorias + eventos + cineclú + representaciones (participaciones totales)", 14, currentY)
+    doc.setTextColor(0, 0, 0)
+    currentY += 8
+
+    // Calcular datos indicador 2
+    const totalConvocatoriasInd2 = eventStats?.totalParticipants ?? 0
+    const totalEventosInd2 = realEventStats?.totalParticipants ?? 0
+    const totalCinecluInd2 = cinecluEventStats?.totalParticipants ?? 0
+    const totalRepresentacionesInd2 = representaciones
+      ? representaciones.reduce((sum, r) => sum + r.miembros.length, 0)
+      : 0
+    const metaAlcanzada2 = totalConvocatoriasInd2 + totalEventosInd2 + totalCinecluInd2 + totalRepresentacionesInd2
+    const metaPlaneada2 = indicadoresConfig.metaActividadesArtisticas
+    const porcentaje2 = metaPlaneada2 > 0 ? Math.round((metaAlcanzada2 / metaPlaneada2) * 100) : 0
+
+    // Tabla de desglose
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Componente", "Participaciones"]],
+      body: [
+        ["Inscripciones en Convocatorias", totalConvocatoriasInd2.toLocaleString("es-CO")],
+        ["Inscripciones en Eventos", totalEventosInd2.toLocaleString("es-CO")],
+        ["Asistencias en Cineclú", totalCinecluInd2.toLocaleString("es-CO")],
+        ["Participaciones en Representaciones", totalRepresentacionesInd2.toLocaleString("es-CO")],
+        ["TOTAL META ALCANZADA", metaAlcanzada2.toLocaleString("es-CO")],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold", fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      footStyles: { fillColor: [237, 233, 254], fontStyle: "bold" },
+      columnStyles: { 1: { halign: "center" } },
+      didParseCell: (data) => {
+        if (data.row.index === 4) {
+          data.cell.styles.fillColor = [237, 233, 254]
+          data.cell.styles.fontStyle = "bold"
+        }
+      },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 6
+
+    // Tabla resumen meta
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Meta Planeada", "Meta Alcanzada", "Porcentaje de Avance"]],
+      body: [[
+        metaPlaneada2.toLocaleString("es-CO"),
+        metaAlcanzada2.toLocaleString("es-CO"),
+        `${porcentaje2}%`,
+      ]],
+      theme: "grid",
+      headStyles: { fillColor: [124, 58, 237], fontStyle: "bold", fontSize: 10, halign: "center" },
+      bodyStyles: { fontSize: 12, fontStyle: "bold", halign: "center" },
+      columnStyles: {
+        2: {
+          textColor: porcentaje2 >= 100
+            ? [22, 163, 74]
+            : porcentaje2 >= 75
+              ? [202, 138, 4]
+              : [220, 38, 38],
+        }
+      },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 6
+
+    // Barra de progreso indicador 2
+    doc.setFillColor(229, 231, 235)
+    doc.roundedRect(14, currentY, barTotalWidth, barH, 2, 2, "F")
+    const fillWidth2 = Math.min((porcentaje2 / 100) * barTotalWidth, barTotalWidth)
+    const barColor2: [number, number, number] = porcentaje2 >= 100 ? [22, 163, 74] : porcentaje2 >= 75 ? [202, 138, 4] : [124, 58, 237]
+    doc.setFillColor(...barColor2)
+    doc.roundedRect(14, currentY, fillWidth2, barH, 2, 2, "F")
+    doc.setFontSize(7)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(255, 255, 255)
+    if (fillWidth2 > 20) {
+      doc.text(`${porcentaje2}%`, 14 + fillWidth2 / 2, currentY + 5.5, { align: "center" })
+    }
+    doc.setTextColor(0, 0, 0)
+    currentY += barH + 16
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CONSOLIDADO DE AMBOS INDICADORES
+    // ─────────────────────────────────────────────────────────────────────────
+    if (currentY > pageHeight - 80) { doc.addPage(); currentY = 20 }
+
+    doc.setFontSize(11)
+    doc.setFont("helvetica", "bold")
+    doc.text("CONSOLIDADO DE INDICADORES", 14, currentY)
+    currentY += 7
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [["Indicador", "Meta Planeada", "Meta Alcanzada", "% Avance"]],
+      body: [
+        [
+          "Beneficiarios en grupos e iniciativas culturales (4.1.3.1.1)",
+          metaPlaneada1.toLocaleString("es-CO"),
+          metaAlcanzada1.toLocaleString("es-CO"),
+          `${porcentaje1}%`,
+        ],
+        [
+          "Beneficiarios en actividades artísticas extracurriculares",
+          metaPlaneada2.toLocaleString("es-CO"),
+          metaAlcanzada2.toLocaleString("es-CO"),
+          `${porcentaje2}%`,
+        ],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [15, 23, 42], fontStyle: "bold", fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: {
+        0: { cellWidth: 90 },
+        1: { halign: "center" },
+        2: { halign: "center" },
+        3: { halign: "center", fontStyle: "bold" },
+      },
+      margin: { left: 14, right: 14 },
+    })
+    currentY = (doc as any).lastAutoTable.finalY + 10
   }
 
   // Pie de página en todas las páginas

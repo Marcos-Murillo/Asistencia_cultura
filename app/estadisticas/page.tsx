@@ -23,7 +23,8 @@ import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceR
 import { generateEventStats } from "@/lib/event-stats"
 import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
 import type { Representacion } from "@/lib/db-router"
-import { generatePDFReport } from "@/lib/pdf-generator"
+import { generatePDFReport, type IndicadoresConfig } from "@/lib/pdf-generator"
+import { getAllUsers, getAllGroupEnrollments } from "@/lib/db-router"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { getCurrentUserRole, getAssignedGroups } from "@/lib/auth-helpers"
@@ -95,6 +96,11 @@ export default function EstadisticasPage() {
   const [allCinecluEventRecords, setAllCinecluEventRecords] = useState<{ entry: EventAttendanceEntry; user: UserProfile; eventName: string }[]>([])
   const [realEventStats, setRealEventStats] = useState<EventStats | null>(null)
   const [allRepresentaciones, setAllRepresentaciones] = useState<Representacion[]>([])
+  const [totalUsuariosPlataforma, setTotalUsuariosPlataforma] = useState<number>(0)
+  const [totalInscritosGrupos, setTotalInscritosGrupos] = useState<number>(0)
+  // Metas planeadas para los indicadores (ingresadas por el usuario antes de generar PDF)
+  const [metaInscritosGrupos, setMetaInscritosGrupos] = useState("")
+  const [metaActividadesArtisticas, setMetaActividadesArtisticas] = useState("")
   const [isProgramTableOpen, setIsProgramTableOpen] = useState(false)
   const [isFacultyTableOpen, setIsFacultyTableOpen] = useState(false)
   const [isEventProgramTableOpen, setIsEventProgramTableOpen] = useState(false)
@@ -212,6 +218,22 @@ export default function EstadisticasPage() {
           setAllRepresentaciones(reps)
         } catch (e) {
           console.error("[Estadisticas] Error loading representaciones:", e)
+        }
+
+        // Cargar total de usuarios registrados y total de inscritos a grupos (sin filtro de fechas)
+        try {
+          const [allUsersData, allEnrollmentsData] = await Promise.all([
+            getAllUsers(area),
+            getAllGroupEnrollments(area),
+          ])
+          setTotalUsuariosPlataforma(allUsersData.length)
+          // Inscritos únicos: contar userIds únicos en los enrollments
+          const uniqueEnrolled = new Set(allEnrollmentsData.map(e => e.userId)).size
+          setTotalInscritosGrupos(uniqueEnrolled)
+          console.log("[Estadisticas] Total usuarios plataforma:", allUsersData.length)
+          console.log("[Estadisticas] Total inscritos únicos a grupos:", uniqueEnrolled)
+        } catch (e) {
+          console.error("[Estadisticas] Error loading totals:", e)
         }
         
         console.log("[Estadisticas] ========== DATA LOADED SUCCESSFULLY ==========")
@@ -454,6 +476,14 @@ export default function EstadisticasPage() {
         allRepresentaciones.length > 0 ? allRepresentaciones : undefined,
         filteredCinecluEvents.length > 0 ? filteredCinecluEvents : undefined,
         filteredCinecluEventStats.totalParticipants > 0 ? filteredCinecluEventStats : undefined,
+        totalUsuariosPlataforma > 0 ? totalUsuariosPlataforma : undefined,
+        totalInscritosGrupos > 0 ? totalInscritosGrupos : undefined,
+        area === 'cultura' && (metaInscritosGrupos || metaActividadesArtisticas)
+          ? {
+              metaInscritosGrupos: parseInt(metaInscritosGrupos) || 0,
+              metaActividadesArtisticas: parseInt(metaActividadesArtisticas) || 0,
+            }
+          : undefined,
       )
     } catch (error) {
       console.error("[Estadisticas] Error generating PDF:", error)
@@ -945,6 +975,66 @@ export default function EstadisticasPage() {
                 />
               </div>
             </div>
+
+            {area === 'cultura' && (
+              <div className="space-y-3 pt-2 border-t">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Metas planeadas (Indicadores)</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Ingresa las metas para incluir la sección de Indicadores en el reporte.
+                    Si dejas los campos vacíos, no se generará esa sección.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="meta-grupos" className="text-xs">
+                      Meta — Inscritos a grupos e iniciativas culturales
+                      <span className="ml-1 text-gray-400 font-normal">(Indicador 4.1.3.1.1)</span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="meta-grupos"
+                        type="number"
+                        min="0"
+                        placeholder="Ej: 952"
+                        value={metaInscritosGrupos}
+                        onChange={e => setMetaInscritosGrupos(e.target.value)}
+                        className="h-9"
+                      />
+                      {totalInscritosGrupos > 0 && (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                          Alcanzado: <strong>{totalInscritosGrupos}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="meta-actividades" className="text-xs">
+                      Meta — Actividades artísticas y culturales extracurriculares
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="meta-actividades"
+                        type="number"
+                        min="0"
+                        placeholder="Ej: 10300"
+                        value={metaActividadesArtisticas}
+                        onChange={e => setMetaActividadesArtisticas(e.target.value)}
+                        className="h-9"
+                      />
+                      {(allEventRecords.length + allRealEventRecords.length + allCinecluEventRecords.length) > 0 && (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                          Alcanzado: <strong>
+                            {allEventRecords.length + allRealEventRecords.length + allCinecluEventRecords.length
+                              + (allRepresentaciones.reduce((s, r) => s + r.miembros.length, 0))}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowPDFDateDialog(false)}>Cancelar</Button>
