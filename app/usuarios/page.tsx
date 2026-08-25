@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import DeleteUserDialog from "@/components/delete-user-dialog"
-import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager } from "@/lib/db-router"
+import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager, updateUserProfile as updateUserProfileRouter } from "@/lib/db-router"
 import { getUserEventEnrollments } from "@/lib/firestore"
 import { getAttendanceRecords } from "@/lib/storage"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
@@ -60,7 +60,8 @@ import {
   GraduationCap,
   Building2,
   User as UserIcon,
-  Music
+  Music,
+  Pencil
 } from "lucide-react"
 
 const ITEMS_PER_PAGE = 20
@@ -100,6 +101,26 @@ export default function UsuariosPage() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("ESTUDIANTE")
   const [currentUserPermissions, setCurrentUserPermissions] = useState<RolePermissions | null>(null)
   const [availableGroups, setAvailableGroups] = useState<string[]>([])
+
+  // Edit user state
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [userToEdit, setUserToEdit] = useState<UserProfile | null>(null)
+  const [editForm, setEditForm] = useState({
+    nombres: "",
+    correo: "",
+    telefono: "",
+    edad: "",
+    genero: "" as UserProfile["genero"] | "",
+    etnia: "" as UserProfile["etnia"] | "",
+    tipoDocumento: "" as UserProfile["tipoDocumento"] | "",
+    numeroDocumento: "",
+    sede: "" as UserProfile["sede"] | "",
+    estamento: "" as UserProfile["estamento"] | "",
+    codigoEstudiantil: "",
+    facultad: "",
+    programaAcademico: "",
+  })
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   const loadUsers = async () => {
     try {
@@ -422,6 +443,79 @@ export default function UsuariosPage() {
     }
   }
 
+  const handleEditUser = (user: UserProfile) => {
+    setUserToEdit(user)
+    setEditForm({
+      nombres: user.nombres,
+      correo: user.correo,
+      telefono: user.telefono,
+      edad: String(user.edad),
+      genero: user.genero,
+      etnia: user.etnia,
+      tipoDocumento: user.tipoDocumento,
+      numeroDocumento: user.numeroDocumento,
+      sede: user.sede,
+      estamento: user.estamento,
+      codigoEstudiantil: user.codigoEstudiantil ?? "",
+      facultad: user.facultad ?? "",
+      programaAcademico: user.programaAcademico ?? "",
+    })
+    setEditDialogOpen(true)
+  }
+
+  const confirmEditUser = async () => {
+    if (!userToEdit) return
+
+    const edadNum = parseInt(editForm.edad, 10)
+    if (!editForm.nombres.trim()) {
+      setError("El nombre es requerido")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    if (!editForm.correo.trim()) {
+      setError("El correo es requerido")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+    if (isNaN(edadNum) || edadNum < 1 || edadNum > 120) {
+      setError("La edad debe ser un número válido")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    setIsSavingEdit(true)
+    try {
+      const updates: Parameters<typeof updateUserProfileRouter>[2] = {
+        nombres: editForm.nombres.trim(),
+        correo: editForm.correo.trim(),
+        telefono: editForm.telefono.trim(),
+        edad: edadNum,
+        genero: editForm.genero as UserProfile["genero"],
+        etnia: editForm.etnia as UserProfile["etnia"],
+        tipoDocumento: editForm.tipoDocumento as UserProfile["tipoDocumento"],
+        numeroDocumento: editForm.numeroDocumento.trim(),
+        sede: editForm.sede as UserProfile["sede"],
+        estamento: editForm.estamento as UserProfile["estamento"],
+      }
+
+      // Optional academic fields
+      if (editForm.codigoEstudiantil.trim()) updates.codigoEstudiantil = editForm.codigoEstudiantil.trim()
+      if (editForm.facultad.trim()) updates.facultad = editForm.facultad.trim()
+      if (editForm.programaAcademico.trim()) updates.programaAcademico = editForm.programaAcademico.trim()
+
+      await updateUserProfileRouter(area, userToEdit.id, updates)
+      setSuccess(`Usuario ${editForm.nombres} actualizado exitosamente`)
+      setEditDialogOpen(false)
+      await loadUsers()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      setError(err.message || "Error al actualizar el usuario")
+      setTimeout(() => setError(null), 4000)
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
   // Obtener opciones únicas para los filtros
   const facultades: ComboboxOption[] = Array.from(new Set(users.map(u => u.facultad).filter(Boolean)))
     .map(f => ({ value: f!, label: f! }))
@@ -633,6 +727,10 @@ export default function UsuariosPage() {
                                   </DropdownMenuItem>
                                   {(isAdmin || isSuperAdmin) && (
                                     <>
+                                      <DropdownMenuItem onClick={() => handleEditUser(user)}>
+                                        <Pencil className="h-4 w-4 mr-2" />
+                                        Editar Usuario
+                                      </DropdownMenuItem>
                                       <DropdownMenuItem onClick={() => handleAssignRole(user)}>
                                         <UserCog className="h-4 w-4 mr-2" />
                                         Asignar Rol
@@ -908,6 +1006,209 @@ export default function UsuariosPage() {
                   </div>
                 </div>
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit User Dialog */}
+          <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open) }}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-xl flex items-center gap-2">
+                  <Pencil className="h-5 w-5" />
+                  Editar Usuario
+                </DialogTitle>
+                <DialogDescription>
+                  Modifica los datos de {userToEdit?.nombres}
+                </DialogDescription>
+              </DialogHeader>
+
+              {userToEdit && (
+                <div className="space-y-4 py-2">
+                  {/* Datos personales */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-sm font-medium">Nombres completos</label>
+                      <Input
+                        value={editForm.nombres}
+                        onChange={(e) => setEditForm(f => ({ ...f, nombres: e.target.value }))}
+                        placeholder="Nombres completos"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Correo electrónico</label>
+                      <Input
+                        type="email"
+                        value={editForm.correo}
+                        onChange={(e) => setEditForm(f => ({ ...f, correo: e.target.value }))}
+                        placeholder="correo@ejemplo.com"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Teléfono</label>
+                      <Input
+                        value={editForm.telefono}
+                        onChange={(e) => setEditForm(f => ({ ...f, telefono: e.target.value }))}
+                        placeholder="Número de teléfono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Tipo de documento</label>
+                      <Select
+                        value={editForm.tipoDocumento}
+                        onValueChange={(v) => setEditForm(f => ({ ...f, tipoDocumento: v as UserProfile["tipoDocumento"] }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecciona..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CEDULA">Cédula</SelectItem>
+                          <SelectItem value="TARGETA DE IDENTIDAD">Tarjeta de identidad</SelectItem>
+                          <SelectItem value="CEDULA DE EXTRANJERIA">Cédula de extranjería</SelectItem>
+                          <SelectItem value="PASAPORTE">Pasaporte</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Número de documento</label>
+                      <Input
+                        value={editForm.numeroDocumento}
+                        onChange={(e) => setEditForm(f => ({ ...f, numeroDocumento: e.target.value }))}
+                        placeholder="Número de documento"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Edad</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={120}
+                        value={editForm.edad}
+                        onChange={(e) => setEditForm(f => ({ ...f, edad: e.target.value }))}
+                        placeholder="Edad"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Género</label>
+                      <Select
+                        value={editForm.genero}
+                        onValueChange={(v) => setEditForm(f => ({ ...f, genero: v as UserProfile["genero"] }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecciona..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MUJER">Mujer</SelectItem>
+                          <SelectItem value="HOMBRE">Hombre</SelectItem>
+                          <SelectItem value="OTRO">Otro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Etnia</label>
+                      <Select
+                        value={editForm.etnia}
+                        onValueChange={(v) => setEditForm(f => ({ ...f, etnia: v as UserProfile["etnia"] }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecciona..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="MESTIZO">Mestizo</SelectItem>
+                          <SelectItem value="AFRO">Afro</SelectItem>
+                          <SelectItem value="INDIGENA">Indígena</SelectItem>
+                          <SelectItem value="GITANO O ROM">Gitano o Rom</SelectItem>
+                          <SelectItem value="PALENQUERO">Palenquero</SelectItem>
+                          <SelectItem value="RAIZAL">Raizal</SelectItem>
+                          <SelectItem value="NO SABE">No sabe</SelectItem>
+                          <SelectItem value="NO RESPONDE">No responde</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Sede</label>
+                      <Select
+                        value={editForm.sede}
+                        onValueChange={(v) => setEditForm(f => ({ ...f, sede: v as UserProfile["sede"] }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecciona..." /></SelectTrigger>
+                        <SelectContent>
+                          {["SAN FERNANDO","MELENDEZ","BUGA","TULUA","SEDE PASIFICO","PALMIRA","CAICEDONIA","CARTAGO","NORTE DEL CAUCA","YUMBO","ZARZAL","NINGUNA"].map(s => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Estamento</label>
+                      <Select
+                        value={editForm.estamento}
+                        onValueChange={(v) => setEditForm(f => ({ ...f, estamento: v as UserProfile["estamento"] }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecciona..." /></SelectTrigger>
+                        <SelectContent>
+                          {["ESTUDIANTE","EGRESADO","DOCENTE","DOCENTE HORA CATEDRA","FUNCIONARIO","CONTRATISTA","INVITADO"].map(e => (
+                            <SelectItem key={e} value={e}>{e}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Datos académicos (opcionales) */}
+                  {(editForm.estamento === "ESTUDIANTE" || editForm.estamento === "EGRESADO" || editForm.estamento === "DOCENTE" || editForm.estamento === "DOCENTE HORA CATEDRA") && (
+                    <div className="border-t pt-4 space-y-3">
+                      <p className="text-sm font-semibold text-gray-700">Información académica (opcional)</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Código estudiantil</label>
+                          <Input
+                            value={editForm.codigoEstudiantil}
+                            onChange={(e) => setEditForm(f => ({ ...f, codigoEstudiantil: e.target.value }))}
+                            placeholder="Código estudiantil"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Facultad</label>
+                          <Input
+                            value={editForm.facultad}
+                            onChange={(e) => setEditForm(f => ({ ...f, facultad: e.target.value }))}
+                            placeholder="Facultad"
+                          />
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-sm font-medium">Programa académico</label>
+                          <Input
+                            value={editForm.programaAcademico}
+                            onChange={(e) => setEditForm(f => ({ ...f, programaAcademico: e.target.value }))}
+                            placeholder="Programa académico"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(false)}
+                  disabled={isSavingEdit}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmEditUser}
+                  disabled={isSavingEdit}
+                  className="flex-1"
+                >
+                  {isSavingEdit ? "Guardando..." : "Guardar cambios"}
+                </Button>
+              </div>
             </DialogContent>
           </Dialog>
 

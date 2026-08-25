@@ -976,6 +976,62 @@ export async function getUserEnrollments(area: Area, userId: string): Promise<Ar
   }
 }
 
+// Update user profile fields (area-aware)
+export async function updateUserProfile(
+  area: Area,
+  userId: string,
+  updates: Partial<Pick<UserProfile,
+    | 'nombres'
+    | 'correo'
+    | 'telefono'
+    | 'edad'
+    | 'genero'
+    | 'etnia'
+    | 'tipoDocumento'
+    | 'numeroDocumento'
+    | 'sede'
+    | 'estamento'
+    | 'codigoEstudiantil'
+    | 'facultad'
+    | 'programaAcademico'
+  >>,
+): Promise<void> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+    const userRef = doc(db, USERS_COLLECTION, userId)
+
+    // If changing numeroDocumento, verify no duplicate exists (excluding current user)
+    if (updates.numeroDocumento) {
+      const usersRef = collection(db, USERS_COLLECTION)
+      const snap = await getDocs(query(usersRef, where('numeroDocumento', '==', updates.numeroDocumento)))
+      const collision = snap.docs.find(d => d.id !== userId)
+      if (collision) {
+        throw new Error(`Ya existe otro usuario con el número de documento ${updates.numeroDocumento}.`)
+      }
+    }
+
+    // If changing correo, verify no duplicate exists (excluding current user)
+    if (updates.correo) {
+      const usersRef = collection(db, USERS_COLLECTION)
+      const snap = await getDocs(query(usersRef, where('correo', '==', updates.correo)))
+      const collision = snap.docs.find(d => d.id !== userId)
+      if (collision) {
+        throw new Error(`Ya existe otro usuario con el correo ${updates.correo}.`)
+      }
+    }
+
+    const cleanUpdates = filterUndefinedValues(updates)
+    console.log('[db-router] Updating user profile:', userId, 'in area:', area, 'fields:', Object.keys(cleanUpdates))
+    await updateDoc(userRef, cleanUpdates)
+    console.log('[db-router] User profile updated successfully')
+  } catch (error) {
+    console.error('[db-router] Error updating user profile:', error)
+    throw error
+  }
+}
+
 // Update user codigo estudiantil (area-aware)
 export async function updateUserCodigoEstudiantil(
   area: Area,
