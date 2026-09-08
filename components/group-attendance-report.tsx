@@ -34,6 +34,8 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { formatNombre } from "@/lib/utils"
 import * as XLSX from "xlsx"
+import jsPDF from "jspdf"
+import { autoTable } from "jspdf-autotable"
 
 type TimeFilter = "day" | "week" | "month"
 type SortOrder = "name" | "attendance-desc" | "attendance-asc"
@@ -80,6 +82,9 @@ export function GroupAttendanceReport({
   const [allAttendanceRecords, setAllAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [sortOrder, setSortOrder] = useState<SortOrder>("name")
   const [filterCategory, setFilterCategory] = useState<GroupCategory | "TODOS" | "SIN_CATEGORIA">("TODOS")
+  const [showPdfDialog, setShowPdfDialog] = useState(false)
+  const [pdfDesde, setPdfDesde] = useState("")
+  const [pdfHasta, setPdfHasta] = useState("")
 
   useEffect(() => {
     loadGroupData()
@@ -259,6 +264,213 @@ export function GroupAttendanceReport({
     })
   }
 
+  function handleDownloadPDF() {
+    // ── Filtrar registros por rango de fechas ──────────────────────────────
+    const filtered = allAttendanceRecords.filter((r) => {
+      const ts = new Date(r.timestamp)
+      if (pdfDesde && ts < new Date(pdfDesde)) return false
+      if (pdfHasta) {
+        const h = new Date(pdfHasta)
+        h.setHours(23, 59, 59)
+        if (ts > h) return false
+      }
+      return true
+    })
+
+    // ── Agregar registros por documento (igual que Excel) ──────────────────
+    const userMap = new Map<string, { record: AttendanceRecord; count: number }>()
+    filtered.forEach((r) => {
+      const key = r.numeroDocumento
+      if (!userMap.has(key)) userMap.set(key, { record: r, count: 0 })
+      userMap.get(key)!.count++
+    })
+
+    const rows = Array.from(userMap.values()).map(({ record: r, count }, i) => [
+      String(i + 1),
+      formatNombre(r.nombres).toUpperCase(),
+      r.numeroDocumento,
+      r.estamento,
+      r.sede,
+      String(count),
+    ])
+
+    // ── Etiqueta de período ────────────────────────────────────────────────
+    const periodLabel =
+      pdfDesde && pdfHasta
+        ? `${pdfDesde} a ${pdfHasta}`
+        : pdfDesde
+          ? `Desde ${pdfDesde}`
+          : pdfHasta
+            ? `Hasta ${pdfHasta}`
+            : "Todas las fechas registradas"
+
+    const generatedOn = format(new Date(), "d 'de' MMMM 'de' yyyy", { locale: es })
+
+    // ── Crear documento PDF ────────────────────────────────────────────────
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const marginX = 14
+
+    // Encabezado institucional
+    doc.setFillColor(22, 101, 52)
+    doc.rect(0, 0, pageWidth, 22, "F")
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(13)
+    doc.text("VICERRECTORÍA DE BIENESTAR UNIVERSITARIO", pageWidth / 2, 9, { align: "center" })
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    doc.text("Área de Cultura — Universidad del Valle", pageWidth / 2, 16, { align: "center" })
+
+    // Título del reporte
+    doc.setTextColor(22, 101, 52)
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(14)
+    doc.text("REPORTE OFICIAL DE ASISTENCIAS", pageWidth / 2, 32, { align: "center" })
+
+    // Línea separadora
+    doc.setDrawColor(22, 101, 52)
+    doc.setLineWidth(0.5)
+    doc.line(marginX, 35, pageWidth - marginX, 35)
+
+    // Metadata del reporte
+    doc.setTextColor(50, 50, 50)
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(9)
+
+    const metaY = 41
+    const col1 = marginX
+    const col2 = pageWidth / 2 + 4
+
+    doc.setFont("helvetica", "bold")
+    doc.text("Grupo:", col1, metaY)
+    doc.setFont("helvetica", "normal")
+    doc.text(groupName, col1 + 16, metaY)
+
+    doc.setFont("helvetica", "bold")
+    doc.text("Encargado:", col2, metaY)
+    doc.setFont("helvetica", "normal")
+    doc.text(managerDisplayName?.trim() || "—", col2 + 24, metaY)
+
+    doc.setFont("helvetica", "bold")
+    doc.text("Período:", col1, metaY + 6)
+    doc.setFont("helvetica", "normal")
+    doc.text(periodLabel, col1 + 16, metaY + 6)
+
+    doc.setFont("helvetica", "bold")
+    doc.text("Total asistentes:", col2, metaY + 6)
+    doc.setFont("helvetica", "normal")
+    doc.text(String(rows.length), col2 + 35, metaY + 6)
+
+    doc.setFont("helvetica", "bold")
+    doc.text("Fecha de generación:", col1, metaY + 12)
+    doc.setFont("helvetica", "normal")
+    doc.text(generatedOn, col1 + 40, metaY + 12)
+
+    // Línea separadora
+    doc.line(marginX, metaY + 16, pageWidth - marginX, metaY + 16)
+
+    // ── Tabla de asistentes ────────────────────────────────────────────────
+    autoTable(doc, {
+      startY: metaY + 20,
+      margin: { left: marginX, right: marginX },
+      head: [["#", "Nombre completo", "Documento", "Estamento", "Sede", "Asistencias"]],
+      body: rows,
+      theme: "grid",
+      headStyles: {
+        fillColor: [22, 101, 52],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "center",
+      },
+      bodyStyles: {
+        fontSize: 8,
+        textColor: [40, 40, 40],
+      },
+      alternateRowStyles: {
+        fillColor: [240, 253, 244],
+      },
+      columnStyles: {
+        0: { halign: "center", cellWidth: 8 },
+        1: { cellWidth: "auto" },
+        2: { halign: "center", cellWidth: 28 },
+        3: { halign: "center", cellWidth: 28 },
+        4: { halign: "center", cellWidth: 30 },
+        5: { halign: "center", cellWidth: 18 },
+      },
+      didDrawPage: (data) => {
+        const pageCount = (doc as unknown as { internal: { getNumberOfPages: () => number } })
+          .internal.getNumberOfPages()
+        doc.setFontSize(8)
+        doc.setTextColor(130, 130, 130)
+        doc.setFont("helvetica", "normal")
+        doc.text(
+          `Página ${data.pageNumber} de ${pageCount}`,
+          pageWidth / 2,
+          doc.internal.pageSize.getHeight() - 8,
+          { align: "center" }
+        )
+      },
+    })
+
+    // ── Sección de firma ───────────────────────────────────────────────────
+    const lastTable = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable
+    const tableEndY = (lastTable?.finalY ?? 0) + 16
+
+    const signatureBlockH = 60
+    const pageH = doc.internal.pageSize.getHeight()
+    const signatureY = tableEndY + signatureBlockH > pageH - 20
+      ? (() => { doc.addPage(); return 30 })()
+      : tableEndY
+
+    // Caja de declaración
+    doc.setDrawColor(22, 101, 52)
+    doc.setLineWidth(0.3)
+    doc.roundedRect(marginX, signatureY - 4, pageWidth - marginX * 2, 30, 2, 2, "S")
+
+    doc.setFontSize(8)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(22, 101, 52)
+    doc.text("DECLARACIÓN DE VERACIDAD", marginX + 4, signatureY + 2)
+
+    doc.setFont("helvetica", "normal")
+    doc.setTextColor(50, 50, 50)
+    const declaracion =
+      "El suscrito encargado del grupo, en pleno ejercicio de sus funciones y en cumplimiento de los principios " +
+      "de transparencia e integridad institucional, certifica que la información contenida en el presente " +
+      "documento constituye un registro fiel y verídico de las asistencias registradas durante el período " +
+      "indicado, conforme a los datos consignados en el sistema de gestión de asistencias del Área de Cultura " +
+      "de la Vicerrectoría de Bienestar Universitario de la Universidad del Valle."
+    const splitDecl = doc.splitTextToSize(declaracion, pageWidth - marginX * 2 - 8)
+    doc.text(splitDecl, marginX + 4, signatureY + 9)
+
+    // Línea de firma
+    const sigLineY = signatureY + 44
+    doc.setDrawColor(40, 40, 40)
+    doc.setLineWidth(0.4)
+    doc.line(marginX + 10, sigLineY, marginX + 90, sigLineY)
+
+    doc.setFontSize(8.5)
+    doc.setFont("helvetica", "bold")
+    doc.setTextColor(40, 40, 40)
+    doc.text("Firma del Encargado", marginX + 10, sigLineY + 5)
+
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(8)
+    doc.setTextColor(90, 90, 90)
+    doc.text(managerDisplayName?.trim() || "Nombre del encargado", marginX + 10, sigLineY + 11)
+    doc.text(`Grupo: ${groupName}`, marginX + 10, sigLineY + 16)
+
+    // ── Guardar ────────────────────────────────────────────────────────────
+    const suffix = pdfDesde || pdfHasta
+      ? `_${pdfDesde || "inicio"}_a_${pdfHasta || "hoy"}`
+      : ""
+    doc.save(`asistencias_${groupName.replace(/\s+/g, "_")}${suffix}.pdf`)
+    setShowPdfDialog(false)
+  }
+
   function handleDownloadExcel(selectedColumns: string[]) {
     const filtered = allAttendanceRecords.filter((r) => {
       const ts = new Date(r.timestamp)
@@ -426,6 +638,29 @@ export function GroupAttendanceReport({
             <Button variant="outline" onClick={() => setShowExcelDialog(true)}>
               Rango personalizado
             </Button>
+            <Button
+              variant="outline"
+              className="gap-2 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+              onClick={() => setShowPdfDialog(true)}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              Exportar PDF
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -545,6 +780,81 @@ export function GroupAttendanceReport({
               onDownload={(cols) => handleDownloadExcel(cols.filter((c) => c !== "nombres"))}
               buttonText="Descargar"
             />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPdfDialog} onOpenChange={setShowPdfDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 text-red-600"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              Exportar reporte PDF
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              El reporte incluirá nombre, documento, estamento, sede y total de asistencias. Al
+              final del documento se agregará un espacio de firma con declaración de veracidad.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="pdf-desde">Desde <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+              <Input
+                id="pdf-desde"
+                type="date"
+                value={pdfDesde}
+                onChange={(e) => setPdfDesde(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pdf-hasta">Hasta <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+              <Input
+                id="pdf-hasta"
+                type="date"
+                value={pdfHasta}
+                onChange={(e) => setPdfHasta(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowPdfDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              className="gap-2 bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDownloadPDF}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Descargar PDF
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
