@@ -49,10 +49,10 @@ import {
   removeUserFromAllCategories,
 } from "@/lib/group-categories"
 import { SEDES, ESTAMENTOS } from "@/lib/data"
-import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupEnrolledUsersRouter } from "@/lib/db-router"
+import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupAttendanceUserIdsForDate, getGroupEnrolledUsersRouter } from "@/lib/db-router"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
-import { formatNombre, sortUsersByNombres } from "@/lib/utils"
+import { formatNombre, sortUsersByNombres, toLocalDateKey, parseLocalDateKey, isSameLocalDay } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GroupAttendanceReport } from "@/components/group-attendance-report"
 
@@ -100,6 +100,8 @@ export default function ManagerGroupPage() {
   // Estadísticas
   const [attendanceStats, setAttendanceStats] = useState<Record<string, number>>({})
   const [managerDisplayName, setManagerDisplayName] = useState("")
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date())
+  const [attendedOnSelectedDate, setAttendedOnSelectedDate] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const userType = sessionStorage.getItem("userType")
@@ -173,6 +175,21 @@ export default function ManagerGroupPage() {
     userCategories,
   ])
 
+  useEffect(() => {
+    if (area !== "deporte") {
+      setAttendedOnSelectedDate(new Set())
+      return
+    }
+
+    let cancelled = false
+    getGroupAttendanceUserIdsForDate(area, groupName, attendanceDate).then((ids) => {
+      if (!cancelled) setAttendedOnSelectedDate(ids)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [area, groupName, attendanceDate])
+
   async function loadGroupData(currentArea: Area) {
     setLoading(true)
     try {
@@ -198,6 +215,13 @@ export default function ManagerGroupPage() {
       const userIds = enrolledUsersList.map(u => u.id)
       const attendanceStats = await getGroupAttendanceStats(currentArea, groupName, userIds)
       setAttendanceStats(attendanceStats)
+
+      if (currentArea === "deporte") {
+        const attendedIds = await getGroupAttendanceUserIdsForDate(currentArea, groupName, attendanceDate)
+        setAttendedOnSelectedDate(attendedIds)
+      } else {
+        setAttendedOnSelectedDate(new Set())
+      }
 
       console.log("[Manager] Data loading complete")
     } catch (err) {
@@ -283,22 +307,44 @@ export default function ManagerGroupPage() {
       return
     }
 
+    if (area === "deporte" && toLocalDateKey(attendanceDate) > toLocalDateKey(new Date())) {
+      setError("No puedes registrar asistencia en una fecha futura")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    const idsToMark =
+      area === "deporte"
+        ? Array.from(selectedIds).filter(id => !attendedOnSelectedDate.has(id))
+        : Array.from(selectedIds)
+
+    if (idsToMark.length === 0) {
+      setError("Los usuarios seleccionados ya tienen asistencia en esa fecha")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
     setIsMarkingAttendance(true)
     try {
       const managerId = sessionStorage.getItem("userId") || ""
       const managerName = sessionStorage.getItem("userName") || ""
       const managerRole = sessionStorage.getItem("userRole") || ""
       const markedBy = { id: managerId, nombre: managerName, role: managerRole }
+      const dateForRecord = area === "deporte" ? attendanceDate : undefined
 
-      const promises = Array.from(selectedIds).map(userId =>
-        saveAttendanceEntryRouter(area, userId, groupName, markedBy)
+      const promises = idsToMark.map(userId =>
+        saveAttendanceEntryRouter(area, userId, groupName, markedBy, dateForRecord)
       )
       await Promise.all(promises)
 
-      setSuccess(`Asistencia registrada para ${selectedIds.size} usuario(s)`)
+      const skipped = selectedIds.size - idsToMark.length
+      const dateLabel = attendanceDate.toLocaleDateString("es-CO")
+      const datePart = area === "deporte" ? ` del ${dateLabel}` : ""
+      const skippedPart = skipped > 0 ? ` (${skipped} ya estaban registrados)` : ""
+      setSuccess(`Asistencia registrada para ${idsToMark.length} usuario(s)${datePart}${skippedPart}`)
       setSelectedIds(new Set())
       await loadGroupData(area)
-      setTimeout(() => setSuccess(null), 3000)
+      setTimeout(() => setSuccess(null), 4000)
     } catch (err) {
       console.error("[Manager] Error marking attendance:", err)
       setError("Error al registrar asistencia")
@@ -521,6 +567,41 @@ export default function ManagerGroupPage() {
             </TabsList>
 
             <TabsContent value="gestion" className="mt-4 space-y-4 md:space-y-6 outline-none">
+          {area === "deporte" && (
+            <Card className="border-green-200">
+              <CardContent className="pt-4 md:pt-6 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="mx-auto sm:mx-0 w-10 h-10 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                    <Calendar className="h-5 w-5 text-green-700" />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Fecha de asistencia</h3>
+                      <p className="text-sm text-gray-600">
+                        Elige el día del entrenamiento y luego selecciona quiénes asistieron.
+                      </p>
+                    </div>
+                    <Input
+                      type="date"
+                      value={toLocalDateKey(attendanceDate)}
+                      max={toLocalDateKey(new Date())}
+                      onChange={(e) => {
+                        if (!e.target.value) return
+                        setAttendanceDate(parseLocalDateKey(e.target.value))
+                      }}
+                      className="max-w-xs bg-white"
+                    />
+                    <p className="text-xs text-gray-500">
+                      {attendedOnSelectedDate.size} persona(s) ya registradas el{" "}
+                      {attendanceDate.toLocaleDateString("es-CO")}
+                      {isSameLocalDay(attendanceDate, new Date()) ? " (hoy)" : ""}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Estadísticas */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <Card>
@@ -710,7 +791,11 @@ export default function ManagerGroupPage() {
                     disabled={selectedIds.size === 0 || isMarkingAttendance}
                   >
                     <Calendar className="h-4 w-4 mr-1" />
-                    {isMarkingAttendance ? "Registrando..." : "Marcar asistencia"}
+                    {isMarkingAttendance
+                      ? "Registrando..."
+                      : area === "deporte"
+                        ? `Marcar asistencia (${attendanceDate.toLocaleDateString("es-CO")})`
+                        : "Marcar asistencia"}
                   </Button>
                   <Button
                     size="sm"
@@ -823,6 +908,11 @@ export default function ManagerGroupPage() {
                         <Badge variant="secondary" className="text-xs">
                           {attendanceStats[user.id] || 0} asistencias
                         </Badge>
+                        {area === "deporte" && attendedOnSelectedDate.has(user.id) && (
+                          <Badge className="text-xs bg-green-600 text-white">
+                            Asistió este día
+                          </Badge>
+                        )}
                       </div>
 
                       {user.programaAcademico && (

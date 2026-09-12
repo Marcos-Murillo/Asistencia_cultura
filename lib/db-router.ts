@@ -12,7 +12,7 @@ import type {
   UserProfile,
   Event,
 } from "./types"
-import { sortUsersByNombres } from "./utils"
+import { sortUsersByNombres, toLocalDateKey, isSameLocalDay } from "./utils"
 
 // CulturalGroup interface (from firestore.ts)
 export interface CulturalGroup {
@@ -268,23 +268,38 @@ export async function getUserById(area: Area, userId: string): Promise<UserProfi
   }
 }
 
+function toAttendanceTimestamp(attendanceDate?: Date): Date {
+  if (!attendanceDate) return new Date()
+  return new Date(
+    attendanceDate.getFullYear(),
+    attendanceDate.getMonth(),
+    attendanceDate.getDate(),
+    12,
+    0,
+    0,
+    0
+  )
+}
+
 // Save attendance entry (area-aware)
 export async function saveAttendanceEntry(
   area: Area,
   userId: string,
   grupoCultural: string,
-  markedBy?: { id: string; nombre: string; role: string }
-): Promise<void> {
+  markedBy?: { id: string; nombre: string; role: string },
+  attendanceDate?: Date
+): Promise<{ created: boolean }> {
   // Requirement 13.5: Validate area is specified
   validateAreaSpecified(area)
   
   try {
     const db = getFirestoreForArea(area)
+    const attendanceAt = toAttendanceTimestamp(attendanceDate)
     
     const attendanceEntry: Record<string, any> = {
       userId,
       grupoCultural,
-      timestamp: Timestamp.fromDate(new Date()),
+      timestamp: Timestamp.fromDate(attendanceAt),
     }
 
     // Store who marked the attendance (manager info)
@@ -294,19 +309,56 @@ export async function saveAttendanceEntry(
       attendanceEntry.markedByRole = markedBy.role
     }
 
-    console.log("[db-router] Attempting to save attendance entry to area:", area)
+    console.log("[db-router] Attempting to save attendance entry to area:", area, "date:", toLocalDateKey(attendanceAt))
     await addDoc(collection(db, ATTENDANCE_COLLECTION), attendanceEntry)
     console.log("[db-router] Attendance entry saved successfully")
 
-    // Update user's last attendance
+    // Update user's last attendance only if this date is the most recent
     const userRef = doc(db, USERS_COLLECTION, userId)
-    await updateDoc(userRef, {
-      lastAttendance: Timestamp.fromDate(new Date()),
-    })
-    console.log("[db-router] User's last attendance updated successfully")
+    const userSnap = await getDoc(userRef)
+    const currentLast = userSnap.exists()
+      ? timestampToDate(userSnap.data()?.lastAttendance)
+      : undefined
+    if (!currentLast || Number.isNaN(currentLast.getTime()) || attendanceAt >= currentLast) {
+      await updateDoc(userRef, {
+        lastAttendance: Timestamp.fromDate(attendanceAt),
+      })
+      console.log("[db-router] User's last attendance updated successfully")
+    }
+    return { created: true }
   } catch (error) {
     console.error("[db-router] Error in saveAttendanceEntry:", error)
     throw error
+  }
+}
+
+/** IDs de usuarios con asistencia en un grupo para un día local. */
+export async function getGroupAttendanceUserIdsForDate(
+  area: Area,
+  grupoCultural: string,
+  attendanceDate: Date
+): Promise<Set<string>> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+    const attendanceRef = collection(db, ATTENDANCE_COLLECTION)
+    const q = query(attendanceRef, where("grupoCultural", "==", grupoCultural))
+    const snapshot = await getDocs(q)
+    const ids = new Set<string>()
+
+    snapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data()
+      const ts = timestampToDate(data.timestamp)
+      if (data.userId && isSameLocalDay(ts, attendanceDate)) {
+        ids.add(data.userId)
+      }
+    })
+
+    return ids
+  } catch (error) {
+    console.error("[db-router] Error getting attendance for date:", error)
+    return new Set()
   }
 }
 

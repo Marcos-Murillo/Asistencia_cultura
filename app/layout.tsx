@@ -7,8 +7,8 @@ import { AreaProviderWrapper } from "@/components/providers/area-provider-wrappe
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Sistema de Asistencia Cultural - Universidad del Valle",
-  description: "Sistema de registro de asistencia a grupos culturales",
+  title: "Sistema de Asistencia CDR - Universidad del Valle",
+  description: "Sistema de registro de asistencia a grupos de bienestar universitarios de la Universidad del Valle",
   generator: "v0.app",
 }
 
