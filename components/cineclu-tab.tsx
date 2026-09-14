@@ -19,6 +19,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import { AttendeeCharts } from "@/components/attendee-charts"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   getAllCinecluEvents,
   createCinecluEvent,
@@ -30,26 +32,12 @@ import {
 import type { CinecluEvent, UserProfile } from "@/lib/types"
 import { ESTAMENTOS, FACULTADES } from "@/lib/data"
 import { formatNombre } from "@/lib/utils"
-import { Plus, Trash2, Search, Calendar, Film, Users, UserCheck, Eye, BarChart2 } from "lucide-react"
+import { Plus, Trash2, Search, Calendar, Film, Users, UserCheck, Eye, PieChart } from "lucide-react"
 import * as XLSX from "xlsx"
 import type { Area } from "@/lib/firebase-config"
 
 type CinecluEventWithCount = CinecluEvent & { asistentes: number }
 type Attendee = UserProfile & { fechaAsistencia: Date }
-
-function StatBar({ label, value, total }: { label: string; value: number; total: number }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-40 truncate text-gray-600">{label}</span>
-      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-violet-600" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-10 text-right text-gray-700 font-medium">{pct}%</span>
-      <span className="text-gray-400">({value})</span>
-    </div>
-  )
-}
 
 export function CinecluTab({ area }: { area: Area }) {
   const [events, setEvents] = useState<CinecluEventWithCount[]>([])
@@ -232,19 +220,6 @@ export function CinecluTab({ area }: { area: Area }) {
       return true
     })
   }, [attendees, viewSearch, viewEstamento, viewFacultad])
-
-  const viewStats = useMemo(() => {
-    if (attendees.length === 0) return null
-    const byGenero: Record<string, number> = {}
-    const byFacultad: Record<string, number> = {}
-    const byPrograma: Record<string, number> = {}
-    attendees.forEach(a => {
-      byGenero[a.genero] = (byGenero[a.genero] || 0) + 1
-      if (a.facultad) byFacultad[a.facultad] = (byFacultad[a.facultad] || 0) + 1
-      if (a.programaAcademico) byPrograma[a.programaAcademico] = (byPrograma[a.programaAcademico] || 0) + 1
-    })
-    return { total: attendees.length, byGenero, byFacultad, byPrograma }
-  }, [attendees])
 
   const excelColumns: ExcelColumn[] = [
     { key: "numeroDocumento", label: "Documento" },
@@ -474,7 +449,7 @@ export function CinecluTab({ area }: { area: Area }) {
 
       {/* Ver asistentes */}
       <Dialog open={!!viewingEvent} onOpenChange={open => { if (!open) setViewingEvent(null) }}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
           {viewingEvent && (
             <>
               <DialogHeader>
@@ -484,80 +459,82 @@ export function CinecluTab({ area }: { area: Area }) {
                   {" · "}{attendees.length} asistentes
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-2">
-                <div className="relative col-span-2 md:col-span-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input className="pl-9 h-8 text-xs" placeholder="Nombre o cédula..." value={viewSearch} onChange={e => setViewSearch(e.target.value)} />
-                </div>
-                <Select value={viewEstamento} onValueChange={setViewEstamento}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Estamento" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">Todos</SelectItem>{ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={viewFacultad} onValueChange={setViewFacultad}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Facultad" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">Todas</SelectItem>{FACULTADES.map(f => <SelectItem key={f} value={f}>{f.replace("FACULTAD DE ", "")}</SelectItem>)}</SelectContent>
-                </Select>
-                <Badge variant="secondary">{filteredAttendees.length} / {attendees.length}</Badge>
-              </div>
-              {loadingAttendees ? (
-                <p className="text-center text-gray-500 py-8">Cargando asistentes...</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nombre</TableHead>
-                        <TableHead>Documento</TableHead>
-                        <TableHead>Género</TableHead>
-                        <TableHead>Estamento</TableHead>
-                        <TableHead>Facultad</TableHead>
-                        <TableHead>Programa</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredAttendees.length === 0 ? (
-                        <TableRow><TableCell colSpan={6} className="text-center text-gray-500">Sin asistentes registrados</TableCell></TableRow>
-                      ) : filteredAttendees.map(a => (
-                        <TableRow key={a.id}>
-                          <TableCell className="font-medium">{formatNombre(a.nombres)}</TableCell>
-                          <TableCell>{a.numeroDocumento}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={a.genero === "MUJER" ? "bg-pink-50 text-pink-700" : a.genero === "HOMBRE" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}>
-                              {a.genero}
-                            </Badge>
-                          </TableCell>
-                          <TableCell><Badge variant="secondary">{a.estamento}</Badge></TableCell>
-                          <TableCell className="text-xs max-w-[160px] truncate">{a.facultad || "N/A"}</TableCell>
-                          <TableCell className="text-xs max-w-[200px] truncate">{a.programaAcademico || "N/A"}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-              {viewStats && (
-                <div className="mt-4 space-y-4 border-t pt-4">
-                  <h3 className="font-semibold text-gray-800 flex items-center gap-2"><BarChart2 className="h-4 w-4" />Resumen estadístico</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-gray-500 uppercase">Por Género</p>
-                      {Object.entries(viewStats.byGenero).map(([g, v]) => <StatBar key={g} label={g} value={v} total={viewStats.total} />)}
+              <Tabs defaultValue="lista" className="mt-2">
+                <TabsList>
+                  <TabsTrigger value="lista" className="gap-2">
+                    <Users className="h-4 w-4" />
+                    Asistentes
+                  </TabsTrigger>
+                  <TabsTrigger value="graficas" className="gap-2">
+                    <PieChart className="h-4 w-4" />
+                    Gráficas
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="lista">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-2">
+                    <div className="relative col-span-2 md:col-span-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input className="pl-9 h-8 text-xs" placeholder="Nombre o cédula..." value={viewSearch} onChange={e => setViewSearch(e.target.value)} />
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-gray-500 uppercase">Por Facultad</p>
-                      {Object.entries(viewStats.byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([f, v]) => <StatBar key={f} label={f.replace("FACULTAD DE ", "")} value={v} total={viewStats.total} />)}
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-gray-500 uppercase">Por Programa</p>
-                      {Object.entries(viewStats.byPrograma).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p, v]) => <StatBar key={p} label={p} value={v} total={viewStats.total} />)}
-                    </div>
+                    <Select value={viewEstamento} onValueChange={setViewEstamento}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Estamento" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">Todos</SelectItem>{ESTAMENTOS.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={viewFacultad} onValueChange={setViewFacultad}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Facultad" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">Todas</SelectItem>{FACULTADES.map(f => <SelectItem key={f} value={f}>{f.replace("FACULTAD DE ", "")}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Badge variant="secondary">{filteredAttendees.length} / {attendees.length}</Badge>
                   </div>
-                </div>
-              )}
-              <DialogFooter className="mt-4">
-                <ExcelColumnSelector availableColumns={excelColumns} onDownload={downloadExcel} buttonText="Descargar Excel" buttonClassName="bg-emerald-600 hover:bg-emerald-700" />
-                <Button variant="outline" onClick={() => setViewingEvent(null)}>Cerrar</Button>
-              </DialogFooter>
+                  {loadingAttendees ? (
+                    <p className="text-center text-gray-500 py-8">Cargando asistentes...</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Nombre</TableHead>
+                            <TableHead>Documento</TableHead>
+                            <TableHead>Género</TableHead>
+                            <TableHead>Estamento</TableHead>
+                            <TableHead>Facultad</TableHead>
+                            <TableHead>Programa</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredAttendees.length === 0 ? (
+                            <TableRow><TableCell colSpan={6} className="text-center text-gray-500">Sin asistentes registrados</TableCell></TableRow>
+                          ) : filteredAttendees.map(a => (
+                            <TableRow key={a.id}>
+                              <TableCell className="font-medium">{formatNombre(a.nombres)}</TableCell>
+                              <TableCell>{a.numeroDocumento}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={a.genero === "MUJER" ? "bg-pink-50 text-pink-700" : a.genero === "HOMBRE" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"}>
+                                  {a.genero}
+                                </Badge>
+                              </TableCell>
+                              <TableCell><Badge variant="secondary">{a.estamento}</Badge></TableCell>
+                              <TableCell className="text-xs max-w-[160px] truncate">{a.facultad || "N/A"}</TableCell>
+                              <TableCell className="text-xs max-w-[200px] truncate">{a.programaAcademico || "N/A"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                  <DialogFooter className="mt-4">
+                    <ExcelColumnSelector availableColumns={excelColumns} onDownload={downloadExcel} buttonText="Descargar Excel" buttonClassName="bg-emerald-600 hover:bg-emerald-700" />
+                    <Button variant="outline" onClick={() => setViewingEvent(null)}>Cerrar</Button>
+                  </DialogFooter>
+                </TabsContent>
+                <TabsContent value="graficas">
+                  {loadingAttendees ? (
+                    <p className="text-center text-gray-500 py-8">Cargando gráficas...</p>
+                  ) : (
+                    <AttendeeCharts attendees={attendees} title={viewingEvent.pelicula} compact />
+                  )}
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </DialogContent>

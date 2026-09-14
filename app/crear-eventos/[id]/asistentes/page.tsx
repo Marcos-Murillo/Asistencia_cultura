@@ -9,11 +9,13 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import { AttendeeCharts } from "@/components/attendee-charts"
 import { getRealEventByIdRouter, getRealEventAttendeesRouter } from "@/lib/db-router"
 import { FACULTADES_PROGRAMAS } from "@/lib/data"
 import type { Event, UserProfile } from "@/lib/types"
-import { ArrowLeft, Search, Users, Calendar, MapPin, Clock } from "lucide-react"
+import { ArrowLeft, Search, Users, Calendar, MapPin, Clock, PieChart } from "lucide-react"
 import Link from "next/link"
 import * as XLSX from "xlsx"
 import { useArea } from "@/contexts/area-context"
@@ -175,6 +177,19 @@ export default function EventoAsistentesPage() {
           />
         </div>
 
+        <Tabs defaultValue="lista" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="lista" className="gap-2">
+              <Users className="h-4 w-4" />
+              Inscritos
+            </TabsTrigger>
+            <TabsTrigger value="graficas" className="gap-2">
+              <PieChart className="h-4 w-4" />
+              Gráficas
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="lista">
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <Card>
@@ -297,6 +312,12 @@ export default function EventoAsistentesPage() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="graficas">
+            <AttendeeCharts attendees={attendees} title={event.nombre} />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

@@ -11,8 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ExcelColumnSelector, type ExcelColumn } from "@/components/excel-column-selector"
+import { AttendeeCharts } from "@/components/attendee-charts"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import * as XLSX from "xlsx"
-import { Plus, Trash2, Pencil, Search, Users, Calendar, X, ListChecks, BarChart2, ChevronRight, ChevronDown, Eye, FileSpreadsheet } from "lucide-react"
+import { Plus, Trash2, Pencil, Search, Users, Calendar, X, ListChecks, ChevronRight, ChevronDown, Eye, FileSpreadsheet, PieChart } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
@@ -31,20 +33,6 @@ type EnrolledUser = UserProfile & { fechaInscripcion: Date }
 
 // Sub-lista por grupo dentro del wizard
 interface SubLista { grupo: string; miembros: RepresentacionMember[] }
-
-function StatBar({ label, value, total }: { label: string; value: number; total: number }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-40 truncate text-gray-600">{label}</span>
-      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-600" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-10 text-right text-gray-700 font-medium">{pct}%</span>
-      <span className="text-gray-400">({value})</span>
-    </div>
-  )
-}
 
 export default function RepresentacionesPage() {
   const { area } = useArea()
@@ -294,19 +282,6 @@ export default function RepresentacionesPage() {
     })
     return [...filtered].sort(compareByNombres)
   }, [viewingRep, viewSearch, viewFacultad, viewEstamento])
-
-  const viewStats = useMemo(() => {
-    if (!viewingRep) return null
-    const members = viewingRep.miembros; const total = members.length
-    const byFacultad: Record<string, number> = {}; const byPrograma: Record<string, number> = {}
-    const byGenero: Record<string, number> = { MUJER: 0, HOMBRE: 0, OTRO: 0 }
-    members.forEach(m => {
-      if (m.facultad) byFacultad[m.facultad] = (byFacultad[m.facultad] || 0) + 1
-      if (m.programaAcademico) byPrograma[m.programaAcademico] = (byPrograma[m.programaAcademico] || 0) + 1
-      const g = m.genero?.toUpperCase() || "OTRO"; byGenero[g] = (byGenero[g] || 0) + 1
-    })
-    return { total, byFacultad, byPrograma, byGenero }
-  }, [viewingRep])
 
   // Agrupar representaciones por evento (nombre + fecha)
   const eventoGroups = useMemo(() => {
@@ -723,16 +698,7 @@ export default function RepresentacionesPage() {
                 if (viewEstamento !== "all" && m.estamento !== viewEstamento) return false
                 return true
               })
-              // Stats
               const total = allMembers.length
-              const byGenero: Record<string, number> = { MUJER: 0, HOMBRE: 0, OTRO: 0 }
-              const byFacultad: Record<string, number> = {}
-              const byPrograma: Record<string, number> = {}
-              allMembers.forEach(m => {
-                const g = m.genero?.toUpperCase() || "OTRO"; byGenero[g] = (byGenero[g] || 0) + 1
-                if (m.facultad) byFacultad[m.facultad] = (byFacultad[m.facultad] || 0) + 1
-                if (m.programaAcademico) byPrograma[m.programaAcademico] = (byPrograma[m.programaAcademico] || 0) + 1
-              })
               return (<>
                 <DialogHeader>
                   <div className="flex items-start justify-between gap-3">
@@ -756,6 +722,19 @@ export default function RepresentacionesPage() {
                   </div>
                 </DialogHeader>
 
+                <Tabs defaultValue="lista" className="flex-1 overflow-hidden flex flex-col">
+                  <TabsList className="self-start">
+                    <TabsTrigger value="lista" className="gap-2">
+                      <Users className="h-4 w-4" />
+                      Inscritos
+                    </TabsTrigger>
+                    <TabsTrigger value="graficas" className="gap-2">
+                      <PieChart className="h-4 w-4" />
+                      Gráficas
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="lista" className="flex-1 overflow-hidden flex flex-col mt-2">
                 {/* Filtros compactos */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 py-2 border-y">
                   {/* Búsqueda nombre */}
@@ -833,28 +812,15 @@ export default function RepresentacionesPage() {
                   </Table>
                 </div>
 
-                {/* Resumen estadístico */}
-                <div className="border-t pt-3 space-y-3">
-                  <p className="text-xs font-semibold text-gray-600 flex items-center gap-1"><BarChart2 className="h-3 w-3" />Resumen estadístico</p>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Género</p>
-                      {Object.entries(byGenero).map(([g, v]) => <StatBar key={g} label={g} value={v} total={total} />)}
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Facultad</p>
-                      {Object.entries(byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([f, v]) => <StatBar key={f} label={f.replace("FACULTAD DE ", "")} value={v} total={total} />)}
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Programa</p>
-                      {Object.entries(byPrograma).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p, v]) => <StatBar key={p} label={p} value={v} total={total} />)}
-                    </div>
-                  </div>
-                </div>
-
                 <DialogFooter className="pt-2">
                   <Button variant="outline" onClick={() => setViewingAll(null)}>Cerrar</Button>
                 </DialogFooter>
+                  </TabsContent>
+
+                  <TabsContent value="graficas" className="flex-1 overflow-y-auto mt-2">
+                    <AttendeeCharts attendees={allMembers} title={viewingAll[0].nombre} compact />
+                  </TabsContent>
+                </Tabs>
               </>)
             })()}
           </DialogContent>
@@ -868,6 +834,18 @@ export default function RepresentacionesPage() {
                 <DialogTitle>{viewingRep.nombre} — {viewingRep.grupoCultural}</DialogTitle>
                 <DialogDescription>{new Date(viewingRep.fechaEvento + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}</DialogDescription>
               </DialogHeader>
+              <Tabs defaultValue="lista" className="mt-2">
+                <TabsList>
+                  <TabsTrigger value="lista" className="gap-2">
+                    <Users className="h-4 w-4" />
+                    Inscritos
+                  </TabsTrigger>
+                  <TabsTrigger value="graficas" className="gap-2">
+                    <PieChart className="h-4 w-4" />
+                    Gráficas
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="lista">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 py-2">
                 <div className="relative col-span-2 md:col-span-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -898,22 +876,17 @@ export default function RepresentacionesPage() {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
-              </div>
-              {viewStats && (
-                <div className="mt-4 space-y-4 border-t pt-4">
-                  <h3 className="font-semibold text-gray-800 flex items-center gap-2"><BarChart2 className="h-4 w-4" />Resumen estadístico</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2"><p className="text-xs font-medium text-gray-500 uppercase">Por Género</p>{Object.entries(viewStats.byGenero).map(([g, v]) => <StatBar key={g} label={g} value={v} total={viewStats.total} />)}</div>
-                    <div className="space-y-2"><p className="text-xs font-medium text-gray-500 uppercase">Por Facultad</p>{Object.entries(viewStats.byFacultad).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([f, v]) => <StatBar key={f} label={f.replace("FACULTAD DE ", "")} value={v} total={viewStats.total} />)}</div>
-                    <div className="space-y-2"><p className="text-xs font-medium text-gray-500 uppercase">Por Programa</p>{Object.entries(viewStats.byPrograma).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p, v]) => <StatBar key={p} label={p} value={v} total={viewStats.total} />)}</div>
-                  </div>
+                  </Table>
                 </div>
-              )}
               <DialogFooter className="mt-4">
                 <ExcelColumnSelector availableColumns={excelColumns} onDownload={cols => downloadExcel(viewingRep, cols)} buttonText="Descargar Excel" buttonClassName="bg-emerald-600 hover:bg-emerald-700" />
                 <Button variant="outline" onClick={() => setViewingRep(null)}>Cerrar</Button>
               </DialogFooter>
+                </TabsContent>
+                <TabsContent value="graficas">
+                  <AttendeeCharts attendees={viewingRep.miembros} title={`${viewingRep.nombre} — ${viewingRep.grupoCultural}`} compact />
+                </TabsContent>
+              </Tabs>
             </>)}
           </DialogContent>
         </Dialog>
