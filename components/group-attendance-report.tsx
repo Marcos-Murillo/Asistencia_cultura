@@ -331,6 +331,8 @@ export function GroupAttendanceReport({
             ? `Hasta ${pdfHasta}`
             : "Todas las fechas registradas"
 
+    const areaLabel = area === "deporte" ? "Área de Deporte" : "Área de Cultura"
+
     const generatedOn = format(new Date(), "d 'de' MMMM 'de' yyyy", { locale: es })
 
     // ── Crear documento PDF ────────────────────────────────────────────────
@@ -348,7 +350,7 @@ export function GroupAttendanceReport({
     doc.text("VICERRECTORÍA DE BIENESTAR UNIVERSITARIO", pageWidth / 2, 9, { align: "center" })
     doc.setFontSize(10)
     doc.setFont("helvetica", "normal")
-    doc.text("Área de Cultura — Universidad del Valle", pageWidth / 2, 16, { align: "center" })
+    doc.text(`${areaLabel} — Universidad del Valle`, pageWidth / 2, 16, { align: "center" })
 
     // Título del reporte
     doc.setTextColor(22, 101, 52)
@@ -468,7 +470,7 @@ export function GroupAttendanceReport({
       "El suscrito encargado del grupo, en pleno ejercicio de sus funciones y en cumplimiento de los principios " +
       "de transparencia e integridad institucional, certifica que la información contenida en el presente " +
       "documento constituye un registro fiel y verídico de las asistencias registradas durante el período " +
-      "indicado, conforme a los datos consignados en el sistema de gestión de asistencias del Área de Cultura " +
+      `indicado, conforme a los datos consignados en el sistema de gestión de asistencias del ${areaLabel} ` +
       "de la Vicerrectoría de Bienestar Universitario de la Universidad del Valle."
     const splitDecl = doc.splitTextToSize(declaracion, pageWidth - marginX * 2 - 8)
     doc.text(splitDecl, marginX + 4, signatureY + 9)
