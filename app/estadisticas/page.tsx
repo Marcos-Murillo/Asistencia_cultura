@@ -954,7 +954,7 @@ export default function EstadisticasPage() {
             <DialogTitle>Rango de fechas del reporte</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-gray-500">Selecciona el período que quieres incluir en el reporte. Deja los campos vacíos para incluir todos los registros.</p>
+            <p className="text-sm text-gray-500">Selecciona el período que quieres incluir en el reporte. Puedes elegir cualquier rango, sin límite al mes actual. Deja los campos vacíos para incluir todos los registros.</p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label htmlFor="pdf-desde">Desde</Label>

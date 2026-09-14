@@ -37,7 +37,7 @@ import * as XLSX from "xlsx"
 import jsPDF from "jspdf"
 import { autoTable } from "jspdf-autotable"
 
-type TimeFilter = "day" | "week" | "month"
+type TimeFilter = "day" | "week" | "month" | "custom" | "all"
 type SortOrder = "name" | "attendance-desc" | "attendance-asc"
 
 const ITEMS_PER_PAGE = 15
@@ -46,12 +46,16 @@ const PERIOD_LABELS: Record<TimeFilter, string> = {
   day: "Un día",
   week: "Una semana",
   month: "Un mes",
+  custom: "Rango personalizado",
+  all: "Todas las fechas",
 }
 
 const DATE_PICKER_HINT: Record<TimeFilter, string> = {
   day: "Elige el día a consultar",
   week: "Elige un día dentro de la semana",
   month: "Elige un día del mes a consultar",
+  custom: "Elige el rango de fechas",
+  all: "Sin filtro de fechas",
 }
 
 export type GroupAttendanceReportProps = {
@@ -73,8 +77,10 @@ export function GroupAttendanceReport({
 }: GroupAttendanceReportProps) {
   const [groupData, setGroupData] = useState<GroupTracking | null>(null)
   const [loading, setLoading] = useState(true)
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("month")
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>(area === "deporte" ? "custom" : "month")
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  const [customDesde, setCustomDesde] = useState("")
+  const [customHasta, setCustomHasta] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [showExcelDialog, setShowExcelDialog] = useState(false)
   const [excelDesde, setExcelDesde] = useState("")
@@ -92,7 +98,7 @@ export function GroupAttendanceReport({
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [timeFilter, selectedDate, sortOrder, filterCategory])
+  }, [timeFilter, selectedDate, sortOrder, filterCategory, customDesde, customHasta])
 
   async function loadGroupData() {
     setLoading(true)
@@ -113,6 +119,18 @@ export function GroupAttendanceReport({
 
   const getDateRange = (date: Date, filter: TimeFilter) => {
     switch (filter) {
+      case "all":
+        return null
+      case "custom": {
+        if (!customDesde && !customHasta) return null
+        const start = customDesde
+          ? new Date(`${customDesde}T00:00:00`)
+          : new Date(2000, 0, 1)
+        const end = customHasta
+          ? new Date(`${customHasta}T23:59:59`)
+          : new Date(2099, 11, 31, 23, 59, 59)
+        return { start, end }
+      }
       case "day":
         return {
           start: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
@@ -132,22 +150,32 @@ export function GroupAttendanceReport({
   }
 
   const periodSummary = useMemo(() => {
+    if (timeFilter === "all") return "Todas las fechas registradas"
+    if (timeFilter === "custom") {
+      if (!customDesde && !customHasta) return "Elige un rango de fechas (sin límite mensual)"
+      if (customDesde && customHasta) return `${customDesde} — ${customHasta}`
+      if (customDesde) return `Desde ${customDesde}`
+      return `Hasta ${customHasta}`
+    }
     if (!selectedDate) return null
     const range = getDateRange(selectedDate, timeFilter)
+    if (!range) return null
     if (timeFilter === "day") {
       return format(range.start, "EEEE d 'de' MMMM yyyy", { locale: es })
     }
     return `${format(range.start, "d MMM yyyy", { locale: es })} — ${format(range.end, "d MMM yyyy", { locale: es })}`
-  }, [selectedDate, timeFilter])
+  }, [selectedDate, timeFilter, customDesde, customHasta])
 
   const filteredParticipants = useMemo(() => {
     if (!groupData) return []
 
     let list = groupData.participants
 
-    if (selectedDate) {
-      const range = getDateRange(selectedDate, timeFilter)
-      list = list.filter((p) => isWithinInterval(new Date(p.lastAttendance), range))
+    if (timeFilter !== "all") {
+      const range = getDateRange(selectedDate || new Date(), timeFilter)
+      if (range) {
+        list = list.filter((p) => isWithinInterval(new Date(p.lastAttendance), range))
+      }
     }
 
     if (filterCategory === "SIN_CATEGORIA") {
@@ -168,7 +196,7 @@ export function GroupAttendanceReport({
     }
 
     return sorted
-  }, [groupData, selectedDate, timeFilter, filterCategory, userCategories, sortOrder])
+  }, [groupData, selectedDate, timeFilter, filterCategory, userCategories, sortOrder, customDesde, customHasta])
 
   const totalPages = Math.ceil(filteredParticipants.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -268,10 +296,9 @@ export function GroupAttendanceReport({
     // ── Filtrar registros por rango de fechas ──────────────────────────────
     const filtered = allAttendanceRecords.filter((r) => {
       const ts = new Date(r.timestamp)
-      if (pdfDesde && ts < new Date(pdfDesde)) return false
+      if (pdfDesde && ts < new Date(`${pdfDesde}T00:00:00`)) return false
       if (pdfHasta) {
-        const h = new Date(pdfHasta)
-        h.setHours(23, 59, 59)
+        const h = new Date(`${pdfHasta}T23:59:59`)
         if (ts > h) return false
       }
       return true
@@ -565,6 +592,8 @@ export function GroupAttendanceReport({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">{PERIOD_LABELS.all}</SelectItem>
+                  <SelectItem value="custom">{PERIOD_LABELS.custom}</SelectItem>
                   <SelectItem value="day">{PERIOD_LABELS.day}</SelectItem>
                   <SelectItem value="week">{PERIOD_LABELS.week}</SelectItem>
                   <SelectItem value="month">{PERIOD_LABELS.month}</SelectItem>
@@ -572,10 +601,39 @@ export function GroupAttendanceReport({
               </Select>
             </div>
 
+            {timeFilter === "custom" ? (
+              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                <Label className="text-sm font-medium">{DATE_PICKER_HINT.custom}</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="custom-desde" className="text-xs text-muted-foreground">Desde</Label>
+                    <Input
+                      id="custom-desde"
+                      type="date"
+                      value={customDesde}
+                      onChange={(e) => setCustomDesde(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="custom-hasta" className="text-xs text-muted-foreground">Hasta</Label>
+                    <Input
+                      id="custom-hasta"
+                      type="date"
+                      value={customHasta}
+                      onChange={(e) => setCustomHasta(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Elige cualquier rango, sin límite al mes actual. Vacío = todas las fechas.
+                </p>
+              </div>
+            ) : timeFilter !== "all" ? (
             <div className="space-y-2">
               <Label className="text-sm font-medium">{DATE_PICKER_HINT[timeFilter]}</Label>
               <DatePicker date={selectedDate} onDateChange={setSelectedDate} />
             </div>
+            ) : null}
 
             <div className="space-y-2">
               <Label className="text-sm font-medium">Categoría</Label>
@@ -641,7 +699,16 @@ export function GroupAttendanceReport({
             <Button
               variant="outline"
               className="gap-2 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-              onClick={() => setShowPdfDialog(true)}
+              onClick={() => {
+                if (timeFilter === "custom") {
+                  setPdfDesde(customDesde)
+                  setPdfHasta(customHasta)
+                } else {
+                  setPdfDesde("")
+                  setPdfHasta("")
+                }
+                setShowPdfDialog(true)
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -811,6 +878,10 @@ export function GroupAttendanceReport({
             <p className="text-sm text-muted-foreground">
               El reporte incluirá nombre, documento, estamento, sede y total de asistencias. Al
               final del documento se agregará un espacio de firma con declaración de veracidad.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              El rango de fechas es libre: puedes elegir cualquier período, no está limitado al mes actual.
+              Si dejas los campos vacíos se incluyen todas las asistencias.
             </p>
             <div className="space-y-2">
               <Label htmlFor="pdf-desde">Desde <span className="text-muted-foreground font-normal">(opcional)</span></Label>
