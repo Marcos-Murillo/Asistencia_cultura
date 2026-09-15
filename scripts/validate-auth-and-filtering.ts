@@ -249,7 +249,7 @@ async function validateAuthenticationAndFiltering() {
       if (culturaManagers.length > 0) {
         const manager = culturaManagers[0]
         const result = await verifyGroupManagerAnyArea(manager.numeroDocumento, manager.correo)
-        if (!('error' in result) && result.area === 'cultura') {
+        if ('user' in result && result.area === 'cultura') {
           logSuccess(`Manager found in correct area (Cultura) via anyArea function`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {
@@ -261,7 +261,7 @@ async function validateAuthenticationAndFiltering() {
       if (deporteManagers.length > 0) {
         const manager = deporteManagers[0]
         const result = await verifyGroupManagerAnyArea(manager.numeroDocumento, manager.correo)
-        if (!('error' in result) && result.area === 'deporte') {
+        if ('user' in result && result.area === 'deporte') {
           logSuccess(`Manager found in correct area (Deporte) via anyArea function`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {

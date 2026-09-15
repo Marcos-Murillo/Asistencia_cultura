@@ -454,10 +454,14 @@ export async function verifyGroupManager(
   }
 }
 
+export type GroupManagerAnyAreaResult =
+  | GroupManagerAuthResult
+  | { error: string; reason: GroupManagerAuthFailureReason }
+
 export async function verifyGroupManagerAnyArea(
   numeroDocumento: string,
   correo: string,
-): Promise<(GroupManagerAuthResult & { error?: never }) | { error: string; reason: GroupManagerAuthFailureReason }> {
+): Promise<GroupManagerAnyAreaResult> {
   try {
     const reasons: GroupManagerAuthFailureReason[] = []
 

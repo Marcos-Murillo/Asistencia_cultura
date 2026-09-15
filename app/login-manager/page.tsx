@@ -24,10 +24,7 @@ export default function LoginManagerPage() {
     try {
       const result = await verifyGroupManagerAnyArea(documento.trim(), correo.trim())
 
-      if ("error" in result) {
-        console.warn("[LoginManager]", result.reason, result.error)
-        setError(result.error)
-      } else {
+      if ("user" in result) {
         sessionStorage.setItem("userType", "manager")
         sessionStorage.setItem("userId", result.user.id)
         sessionStorage.setItem("userName", result.user.nombres)
@@ -37,6 +34,9 @@ export default function LoginManagerPage() {
         sessionStorage.setItem("allGroups", JSON.stringify(result.allGroups))
 
         router.push(`/manager/${encodeURIComponent(result.grupoCultural)}`)
+      } else {
+        console.warn("[LoginManager]", result.reason, result.error)
+        setError(result.error)
       }
     } catch (err) {
       setError("Error al iniciar sesión")
