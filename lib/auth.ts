@@ -289,73 +289,212 @@ export async function getGroupManagers(grupoCultural: string): Promise<(GroupMan
   }
 }
 
+const MANAGER_ROLES = new Set(["DIRECTOR", "MONITOR", "ENTRENADOR"])
+
+function normalizeDocumento(value: string): string {
+  return String(value ?? "").trim().replace(/\s+/g, "")
+}
+
+function normalizeEmail(value: string): string {
+  return String(value ?? "").trim().toLowerCase()
+}
+
+function normalizeRole(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase()
+}
+
+export type GroupManagerAuthFailureReason = "not_found" | "wrong_role" | "no_group"
+
+export interface GroupManagerAuthResult {
+  user: UserProfile
+  grupoCultural: string
+  allGroups: string[]
+  area: Area
+}
+
+function toUserProfile(id: string, data: Record<string, unknown>): UserProfile {
+  return {
+    ...(data as unknown as UserProfile),
+    id,
+    rol: (normalizeRole(data.rol) || "ESTUDIANTE") as UserProfile["rol"],
+    createdAt: (data.createdAt as Date) || new Date(),
+    lastAttendance: (data.lastAttendance as Date) || new Date(),
+  }
+}
+
+async function findProfilesByCredentials(
+  area: Area,
+  numeroDocumento: string,
+  correo: string,
+) {
+  const db = getFirestoreForArea(area)
+  const usersRef = collection(db, USERS_COLLECTION)
+  const docKey = normalizeDocumento(numeroDocumento)
+  const emailKey = normalizeEmail(correo)
+
+  const snapshots = await Promise.all([
+    getDocs(query(usersRef, where("numeroDocumento", "==", docKey))),
+    /^\d+$/.test(docKey)
+      ? getDocs(query(usersRef, where("numeroDocumento", "==", Number(docKey))))
+      : Promise.resolve(null),
+  ])
+
+  const seen = new Set<string>()
+  const matches: { id: string; data: Record<string, unknown> }[] = []
+
+  for (const snap of snapshots) {
+    if (!snap) continue
+    for (const userDoc of snap.docs) {
+      if (seen.has(userDoc.id)) continue
+      seen.add(userDoc.id)
+      const data = userDoc.data() as Record<string, unknown>
+      const storedDoc = normalizeDocumento(String(data.numeroDocumento ?? ""))
+      const storedEmail = normalizeEmail(String(data.correo ?? ""))
+      if (storedDoc === docKey && storedEmail === emailKey) {
+        matches.push({ id: userDoc.id, data })
+      }
+    }
+  }
+
+  return { db, matches }
+}
+
+async function getAssignedGroupsForUser(
+  db: ReturnType<typeof getFirestoreForArea>,
+  userId: string,
+  numeroDocumento: string,
+  gruposAsignados?: unknown,
+): Promise<string[]> {
+  const managersRef = collection(db, GROUP_MANAGERS_COLLECTION)
+  const byUserId = await getDocs(query(managersRef, where("userId", "==", userId)))
+
+  const groups = new Set<string>()
+  byUserId.docs.forEach((d) => {
+    const name = d.data().grupoCultural as string
+    if (name) groups.add(name)
+  })
+
+  // Registros antiguos de group_managers usaban numeroDocumento en lugar de userId
+  if (groups.size === 0 && numeroDocumento) {
+    const byDoc = await getDocs(query(managersRef, where("numeroDocumento", "==", numeroDocumento)))
+    byDoc.docs.forEach((d) => {
+      const name = d.data().grupoCultural as string
+      if (name) groups.add(name)
+    })
+  }
+
+  if (groups.size === 0 && Array.isArray(gruposAsignados)) {
+    gruposAsignados.forEach((name) => {
+      if (typeof name === "string" && name.trim()) groups.add(name)
+    })
+  }
+
+  return Array.from(groups)
+}
+
 // Verificar si usuario es encargado de un grupo
 export async function verifyGroupManager(
   area: Area,
   numeroDocumento: string,
   correo: string,
-): Promise<{ user: UserProfile; grupoCultural: string; allGroups: string[] } | null> {
+): Promise<
+  | { user: UserProfile; grupoCultural: string; allGroups: string[] }
+  | { reason: GroupManagerAuthFailureReason }
+> {
   try {
-    const db = getFirestoreForArea(area)
-    
-    // Buscar usuario
-    const usersRef = collection(db, USERS_COLLECTION)
-    const userQuery = query(usersRef, where("numeroDocumento", "==", numeroDocumento), where("correo", "==", correo))
-    const userSnapshot = await getDocs(userQuery)
+    const { db, matches } = await findProfilesByCredentials(area, numeroDocumento, correo)
 
-    if (userSnapshot.empty) return null
-
-    const userDoc = userSnapshot.docs[0]
-    const userData = userDoc.data() as UserProfile
-    userData.id = userDoc.id
-
-    // Verificar que tenga rol de director, monitor o entrenador
-    if (userData.rol !== "DIRECTOR" && userData.rol !== "MONITOR" && userData.rol !== "ENTRENADOR") return null
-
-    // Buscar todas las asignaciones de grupo
-    const managersRef = collection(db, GROUP_MANAGERS_COLLECTION)
-    const managerQuery = query(managersRef, where("userId", "==", userDoc.id))
-    const managerSnapshot = await getDocs(managerQuery)
-
-    if (managerSnapshot.empty) return null
-
-    const allGroups = managerSnapshot.docs.map(d => d.data().grupoCultural as string)
-
-    return {
-      user: {
-        ...userData,
-        createdAt: userData.createdAt || new Date(),
-        lastAttendance: userData.lastAttendance || new Date(),
-      },
-      grupoCultural: allGroups[0],
-      allGroups,
+    if (matches.length === 0) {
+      console.log(`[auth] No se encontró usuario con esas credenciales en ${area}`)
+      return { reason: "not_found" }
     }
+
+    const ranked = [...matches].sort((a, b) => {
+      const aManager = MANAGER_ROLES.has(normalizeRole(a.data.rol)) ? 1 : 0
+      const bManager = MANAGER_ROLES.has(normalizeRole(b.data.rol)) ? 1 : 0
+      return bManager - aManager
+    })
+
+    let sawManagerRole = false
+
+    for (const profile of ranked) {
+      const rol = normalizeRole(profile.data.rol)
+      if (!MANAGER_ROLES.has(rol)) continue
+      sawManagerRole = true
+
+      const allGroups = await getAssignedGroupsForUser(
+        db,
+        profile.id,
+        normalizeDocumento(String(profile.data.numeroDocumento ?? numeroDocumento)),
+        profile.data.gruposAsignados,
+      )
+
+      if (allGroups.length === 0) {
+        console.log(`[auth] ${rol} ${profile.id} en ${area} no tiene grupo asignado en group_managers`)
+        continue
+      }
+
+      const user = toUserProfile(profile.id, { ...profile.data, rol })
+      return {
+        user,
+        grupoCultural: allGroups[0],
+        allGroups,
+      }
+    }
+
+    if (sawManagerRole) {
+      return { reason: "no_group" }
+    }
+
+    console.log(`[auth] Usuario encontrado en ${area} pero el rol no es DIRECTOR/MONITOR/ENTRENADOR`)
+    return { reason: "wrong_role" }
   } catch (error) {
     console.error("Error verifying group manager:", error)
-    return null
+    return { reason: "not_found" }
   }
 }
 
-// Verificar group manager en ambas áreas (para login)
 export async function verifyGroupManagerAnyArea(
   numeroDocumento: string,
   correo: string,
-): Promise<{ user: UserProfile; grupoCultural: string; allGroups: string[]; area: Area } | null> {
+): Promise<(GroupManagerAuthResult & { error?: never }) | { error: string; reason: GroupManagerAuthFailureReason }> {
   try {
-    const culturaManager = await verifyGroupManager('cultura', numeroDocumento, correo)
-    if (culturaManager) {
-      return { ...culturaManager, area: 'cultura' }
+    const reasons: GroupManagerAuthFailureReason[] = []
+
+    for (const area of ["cultura", "deporte"] as Area[]) {
+      const result = await verifyGroupManager(area, numeroDocumento, correo)
+      if (result && "user" in result && result.user) {
+        return { ...result, area }
+      }
+      if (result && "reason" in result && result.reason) {
+        reasons.push(result.reason)
+      }
     }
-    
-    const deporteManager = await verifyGroupManager('deporte', numeroDocumento, correo)
-    if (deporteManager) {
-      return { ...deporteManager, area: 'deporte' }
+
+    if (reasons.includes("no_group")) {
+      return {
+        reason: "no_group",
+        error:
+          "El usuario tiene rol de director, monitor o entrenador, pero no está asignado a ningún grupo. En Usuarios, usa Asignar como encargado y elige el grupo.",
+      }
     }
-    
-    return null
+
+    if (reasons.includes("wrong_role")) {
+      return {
+        reason: "wrong_role",
+        error:
+          "Se encontró el usuario, pero su rol no es DIRECTOR, MONITOR ni ENTRENADOR. Revisa el rol en la ficha de Usuarios.",
+      }
+    }
+
+    return {
+      reason: "not_found",
+      error:
+        "No se encontró un director, monitor o entrenador con ese documento y correo. Verifica que coincidan exactamente con los datos del perfil (sin espacios extra).",
+    }
   } catch (error) {
     console.error("Error verifying group manager in any area:", error)
-    return null
+    return { reason: "not_found", error: "Error al verificar las credenciales" }
   }
 }
 

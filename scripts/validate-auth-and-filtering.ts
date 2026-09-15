@@ -207,11 +207,11 @@ async function validateAuthenticationAndFiltering() {
       if (culturaManagers.length > 0) {
         const manager = culturaManagers[0]
         const result = await verifyGroupManager('cultura', manager.numeroDocumento, manager.correo)
-        if (result) {
+        if ('user' in result) {
           logSuccess(`Manager verified in correct area (Cultura)`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {
-          logError(`Failed to verify manager in correct area`)
+          logError(`Failed to verify manager in correct area (${result.reason})`)
           allTestsPassed = false
         }
       } else {
@@ -221,11 +221,11 @@ async function validateAuthenticationAndFiltering() {
       if (deporteManagers.length > 0) {
         const manager = deporteManagers[0]
         const result = await verifyGroupManager('deporte', manager.numeroDocumento, manager.correo)
-        if (result) {
+        if ('user' in result) {
           logSuccess(`Manager verified in correct area (Deporte)`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {
-          logError(`Failed to verify manager in correct area`)
+          logError(`Failed to verify manager in correct area (${result.reason})`)
           allTestsPassed = false
         }
       } else {
@@ -249,7 +249,7 @@ async function validateAuthenticationAndFiltering() {
       if (culturaManagers.length > 0) {
         const manager = culturaManagers[0]
         const result = await verifyGroupManagerAnyArea(manager.numeroDocumento, manager.correo)
-        if (result && result.area === 'cultura') {
+        if (!('error' in result) && result.area === 'cultura') {
           logSuccess(`Manager found in correct area (Cultura) via anyArea function`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {
@@ -261,7 +261,7 @@ async function validateAuthenticationAndFiltering() {
       if (deporteManagers.length > 0) {
         const manager = deporteManagers[0]
         const result = await verifyGroupManagerAnyArea(manager.numeroDocumento, manager.correo)
-        if (result && result.area === 'deporte') {
+        if (!('error' in result) && result.area === 'deporte') {
           logSuccess(`Manager found in correct area (Deporte) via anyArea function`)
           logInfo(`  Manager assigned to group: ${result.grupoCultural}`)
         } else {

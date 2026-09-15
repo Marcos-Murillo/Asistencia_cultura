@@ -44,6 +44,17 @@ export function isAdmin(): boolean {
  * Get assigned groups for current user
  */
 export function getAssignedGroups(): string[] {
+  const storedAll = sessionStorage.getItem("allGroups")
+  if (storedAll) {
+    try {
+      const parsed = JSON.parse(storedAll)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter((g: unknown) => typeof g === "string" && g.trim())
+      }
+    } catch {
+      // ignore malformed session value
+    }
+  }
   const grupoCultural = sessionStorage.getItem("grupoCultural") || ""
   return grupoCultural ? [grupoCultural] : []
 }

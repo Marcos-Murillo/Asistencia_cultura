@@ -22,9 +22,12 @@ export default function LoginManagerPage() {
     setLoading(true)
 
     try {
-      const result = await verifyGroupManagerAnyArea(documento, correo)
-      
-      if (result) {
+      const result = await verifyGroupManagerAnyArea(documento.trim(), correo.trim())
+
+      if ("error" in result) {
+        console.warn("[LoginManager]", result.reason, result.error)
+        setError(result.error)
+      } else {
         sessionStorage.setItem("userType", "manager")
         sessionStorage.setItem("userId", result.user.id)
         sessionStorage.setItem("userName", result.user.nombres)
@@ -32,10 +35,8 @@ export default function LoginManagerPage() {
         sessionStorage.setItem("userArea", result.area)
         sessionStorage.setItem("grupoCultural", result.grupoCultural)
         sessionStorage.setItem("allGroups", JSON.stringify(result.allGroups))
-        
+
         router.push(`/manager/${encodeURIComponent(result.grupoCultural)}`)
-      } else {
-        setError("No se encontró un director, monitor o entrenador con estas credenciales o no está asignado a ningún grupo")
       }
     } catch (err) {
       setError("Error al iniciar sesión")
