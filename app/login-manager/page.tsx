@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Users } from "lucide-react"
-import { verifyGroupManagerAnyArea } from "@/lib/auth"
+import { verifyGroupManagerAnyArea, verifyFisioterapeuta } from "@/lib/auth"
 
 export default function LoginManagerPage() {
   const router = useRouter()
@@ -22,6 +22,20 @@ export default function LoginManagerPage() {
     setLoading(true)
 
     try {
+      const physio = await verifyFisioterapeuta(documento.trim(), correo.trim())
+      if (physio) {
+        sessionStorage.setItem("userType", "manager")
+        sessionStorage.setItem("userId", physio.user.id)
+        sessionStorage.setItem("userName", physio.user.nombres)
+        sessionStorage.setItem("userRole", "FISIOTERAPEUTA")
+        sessionStorage.setItem("userArea", physio.area)
+        sessionStorage.setItem("esFisioterapeutaEncargado", physio.esEncargado ? "true" : "false")
+        sessionStorage.setItem("grupoCultural", "")
+        sessionStorage.setItem("allGroups", JSON.stringify([]))
+        router.push("/fisioterapia")
+        return
+      }
+
       const result = await verifyGroupManagerAnyArea(documento.trim(), correo.trim())
 
       if ("user" in result) {
@@ -52,8 +66,8 @@ export default function LoginManagerPage() {
           <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
             <Users className="h-8 w-8 text-green-600" />
           </div>
-          <CardTitle className="text-2xl">Director / Monitor</CardTitle>
-          <CardDescription>Acceso a gestión de grupo cultural</CardDescription>
+          <CardTitle className="text-2xl">Personal de grupo</CardTitle>
+          <CardDescription>Acceso para director, monitor, entrenador o fisioterapeuta</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">

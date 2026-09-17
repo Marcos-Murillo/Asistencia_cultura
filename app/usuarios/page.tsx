@@ -88,6 +88,7 @@ export default function UsuariosPage() {
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [userToAssignRole, setUserToAssignRole] = useState<UserProfile | null>(null)
   const [selectedRole, setSelectedRole] = useState<UserRole>("ESTUDIANTE")
+  const [esFisioEncargado, setEsFisioEncargado] = useState(false)
   const [isAssigningRole, setIsAssigningRole] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [userToAssignGroup, setUserToAssignGroup] = useState<UserProfile | null>(null)
@@ -269,6 +270,7 @@ export default function UsuariosPage() {
     }
     setUserToAssignRole(user)
     setSelectedRole(user.rol || "ESTUDIANTE")
+    setEsFisioEncargado(Boolean(user.esFisioterapeutaEncargado))
     setRoleDialogOpen(true)
   }
 
@@ -277,8 +279,10 @@ export default function UsuariosPage() {
 
     setIsAssigningRole(true)
     try {
-      await updateUserRoleRouter(area, userToAssignRole.id, selectedRole)
-      setSuccess(`Rol actualizado a ${selectedRole} exitosamente`)
+      await updateUserRoleRouter(area, userToAssignRole.id, selectedRole, {
+        esFisioterapeutaEncargado: selectedRole === "FISIOTERAPEUTA" && esFisioEncargado,
+      })
+      setSuccess(`Rol actualizado a ${selectedRole}${selectedRole === "FISIOTERAPEUTA" && esFisioEncargado ? " (encargado)" : ""} exitosamente`)
       await loadUsers()
       setRoleDialogOpen(false)
       setTimeout(() => setSuccess(null), 3000)
@@ -1241,6 +1245,9 @@ export default function UsuariosPage() {
                       <SelectItem value="ESTUDIANTE">Estudiante</SelectItem>
                       <SelectItem value="DIRECTOR">{area === 'deporte' ? 'Entrenador' : 'Director'}</SelectItem>
                       <SelectItem value="MONITOR">Monitor</SelectItem>
+                      {area === "deporte" && (
+                        <SelectItem value="FISIOTERAPEUTA">Fisioterapeuta</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1248,8 +1255,20 @@ export default function UsuariosPage() {
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-xs md:text-sm text-blue-800">
                     <strong>Nota:</strong> Los roles de {area === 'deporte' ? 'Entrenador' : 'Director'} y Monitor permiten gestionar grupos {area === 'deporte' ? 'deportivos' : 'culturales'}.
+                    {area === "deporte" ? " El fisioterapeuta ingresa por el mismo login y no requiere grupo asignado." : ""}
                   </p>
                 </div>
+
+                {selectedRole === "FISIOTERAPEUTA" && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={esFisioEncargado}
+                      onChange={(e) => setEsFisioEncargado(e.target.checked)}
+                    />
+                    Fisioterapeuta encargado (ve todas las bitácoras y asigna solicitudes)
+                  </label>
+                )}
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3">

@@ -55,6 +55,12 @@ import type { Area } from "@/lib/firebase-config"
 import { formatNombre, sortUsersByNombres, toLocalDateKey, parseLocalDateKey, isSameLocalDay } from "@/lib/utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GroupAttendanceReport } from "@/components/group-attendance-report"
+import { TrainerRequestDialog } from "@/components/fisioterapia/trainer-request-dialog"
+import { getFisioActor } from "@/lib/fisioterapia-session"
+import { listSolicitudes, TIPO_SOLICITUD_LABEL } from "@/lib/fisioterapia"
+import type { FisioterapiaSolicitud } from "@/lib/types"
+import { EstadoBadge, PrioridadBadge } from "@/components/fisioterapia/badges"
+import { ContactPersonDrawer } from "@/components/fisioterapia/contact-drawer"
 
 export default function ManagerGroupPage() {
   const params = useParams()
@@ -102,6 +108,10 @@ export default function ManagerGroupPage() {
   const [managerDisplayName, setManagerDisplayName] = useState("")
   const [attendanceDate, setAttendanceDate] = useState(() => new Date())
   const [attendedOnSelectedDate, setAttendedOnSelectedDate] = useState<Set<string>>(new Set())
+  const [fisioRequestOpen, setFisioRequestOpen] = useState(false)
+  const [misSolicitudes, setMisSolicitudes] = useState<FisioterapiaSolicitud[]>([])
+  const [fisioContact, setFisioContact] = useState<FisioterapiaSolicitud | null>(null)
+  const [managerTab, setManagerTab] = useState("gestion")
 
   useEffect(() => {
     const userType = sessionStorage.getItem("userType")
@@ -143,6 +153,16 @@ export default function ManagerGroupPage() {
     setManagerDisplayName(sessionStorage.getItem("userName") || "")
     loadGroupData(currentArea)
   }, [groupName, router])
+
+  useEffect(() => {
+    if (area !== "deporte") return
+    const actor = getFisioActor()
+    if (!actor || actor.kind !== "entrenador") return
+    listSolicitudes(actor)
+      .then((items) => items.filter((item) => item.grupoNombre === groupName))
+      .then(setMisSolicitudes)
+      .catch(() => setMisSolicitudes([]))
+  }, [area, fisioRequestOpen, groupName, managerTab])
 
   useEffect(() => {
     applyFilters()
@@ -555,8 +575,8 @@ export default function ManagerGroupPage() {
             </Alert>
           )}
 
-          <Tabs defaultValue="gestion" className="w-full">
-            <TabsList className="grid w-full max-w-lg grid-cols-2 h-auto p-1">
+          <Tabs value={managerTab} onValueChange={setManagerTab} className="w-full">
+            <TabsList className={`grid w-full h-auto p-1 ${area === "deporte" ? "max-w-2xl grid-cols-3" : "max-w-lg grid-cols-2"}`}>
               <TabsTrigger value="gestion" className="py-2.5">
                 Gestión del grupo
               </TabsTrigger>
@@ -564,6 +584,11 @@ export default function ManagerGroupPage() {
                 <Eye className="h-4 w-4 shrink-0" />
                 Ver asistentes
               </TabsTrigger>
+              {area === "deporte" && (
+                <TabsTrigger value="fisioterapia" className="py-2.5">
+                  Fisioterapia
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="gestion" className="mt-4 space-y-4 md:space-y-6 outline-none">
@@ -999,6 +1024,74 @@ export default function ManagerGroupPage() {
                 managerDisplayName={managerDisplayName}
               />
             </TabsContent>
+            {area === "deporte" && (
+              <TabsContent value="fisioterapia" className="mt-4 space-y-4 outline-none">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Solicitudes a fisioterapia</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-gray-600">
+                      Crea solicitudes de acompañamiento, evaluación o recuperación. El fisioterapeuta encargado las recibe y asigna.
+                    </p>
+                    <Button onClick={() => setFisioRequestOpen(true)} className="h-10 justify-center">
+                      Nueva solicitud
+                    </Button>
+                    <div className="space-y-2">
+                      {misSolicitudes.length === 0 && (
+                        <p className="text-sm text-gray-500">Aún no tienes solicitudes.</p>
+                      )}
+                      {misSolicitudes.slice(0, 12).map((item) => (
+                        <div key={item.id} className="space-y-3 rounded-lg border p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium">
+                                #{String(item.numero).padStart(5, "0")} · {TIPO_SOLICITUD_LABEL[item.tipo]}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {item.grupoNombre} · {item.fechaSolicitada.toLocaleDateString("es-CO")}
+                              </p>
+                              {item.fisioterapeutaNombre && (
+                                <p className="mt-1 text-xs text-teal-800">
+                                  Asignado a: {item.fisioterapeutaNombre}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <PrioridadBadge prioridad={item.prioridad} />
+                              <EstadoBadge estado={item.estado} />
+                            </div>
+                          </div>
+                          {(item.fisioterapeutaId || item.fisioterapeutaNombre) && (
+                            <Button
+                              variant="outline"
+                              className="h-10 w-full justify-center sm:w-auto"
+                              onClick={() => setFisioContact(item)}
+                            >
+                              Contactar fisioterapeuta
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+                <TrainerRequestDialog
+                  open={fisioRequestOpen}
+                  onOpenChange={setFisioRequestOpen}
+                  actor={getFisioActor() || { kind: "entrenador", userId: sessionStorage.getItem("userId") || "", nombres: managerDisplayName }}
+                  grupoNombre={groupName}
+                  groups={allGroups}
+                />
+                <ContactPersonDrawer
+                  open={Boolean(fisioContact)}
+                  onOpenChange={(open) => !open && setFisioContact(null)}
+                  userId={fisioContact?.fisioterapeutaId}
+                  fallbackName={fisioContact?.fisioterapeutaNombre}
+                  roleLabel="fisioterapeuta"
+                />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>

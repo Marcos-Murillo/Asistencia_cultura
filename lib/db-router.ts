@@ -568,6 +568,7 @@ export async function getAllEvents(area: Area): Promise<Event[]> {
     const events: Event[] = []
     snapshot.forEach((doc) => {
       const eventData = doc.data()
+      if (eventData.moduloFisioterapia) return
       events.push({
         id: doc.id,
         ...eventData,
@@ -601,20 +602,46 @@ export async function getAllCulturalGroups(area: Area): Promise<CulturalGroup[]>
     const groups: CulturalGroup[] = []
     snapshot.forEach((doc) => {
       const data = doc.data()
+      const nombre = String(data.nombre || data.name || data.grupoCultural || "").trim()
+      if (!nombre) return
       groups.push({
         id: doc.id,
-        nombre: data.nombre,
+        nombre,
         createdAt: timestampToDate(data.createdAt),
         activo: data.activo ?? true,
       })
     })
 
     console.log("[db-router] Retrieved", groups.length, "cultural groups from area:", area)
-    return groups.sort((a, b) => a.nombre.localeCompare(b.nombre))
+    return groups.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
   } catch (error) {
     console.error("[db-router] Error getting cultural groups:", error)
     throw error
   }
+}
+
+/** Grupos reales de deporte: colección + nombres que ya existen en inscripciones. */
+export async function listDeportiveGroups(): Promise<Array<{ id: string; nombre: string }>> {
+  validateAreaSpecified("deporte")
+  const [groups, enrollments] = await Promise.all([
+    getAllCulturalGroups("deporte"),
+    getAllGroupEnrollments("deporte"),
+  ])
+  const byName = new Map<string, { id: string; nombre: string }>()
+  for (const group of groups) {
+    const nombre = group.nombre?.trim()
+    if (!nombre) continue
+    byName.set(nombre.toLowerCase(), { id: group.id, nombre })
+  }
+  for (const enrollment of enrollments) {
+    const nombre = String(enrollment.grupoCultural || "").trim()
+    if (!nombre) continue
+    const key = nombre.toLowerCase()
+    if (!byName.has(key)) {
+      byName.set(key, { id: nombre, nombre })
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
 }
 
 // Find similar users for recognition system (area-aware)
@@ -833,7 +860,9 @@ export async function getAllGroupEnrollments(area: Area): Promise<Array<{
     const enrollmentsRef = collection(db, "group_enrollments")
     const snapshot = await getDocs(enrollmentsRef)
     
-    const enrollments = snapshot.docs.map(doc => {
+    const enrollments = snapshot.docs
+      .filter((doc) => !doc.data().moduloFisioterapia && doc.data().grupoCultural !== "__FISIOTERAPIA__")
+      .map(doc => {
       const data = doc.data()
       return {
         id: doc.id,
@@ -1108,7 +1137,12 @@ export async function updateUserCodigoEstudiantil(
 }
 
 // Update user role (area-aware)
-export async function updateUserRole(area: Area, userId: string, role: string): Promise<void> {
+export async function updateUserRole(
+  area: Area,
+  userId: string,
+  role: string,
+  extras?: { esFisioterapeutaEncargado?: boolean },
+): Promise<void> {
   validateAreaSpecified(area)
   
   try {
@@ -1117,7 +1151,8 @@ export async function updateUserRole(area: Area, userId: string, role: string): 
     
     console.log("[db-router] Updating user role in area:", area, "User:", userId, "New role:", role)
     await updateDoc(userRef, {
-      rol: role
+      rol: role,
+      esFisioterapeutaEncargado: role === "FISIOTERAPEUTA" ? Boolean(extras?.esFisioterapeutaEncargado) : false,
     })
     console.log("[db-router] User role updated successfully")
   } catch (error) {

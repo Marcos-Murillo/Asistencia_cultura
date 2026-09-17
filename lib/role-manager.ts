@@ -101,6 +101,15 @@ export function getRolePermissions(
         canSwitchArea: false,
         assignedGroups: assignedGroups,
       }
+
+    case 'FISIOTERAPEUTA':
+      return {
+        canViewAllGroups: true,
+        canViewAllUsers: true,
+        canManageUsers: false,
+        canSwitchArea: false,
+        assignedGroups: assignedGroups,
+      }
     
     case 'ESTUDIANTE':
     default:

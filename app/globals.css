@@ -76,3 +76,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media (max-width: 767px) {
+  .fisioterapia-shell {
+    overflow-x: hidden;
+  }
+  .fisioterapia-shell h1 {
+    font-size: 1.05rem !important;
+    line-height: 1.25 !important;
+  }
+  .fisioterapia-shell h1 + p {
+    font-size: 0.7rem !important;
+  }
+}

@@ -305,6 +305,33 @@ function normalizeRole(value: unknown): string {
 
 export type GroupManagerAuthFailureReason = "not_found" | "wrong_role" | "no_group"
 
+export type FisioterapeutaAuthResult = {
+  user: UserProfile
+  area: Area
+  esEncargado: boolean
+}
+
+export async function verifyFisioterapeuta(
+  numeroDocumento: string,
+  correo: string,
+): Promise<FisioterapeutaAuthResult | null> {
+  try {
+    const { matches } = await findProfilesByCredentials("deporte", numeroDocumento, correo)
+    const physio = matches.find((profile) => normalizeRole(profile.data.rol) === "FISIOTERAPEUTA")
+    if (!physio) return null
+
+    const user = toUserProfile(physio.id, { ...physio.data, rol: "FISIOTERAPEUTA" })
+    return {
+      user,
+      area: "deporte",
+      esEncargado: Boolean(physio.data.esFisioterapeutaEncargado),
+    }
+  } catch (error) {
+    console.error("Error verifying fisioterapeuta:", error)
+    return null
+  }
+}
+
 export interface GroupManagerAuthResult {
   user: UserProfile
   grupoCultural: string
@@ -487,14 +514,14 @@ export async function verifyGroupManagerAnyArea(
       return {
         reason: "wrong_role",
         error:
-          "Se encontró el usuario, pero su rol no es DIRECTOR, MONITOR ni ENTRENADOR. Revisa el rol en la ficha de Usuarios.",
+          "Se encontró el usuario, pero su rol no es DIRECTOR, MONITOR, ENTRENADOR ni FISIOTERAPEUTA. Revisa el rol en la ficha de Usuarios.",
       }
     }
 
     return {
       reason: "not_found",
       error:
-        "No se encontró un director, monitor o entrenador con ese documento y correo. Verifica que coincidan exactamente con los datos del perfil (sin espacios extra).",
+        "No se encontró un director, monitor, entrenador o fisioterapeuta con ese documento y correo. Verifica que coincidan exactamente con los datos del perfil (sin espacios extra).",
     }
   } catch (error) {
     console.error("Error verifying group manager in any area:", error)

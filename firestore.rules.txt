@@ -88,6 +88,21 @@ service cloud.firestore {
     match /torneo_partidos/{id} {
       allow read, write: if true;
     }
+
+    // Fisioterapia (área deporte). El control fino de rol se aplica en la capa de aplicación
+    // (lib/fisioterapia.ts) porque el login actual no usa Firebase Auth custom claims.
+    match /fisioterapia_solicitudes/{id} {
+      allow read, write: if true;
+    }
+    match /fisioterapia_bitacora/{id} {
+      allow read, write: if true;
+    }
+    match /fisioterapia_seguimientos/{id} {
+      allow read, write: if true;
+    }
+    match /fisioterapia_meta/{id} {
+      allow read, write: if true;
+    }
   }
 }
 

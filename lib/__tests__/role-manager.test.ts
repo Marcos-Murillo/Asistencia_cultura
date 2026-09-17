@@ -87,6 +87,14 @@ describe('Role Manager', () => {
       expect(permissions.canSwitchArea).toBe(false)
       expect(permissions.assignedGroups).toEqual(['grupo-201', 'grupo-202', 'grupo-203', 'grupo-204'])
     })
+
+    test('FISIOTERAPEUTA can consult groups and athletes without managing users', () => {
+      const permissions = getRolePermissions('FISIOTERAPEUTA', 'deporte')
+      expect(permissions.canViewAllGroups).toBe(true)
+      expect(permissions.canViewAllUsers).toBe(true)
+      expect(permissions.canManageUsers).toBe(false)
+      expect(permissions.canSwitchArea).toBe(false)
+    })
     
     test('ESTUDIANTE should have no permissions', () => {
       const permissions = getRolePermissions('ESTUDIANTE', 'cultura')

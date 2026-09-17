@@ -43,6 +43,14 @@ export function isAdmin(): boolean {
 /**
  * Get assigned groups for current user
  */
+export function isFisioterapeuta(): boolean {
+  return getCurrentUserRole() === "FISIOTERAPEUTA"
+}
+
+export function isFisioterapeutaEncargado(): boolean {
+  return isFisioterapeuta() && sessionStorage.getItem("esFisioterapeutaEncargado") === "true"
+}
+
 export function getAssignedGroups(): string[] {
   const storedAll = sessionStorage.getItem("allGroups")
   if (storedAll) {

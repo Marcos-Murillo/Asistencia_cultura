@@ -74,8 +74,9 @@ export function GlobalHeader() {
   // No mostrar en páginas de login, página principal, ni páginas de manager
   const hideHeaderPaths = ["/", "/login", "/login-admin", "/login-manager", "/convocatorias", "/inscripcion-deporte", "/convocatorias-deporte"]
   const isManagerPage = pathname.startsWith("/manager/")
+  const isFisioterapiaPage = pathname.startsWith("/fisioterapia")
   
-  if (hideHeaderPaths.includes(pathname) || isManagerPage) {
+  if (hideHeaderPaths.includes(pathname) || isManagerPage || isFisioterapiaPage) {
     return null
   }
 

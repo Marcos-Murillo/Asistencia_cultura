@@ -436,6 +436,7 @@ export async function getAllEvents(): Promise<Event[]> {
     const events: Event[] = []
     snapshot.forEach((doc) => {
       const eventData = doc.data()
+      if (eventData.moduloFisioterapia) return
       events.push({
         id: doc.id,
         ...eventData,

@@ -111,7 +111,8 @@ export interface UserProfile {
   programaAcademico?: string
   area: 'cultura' | 'deporte'
   gruposAsignados?: string[]
-  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "SUPER_ADMIN"
+  rol?: "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "FISIOTERAPEUTA" | "SUPER_ADMIN"
+  esFisioterapeutaEncargado?: boolean
   createdAt: Date
   lastAttendance: Date
 }
@@ -242,7 +243,7 @@ export interface GroupManager {
   assignedBy: string
 }
 
-export type UserRole = "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "ADMIN" | "SUPER_ADMIN"
+export type UserRole = "ESTUDIANTE" | "DIRECTOR" | "MONITOR" | "ENTRENADOR" | "FISIOTERAPEUTA" | "ADMIN" | "SUPER_ADMIN"
 
 export type GroupCategory = "SEMILLERO" | "PROCESO" | "REPRESENTATIVO"
 
@@ -357,4 +358,112 @@ export interface PosicionGrupo {
   gc: number // goles en contra
   dg: number // diferencia de goles
   pts: number // puntos
+}
+
+// ============================================================================
+// FISIOTERAPIA DEPORTIVA
+// ============================================================================
+
+export type FisioterapiaSolicitudTipo =
+  | "acompanamiento"
+  | "evaluacion"
+  | "preventiva"
+  | "recuperacion"
+  | "charla"
+  | "valoracion"
+  | "otra"
+
+export type FisioterapiaSolicitudEstado =
+  | "Pendiente"
+  | "Asignada"
+  | "En proceso"
+  | "Realizada"
+  | "Cancelada"
+
+export type FisioterapiaPrioridad = "Baja" | "Media" | "Alta" | "Urgente"
+
+export type FisioterapiaBitacoraTipo = "actividad" | "atencion" | "solicitud"
+
+export type FisioterapiaSeguimientoEstado = "Pendiente" | "Realizado" | "No asistió" | "Cancelado"
+
+export interface FisioterapiaOrden {
+  descripcion: string
+  destino?: string
+  fecha: Date
+}
+
+export interface FisioterapiaSolicitud {
+  id: string
+  numero: number
+  tipo: FisioterapiaSolicitudTipo
+  grupoId?: string
+  grupoNombre: string
+  entrenadorId: string
+  entrenadorNombre: string
+  fechaSolicitada: Date
+  hora: string
+  lugar: string
+  descripcion: string
+  deportistaId?: string
+  deportistaNombre?: string
+  prioridad: FisioterapiaPrioridad
+  observaciones?: string
+  estado: FisioterapiaSolicitudEstado
+  fisioterapeutaId?: string
+  fisioterapeutaNombre?: string
+  bitacoraId?: string
+  realizado?: string
+  notasFisioterapeuta?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface FisioterapiaBitacora {
+  id: string
+  tipo: FisioterapiaBitacoraTipo
+  fecha: Date
+  hora: string
+  grupoId?: string
+  grupoNombre?: string
+  entrenadorId?: string
+  entrenadorNombre?: string
+  tipoActividad?: FisioterapiaSolicitudTipo | "acompanamiento_entrenamiento"
+  descripcion?: string
+  observaciones?: string
+  estado?: string
+  fisioterapeutaId: string
+  fisioterapeutaNombre: string
+  deportistaId?: string
+  deportistaNombre?: string
+  motivoAtencion?: string
+  tipoLesion?: string
+  zonaCorporal?: string
+  descripcionIncidente?: string
+  evaluacion?: string
+  intervencion?: string
+  recomendaciones?: string
+  requiereSeguimiento?: boolean
+  fechaSeguimiento?: Date
+  orden?: FisioterapiaOrden | null
+  solicitudId?: string
+  solicitudNumero?: number
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface FisioterapiaSeguimiento {
+  id: string
+  bitacoraId: string
+  deportistaId: string
+  deportistaNombre: string
+  grupoNombre?: string
+  lesionAtencion: string
+  fechaAtencion: Date
+  fechaProgramada: Date
+  fisioterapeutaId: string
+  fisioterapeutaNombre: string
+  estado: FisioterapiaSeguimientoEstado
+  observaciones?: string
+  createdAt: Date
+  updatedAt: Date
 }

@@ -29,6 +29,7 @@ function getRoleBadge(role: string) {
     DIRECTOR: { label: "Director", className: "bg-blue-100 text-blue-800" },
     MONITOR: { label: "Monitor", className: "bg-green-100 text-green-800" },
     ENTRENADOR: { label: "Entrenador", className: "bg-orange-100 text-orange-800" },
+    FISIOTERAPEUTA: { label: "Fisioterapeuta", className: "bg-teal-100 text-teal-800" },
   }
   const r = map[role] || { label: role || "Encargado", className: "bg-gray-100 text-gray-700" }
   return <Badge className={`text-xs ${r.className}`}>{r.label}</Badge>
