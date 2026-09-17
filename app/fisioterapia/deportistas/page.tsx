@@ -31,7 +31,7 @@ export default function DeportistasPage() {
       listDeportiveGroups(),
       listBitacora(actor),
     ]).then(([u, e, g, b]) => {
-      setUsers(u.filter((item) => item.rol !== "FISIOTERAPEUTA" && item.rol !== "ADMIN" && item.rol !== "SUPER_ADMIN"))
+      setUsers(u.filter((item) => item.rol !== "FISIOTERAPEUTA" && item.rol !== "SUPER_ADMIN"))
       setEnrollments(e)
       setGroups(g.map((item) => item.nombre))
       setBitacora(b)
