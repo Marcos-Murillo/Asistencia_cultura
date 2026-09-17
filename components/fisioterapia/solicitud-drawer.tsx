@@ -34,6 +34,7 @@ import type { FisioterapiaBitacora, FisioterapiaSolicitud, FisioterapiaSolicitud
 import { EstadoBadge, PrioridadBadge } from "./badges"
 import { AthleteHistoryDrawer } from "./athlete-history-drawer"
 import { ContactPersonDrawer } from "./contact-drawer"
+import { fisioSheetClass, fisioSheetHandleClass } from "./drawer-styles"
 
 export function SolicitudDrawer({
   open,
@@ -99,11 +100,8 @@ export function SolicitudDrawer({
   return (
     <>
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent
-          side="bottom"
-          className="h-[min(90dvh,100svh)] max-h-[90dvh] gap-0 border-white/40 bg-white/55 shadow-2xl backdrop-blur-2xl"
-        >
-          <div className="mx-auto mb-1 mt-2 h-1 w-10 rounded-full bg-slate-300/80" />
+        <DrawerContent side="bottom" className={fisioSheetClass}>
+          <div className={fisioSheetHandleClass} />
           <DrawerHeader className="pt-2">
             <DrawerTitle>Solicitud #{String(solicitud.numero).padStart(5, "0")}</DrawerTitle>
             <DrawerDescription>{TIPO_SOLICITUD_LABEL[solicitud.tipo]}</DrawerDescription>
@@ -115,12 +113,12 @@ export function SolicitudDrawer({
                 <EstadoBadge estado={solicitud.estado} />
               </div>
               <div className="grid gap-2 text-sm">
-                <p><span className="text-slate-500">Fecha:</span> {solicitud.fechaSolicitada.toLocaleDateString("es-CO")} {solicitud.hora}</p>
-                <p><span className="text-slate-500">Lugar:</span> {solicitud.lugar}</p>
-                <p><span className="text-slate-500">Grupo:</span> {solicitud.grupoNombre}</p>
-                <p><span className="text-slate-500">Entrenador:</span> {solicitud.entrenadorNombre}</p>
-                <p><span className="text-slate-500">Deportista:</span> {solicitud.deportistaNombre || "No aplica"}</p>
-                <p><span className="text-slate-500">Asignado:</span> {solicitud.fisioterapeutaNombre || "Sin asignar"}</p>
+                <p><span className="text-slate-600">Fecha:</span> {solicitud.fechaSolicitada.toLocaleDateString("es-CO")} {solicitud.hora}</p>
+                <p><span className="text-slate-600">Lugar:</span> {solicitud.lugar}</p>
+                <p><span className="text-slate-600">Grupo:</span> {solicitud.grupoNombre}</p>
+                <p><span className="text-slate-600">Entrenador:</span> {solicitud.entrenadorNombre}</p>
+                <p><span className="text-slate-600">Deportista:</span> {solicitud.deportistaNombre || "No aplica"}</p>
+                <p><span className="text-slate-600">Asignado:</span> {solicitud.fisioterapeutaNombre || "Sin asignar"}</p>
               </div>
               <p className="text-sm">{solicitud.descripcion}</p>
               {solicitud.observaciones && (
@@ -214,7 +212,7 @@ export function SolicitudDrawer({
       />
 
       <Drawer open={Boolean(detail)} onOpenChange={(v) => !v && setDetail(null)}>
-        <DrawerContent nested>
+        <DrawerContent nested side="bottom" className={fisioSheetClass}>
           <DrawerHeader>
             <DrawerTitle>Detalle de atención</DrawerTitle>
             <DrawerDescription>{detail?.tipo}</DrawerDescription>

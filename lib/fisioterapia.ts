@@ -279,7 +279,10 @@ async function nextSolicitudNumero(): Promise<number> {
   } catch (error) {
     if (!isPermissionDenied(error)) throw error
     const docs = await listFisioDocs(SOLICITUDES)
-    const max = docs.reduce((acc, item) => Math.max(acc, Number(item.data().numero || 0)), 0)
+    const max = docs.reduce((acc, item) => {
+      const data = item.data() as Record<string, unknown>
+      return Math.max(acc, Number(data.numero || 0))
+    }, 0)
     return max + 1
   }
 }

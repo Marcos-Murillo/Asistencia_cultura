@@ -32,6 +32,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { FisioterapiaBitacora, FisioterapiaBitacoraTipo } from "@/lib/types"
 import { toLocalDateKey } from "@/lib/utils"
+import { fisioSheetClass, fisioSheetHandleClass } from "@/components/fisioterapia/drawer-styles"
 import { Suspense } from "react"
 
 function BitacoraPage() {
@@ -215,8 +216,8 @@ function BitacoraPage() {
         deportistaId={historyId}
       />
       <Drawer open={Boolean(selected)} onOpenChange={(v) => !v && setSelected(null)}>
-        <DrawerContent side="bottom" className="max-h-[85dvh] gap-0 border-white/40 bg-white/70 backdrop-blur-xl">
-          <div className="mx-auto mb-1 mt-2 h-1 w-10 rounded-full bg-slate-300/80" />
+        <DrawerContent side="bottom" className={fisioSheetClass}>
+          <div className={fisioSheetHandleClass} />
           <DrawerHeader className="pt-2">
             <DrawerTitle>Detalle del registro</DrawerTitle>
             <DrawerDescription>{selected && TIPO_BITACORA_LABEL[selected.tipo]}</DrawerDescription>

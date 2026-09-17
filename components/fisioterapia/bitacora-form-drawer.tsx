@@ -22,6 +22,7 @@ import { getGroupEnrolledUsersRouter, getGroupManagers, listDeportiveGroups } fr
 import type { FisioterapiaActor } from "@/lib/fisioterapia-permissions"
 import type { FisioterapiaBitacora, FisioterapiaBitacoraTipo, UserProfile } from "@/lib/types"
 import { toLocalDateKey } from "@/lib/utils"
+import { fisioSheetClass, fisioSheetHandleClass } from "./drawer-styles"
 
 type SolicitudDefaults = Pick<
   FisioterapiaBitacora,
@@ -175,11 +176,8 @@ export function BitacoraFormDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent
-        side="bottom"
-        className="h-[min(90dvh,100svh)] max-h-[90dvh] gap-0 border-white/40 bg-white/55 shadow-2xl backdrop-blur-2xl sm:inset-x-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2"
-      >
-        <div className="mx-auto mb-1 mt-2 h-1 w-10 rounded-full bg-slate-300/80" />
+      <DrawerContent side="bottom" className={fisioSheetClass}>
+        <div className={fisioSheetHandleClass} />
         <DrawerHeader className="pb-2 pt-2">
           <DrawerTitle className="text-base">Nuevo registro</DrawerTitle>
           <DrawerDescription>Completa solo las secciones del tipo de evento.</DrawerDescription>
@@ -330,7 +328,7 @@ export function BitacoraFormDrawer({
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
           <div className="h-4" />
         </ScrollArea>
-        <DrawerFooter className="border-t border-white/40 bg-white/30 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+        <DrawerFooter className="border-t border-slate-200/80 bg-white/80 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 md:bg-white">
           <Button onClick={handleSave} disabled={saving} className="h-10 justify-center bg-teal-800 hover:bg-teal-700">
             {saving ? "Guardando..." : "Guardar registro"}
           </Button>

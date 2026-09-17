@@ -25,6 +25,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { fisioSheetClass, fisioSheetHandleClass } from "@/components/fisioterapia/drawer-styles"
 
 export default function EquipoBitacorasPage() {
   const router = useRouter()
@@ -150,8 +151,8 @@ export default function EquipoBitacorasPage() {
         </Table>
       </div>
       <Drawer open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DrawerContent side="bottom" className="max-h-[80dvh] gap-0 border-white/40 bg-white/70 backdrop-blur-xl">
-          <div className="mx-auto mb-1 mt-2 h-1 w-10 rounded-full bg-slate-300/80" />
+        <DrawerContent side="bottom" className={fisioSheetClass}>
+          <div className={fisioSheetHandleClass} />
           <DrawerHeader className="pt-2">
             <DrawerTitle>{selected?.grupoNombre || "Registro"}</DrawerTitle>
             <DrawerDescription>{selected && TIPO_BITACORA_LABEL[selected.tipo]}</DrawerDescription>

@@ -14,6 +14,7 @@ import {
 import { getUserById } from "@/lib/db-router"
 import { listFisioterapeutas } from "@/lib/fisioterapia"
 import type { UserProfile } from "@/lib/types"
+import { fisioSheetClass, fisioSheetHandleClass } from "./drawer-styles"
 
 function vcardEscape(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;")
@@ -99,14 +100,15 @@ export function ContactPersonDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent nested={nested} side="bottom" className="max-h-[85dvh] gap-0 border-white/40 bg-white/55 backdrop-blur-2xl sm:max-w-md">
+      <DrawerContent nested={nested} side="bottom" className={fisioSheetClass}>
+        <div className={fisioSheetHandleClass} />
         <DrawerHeader>
           <DrawerTitle>Contactar {roleLabel}</DrawerTitle>
           <DrawerDescription>Datos del perfil en la base de deporte.</DrawerDescription>
         </DrawerHeader>
         <ScrollArea className="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
           {loading ? (
-            <p className="text-sm text-slate-500">Cargando contacto...</p>
+            <p className="text-sm text-slate-600">Cargando contacto...</p>
           ) : (
             <div className="space-y-5">
               <div className="flex items-center gap-2 rounded-lg bg-teal-50 p-2.5">
@@ -115,14 +117,14 @@ export function ContactPersonDrawer({
                 </div>
                 <div>
                   <p className="font-semibold">{name}</p>
-                  <p className="text-xs text-slate-500">{roleLabel}</p>
+                  <p className="text-xs text-slate-600">{roleLabel}</p>
                 </div>
               </div>
               <div className="space-y-2 text-sm">
-                <p><span className="text-slate-500">Documento:</span> {user?.numeroDocumento || "No registrado"}</p>
-                <p><span className="text-slate-500">Correo:</span> {email || "No registrado"}</p>
-                <p><span className="text-slate-500">Teléfono:</span> {user?.telefono || "No registrado"}</p>
-                {user?.sede && <p><span className="text-slate-500">Sede:</span> {user.sede}</p>}
+                <p><span className="text-slate-600">Documento:</span> {user?.numeroDocumento || "No registrado"}</p>
+                <p><span className="text-slate-600">Correo:</span> {email || "No registrado"}</p>
+                <p><span className="text-slate-600">Teléfono:</span> {user?.telefono || "No registrado"}</p>
+                {user?.sede && <p><span className="text-slate-600">Sede:</span> {user.sede}</p>}
               </div>
               <div className="grid gap-2">
                 {phone && (

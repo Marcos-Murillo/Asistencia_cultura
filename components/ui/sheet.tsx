@@ -45,7 +45,7 @@ const SheetContent = React.forwardRef<
         side === "left" &&
           "inset-y-0 left-0 h-full w-full data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         side === "bottom" &&
-          "inset-x-0 bottom-0 flex h-auto max-h-[90dvh] min-h-0 w-full overflow-hidden rounded-t-2xl data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+          "inset-x-0 bottom-0 flex h-auto max-h-[90dvh] min-h-0 w-full overflow-hidden rounded-t-2xl bg-white text-slate-900 data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom md:inset-x-auto md:inset-y-0 md:bottom-auto md:right-0 md:h-full md:max-h-none md:w-full md:max-w-xl md:rounded-none md:bg-white md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right",
         nested && "z-[60] sm:max-w-lg",
         className,
       )}
@@ -75,7 +75,7 @@ const SheetTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold", className)} {...props} />
+  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold text-slate-900", className)} {...props} />
 ))
 SheetTitle.displayName = DialogPrimitive.Title.displayName
 
@@ -85,7 +85,7 @@ const SheetDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-sm text-slate-600", className)}
     {...props}
   />
 ))

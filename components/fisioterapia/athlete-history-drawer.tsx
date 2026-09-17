@@ -17,6 +17,7 @@ import { getUserById, getUserEnrollments, getGroupManagers } from "@/lib/db-rout
 import type { FisioterapiaActor } from "@/lib/fisioterapia-permissions"
 import type { FisioterapiaBitacora, UserProfile } from "@/lib/types"
 import { SeguimientoBadge, EstadoBadge } from "./badges"
+import { fisioSheetClass, fisioSheetHandleClass } from "./drawer-styles"
 
 export function AthleteHistoryDrawer({
   open,
@@ -74,7 +75,8 @@ export function AthleteHistoryDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent nested={nested} className="max-w-lg">
+      <DrawerContent nested={nested} side="bottom" className={fisioSheetClass}>
+        <div className={fisioSheetHandleClass} />
         <DrawerHeader>
           <DrawerTitle>Historial del deportista</DrawerTitle>
           <DrawerDescription>Consulta clínica. El perfil principal no se modifica aquí.</DrawerDescription>
