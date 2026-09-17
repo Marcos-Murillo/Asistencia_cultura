@@ -23,6 +23,11 @@ import type { FisioterapiaActor } from "@/lib/fisioterapia-permissions"
 import type { FisioterapiaBitacora, FisioterapiaBitacoraTipo, UserProfile } from "@/lib/types"
 import { toLocalDateKey } from "@/lib/utils"
 
+type SolicitudDefaults = Pick<
+  FisioterapiaBitacora,
+  "grupoNombre" | "entrenadorNombre" | "entrenadorId" | "deportistaId"
+>
+
 const actividadOptions = [
   { value: "acompanamiento_entrenamiento", label: "Acompañamiento de entrenamiento" },
   ...Object.entries(TIPO_SOLICITUD_LABEL).map(([value, label]) => ({ value, label })),
@@ -46,7 +51,7 @@ export function BitacoraFormDrawer({
   defaultTipo?: FisioterapiaBitacoraTipo
   solicitudId?: string
   solicitudNumero?: number
-  solicitudDefaults?: Partial<FisioterapiaBitacora>
+  solicitudDefaults?: Partial<SolicitudDefaults>
   onSaved: () => void
 }) {
   const [tipo, setTipo] = useState<FisioterapiaBitacoraTipo>(defaultTipo || "actividad")
