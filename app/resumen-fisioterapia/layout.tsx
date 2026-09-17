@@ -11,7 +11,7 @@ const tabs = [
   { href: "/resumen-fisioterapia/estadisticas", label: "Estadísticas" },
 ]
 
-export function usePlatformAdminGate() {
+function usePlatformAdminGate() {
   const router = useRouter()
   const [allowed, setAllowed] = useState(false)
 
