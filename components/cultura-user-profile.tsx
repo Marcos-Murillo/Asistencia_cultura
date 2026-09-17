@@ -31,7 +31,9 @@ import {
   Calendar,
   ChevronRight,
   Clock,
+  Dumbbell,
   Film,
+  HeartPulse,
   LogOut,
   MapPin,
   Megaphone,
@@ -52,9 +54,22 @@ import {
   getUserRealEventEnrollments,
   saveEventAttendance,
   saveRealEventAttendance,
-  updateUserCodigoEstudiantil,
 } from "@/lib/db-router"
-import type { Event, UserProfile } from "@/lib/types"
+import type { Area } from "@/lib/firebase-config"
+import {
+  ensureUserInArea,
+  mergeIdentityUser,
+  updateCodigoEstudiantilForIdentity,
+  type PortalIdentity,
+} from "@/lib/participant-identity"
+import { getParticipantFisioterapia, TIPO_BITACORA_LABEL, TIPO_SOLICITUD_LABEL } from "@/lib/fisioterapia"
+import type {
+  Event,
+  FisioterapiaBitacora,
+  FisioterapiaSeguimiento,
+  FisioterapiaSolicitud,
+  UserProfile,
+} from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type GroupActivity = {
@@ -87,12 +102,13 @@ type AvailableEnrollment = {
 }
 
 interface CulturaUserProfileProps {
-  user: UserProfile
+  identity: PortalIdentity
   showPostRegistroQuestion: boolean
   onDismissQuestion: () => void
   onLogout: () => void
-  onUserUpdated: (user: UserProfile) => void
-  gruposDisponibles: string[]
+  onIdentityUpdated: (identity: PortalIdentity) => void
+  gruposPorArea: Record<Area, string[]>
+  initialArea?: Area
 }
 
 function needsCodigoEstudiantil(user: UserProfile): boolean {
@@ -125,14 +141,17 @@ function formatDateTime(date: Date) {
 }
 
 export function CulturaUserProfile({
-  user,
+  identity,
   showPostRegistroQuestion,
   onDismissQuestion,
   onLogout,
-  onUserUpdated,
-  gruposDisponibles,
+  onIdentityUpdated,
+  gruposPorArea,
+  initialArea = "cultura",
 }: CulturaUserProfileProps) {
   const { toast } = useToast()
+  const user = identity.profile
+  const [areaActiva, setAreaActiva] = useState<Area>(initialArea)
   const [loading, setLoading] = useState(true)
   const [groups, setGroups] = useState<GroupActivity[]>([])
   const [activities, setActivities] = useState<ActivityItem[]>([])
@@ -149,38 +168,64 @@ export function CulturaUserProfile({
   const [loadingAvailable, setLoadingAvailable] = useState(false)
   const [availableItems, setAvailableItems] = useState<AvailableEnrollment[]>([])
   const [enrollingEventId, setEnrollingEventId] = useState<string | null>(null)
+  const [panel, setPanel] = useState<"cultura" | "deporte" | "fisioterapia">(initialArea)
+  const [fisioLoading, setFisioLoading] = useState(false)
+  const [fisioLoaded, setFisioLoaded] = useState(false)
+  const [fisioBitacora, setFisioBitacora] = useState<FisioterapiaBitacora[]>([])
+  const [fisioSolicitudes, setFisioSolicitudes] = useState<FisioterapiaSolicitud[]>([])
+  const [fisioSeguimientos, setFisioSeguimientos] = useState<FisioterapiaSeguimiento[]>([])
+  const [fisioOrdenes, setFisioOrdenes] = useState<
+    Array<{ descripcion: string; destino?: string; fecha: Date; bitacoraId: string; fechaAtencion: Date }>
+  >([])
 
+  const areaUser = identity[areaActiva]
+  const isDeporte = areaActiva === "deporte"
+  const areaLabel = isDeporte ? "Deporte" : "Cultura"
+  const grupoLabel = isDeporte ? "grupo deportivo" : "grupo cultural"
+  const gruposDisponibles = gruposPorArea[areaActiva] ?? []
   const enrolledGroupNames = groups.map((g) => g.grupo)
   const availableGroups = gruposDisponibles.filter((g) => !enrolledGroupNames.includes(g))
   const firstName = user.nombres.split(" ")[0]
+  const GroupIcon = isDeporte ? Dumbbell : Music
 
   async function loadProfileData() {
     setLoading(true)
     try {
+      if (!areaUser) {
+        setGroups([])
+        setActivities([])
+        return
+      }
+
+      const cinecluPromise =
+        areaActiva === "cultura"
+          ? getUserCinecluAttendance("cultura", areaUser.id)
+          : Promise.resolve([] as Awaited<ReturnType<typeof getUserCinecluAttendance>>)
+
       const [enrollments, convIds, realIds, cinecluItems] = await Promise.all([
-        getUserEnrollments("cultura", user.id),
-        getUserEventEnrollments("cultura", user.id),
-        getUserRealEventEnrollments("cultura", user.id),
-        getUserCinecluAttendance("cultura", user.id),
+        getUserEnrollments(areaActiva, areaUser.id),
+        getUserEventEnrollments(areaActiva, areaUser.id),
+        getUserRealEventEnrollments(areaActiva, areaUser.id),
+        cinecluPromise,
       ])
 
       const groupStats = await Promise.all(
         enrollments.map(async (e) => {
-          const stats = await getGroupAttendanceStats("cultura", e.grupoCultural, [user.id])
+          const stats = await getGroupAttendanceStats(areaActiva, e.grupoCultural, [areaUser.id])
           return {
             grupo: e.grupoCultural,
-            asistencias: stats[user.id] || 0,
+            asistencias: stats[areaUser.id] || 0,
             fechaInscripcion: e.fechaInscripcion,
           }
         }),
       )
 
       const convocatorias = (
-        await Promise.all(convIds.map((id) => getEventByIdRouter("cultura", id)))
+        await Promise.all(convIds.map((id) => getEventByIdRouter(areaActiva, id)))
       ).filter((e): e is Event => e !== null)
 
       const eventos = (
-        await Promise.all(realIds.map((id) => getRealEventByIdRouter("cultura", id)))
+        await Promise.all(realIds.map((id) => getRealEventByIdRouter(areaActiva, id)))
       ).filter((e): e is Event => e !== null)
 
       const activityItems: ActivityItem[] = [
@@ -236,11 +281,12 @@ export function CulturaUserProfile({
   async function loadAvailableEnrollments() {
     setLoadingAvailable(true)
     try {
+      const enrolledUserId = areaUser?.id
       const [convocatorias, eventos, convIds, realIds] = await Promise.all([
-        getActiveEvents("cultura"),
-        getActiveRealEvents("cultura"),
-        getUserEventEnrollments("cultura", user.id),
-        getUserRealEventEnrollments("cultura", user.id),
+        getActiveEvents(areaActiva),
+        getActiveRealEvents(areaActiva),
+        enrolledUserId ? getUserEventEnrollments(areaActiva, enrolledUserId) : Promise.resolve([] as string[]),
+        enrolledUserId ? getUserRealEventEnrollments(areaActiva, enrolledUserId) : Promise.resolve([] as string[]),
       ])
 
       const enrolledConv = new Set(convIds)
@@ -292,8 +338,59 @@ export function CulturaUserProfile({
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("area") === "deporte") {
+      setAreaActiva("deporte")
+      setPanel("deporte")
+      return
+    }
+    if (initialArea === "cultura" || initialArea === "deporte") {
+      setAreaActiva(initialArea)
+      setPanel(initialArea)
+    }
+  }, [initialArea])
+
+  useEffect(() => {
     loadProfileData()
-  }, [user.id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [areaActiva, areaUser?.id])
+
+  async function loadFisioData() {
+    const deportistaId = identity.deporte?.id
+    if (!deportistaId) {
+      setFisioBitacora([])
+      setFisioSolicitudes([])
+      setFisioSeguimientos([])
+      setFisioOrdenes([])
+      setFisioLoaded(true)
+      return
+    }
+    setFisioLoading(true)
+    try {
+      const data = await getParticipantFisioterapia(deportistaId)
+      setFisioBitacora(data.bitacora)
+      setFisioSolicitudes(data.solicitudes)
+      setFisioSeguimientos(data.seguimientos)
+      setFisioOrdenes(data.ordenes)
+      setFisioLoaded(true)
+    } catch (error) {
+      console.error("Error loading fisioterapia:", error)
+      toast({
+        title: "Fisioterapia",
+        description: "No se pudo cargar tu historial de fisioterapia.",
+        variant: "destructive",
+      })
+    } finally {
+      setFisioLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (panel === "fisioterapia" && !fisioLoaded && !fisioLoading) {
+      void loadFisioData()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel, identity.deporte?.id])
 
   useEffect(() => {
     if (!needsCodigoEstudiantil(user)) {
@@ -314,8 +411,8 @@ export function CulturaUserProfile({
 
     setIsSavingCodigo(true)
     try {
-      await updateUserCodigoEstudiantil("cultura", user.id, codigo)
-      onUserUpdated({ ...user, codigoEstudiantil: codigo })
+      const nextIdentity = await updateCodigoEstudiantilForIdentity(identity, codigo)
+      onIdentityUpdated(nextIdentity)
       setShowCodigoDialog(false)
       toast({
         title: "Código guardado",
@@ -329,14 +426,23 @@ export function CulturaUserProfile({
     }
   }
 
+  async function resolveAreaUser(): Promise<UserProfile> {
+    const ensured = await ensureUserInArea(areaActiva, identity.profile)
+    if (!areaUser || areaUser.id !== ensured.id) {
+      onIdentityUpdated(mergeIdentityUser(identity, areaActiva, ensured))
+    }
+    return ensured
+  }
+
   async function handleEnrollGroup() {
     if (!selectedGroup) return
     setIsEnrolling(true)
     try {
-      await enrollUserToGroup("cultura", user.id, selectedGroup)
+      const targetUser = await resolveAreaUser()
+      await enrollUserToGroup(areaActiva, targetUser.id, selectedGroup)
       toast({
         title: "Inscripción exitosa",
-        description: `Te inscribiste al grupo ${selectedGroup}`,
+        description: `Te inscribiste al ${grupoLabel} ${selectedGroup}`,
       })
       setShowGroupDialog(false)
       setSelectedGroup("")
@@ -352,10 +458,11 @@ export function CulturaUserProfile({
   async function handleEnrollEvent(item: AvailableEnrollment) {
     setEnrollingEventId(item.id)
     try {
+      const targetUser = await resolveAreaUser()
       if (item.tipo === "evento") {
-        await saveRealEventAttendance("cultura", user.id, item.id)
+        await saveRealEventAttendance(areaActiva, targetUser.id, item.id)
       } else {
-        await saveEventAttendance("cultura", user.id, item.id)
+        await saveEventAttendance(areaActiva, targetUser.id, item.id)
       }
       toast({
         title: "Inscripción exitosa",
@@ -416,6 +523,64 @@ export function CulturaUserProfile({
               <p className="text-xs sm:text-sm text-zinc-400">Hola,</p>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight truncate">{firstName}</h1>
               <p className="text-xs sm:text-sm text-zinc-400 truncate">{user.nombres}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-full border border-white/15 bg-white/5 p-0.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold sm:text-sm",
+                      panel === "cultura"
+                        ? "bg-violet-500 text-white"
+                        : "text-zinc-300 hover:text-white",
+                    )}
+                    onClick={() => {
+                      setAreaActiva("cultura")
+                      setPanel("cultura")
+                    }}
+                  >
+                    Cultura
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold sm:text-sm",
+                      panel === "deporte"
+                        ? "bg-orange-500 text-white"
+                        : "text-zinc-300 hover:text-white",
+                    )}
+                    onClick={() => {
+                      setAreaActiva("deporte")
+                      setPanel("deporte")
+                    }}
+                  >
+                    Deporte
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-full px-2 py-1 text-[10px] font-semibold sm:px-2.5 sm:text-xs",
+                      panel === "fisioterapia"
+                        ? "bg-sky-500 text-white"
+                        : "text-zinc-400 hover:text-white",
+                    )}
+                    onClick={() => setPanel("fisioterapia")}
+                  >
+                    Fisio
+                  </button>
+                </div>
+                <span
+                  className={cn(
+                    "text-[11px] sm:text-xs font-medium",
+                    panel === "fisioterapia"
+                      ? "text-sky-300"
+                      : isDeporte
+                        ? "text-orange-300"
+                        : "text-lime-300",
+                  )}
+                >
+                  {panel === "fisioterapia" ? "Estás en Fisioterapia" : `Estás en ${areaLabel}`}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -430,7 +595,7 @@ export function CulturaUserProfile({
               >
                 <p className="font-semibold text-lime-300">¿Cómo inscribirte?</p>
                 <p className="mt-1.5 leading-relaxed text-zinc-300">
-                  Pulsa el botón <span className="font-semibold text-white">⋯</span> para abrir el menú y elegir grupo cultural, convocatoria o evento.
+                  Pulsa el botón <span className="font-semibold text-white">⋯</span> para abrir el menú y elegir un {grupoLabel}, convocatoria o evento.
                 </p>
                 <div className="absolute -right-2 top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-lime-400/50 bg-zinc-900/95 sm:hidden" />
                 <div className="absolute -top-2 right-4 hidden h-3 w-3 rotate-45 border-l border-t border-lime-400/50 bg-zinc-900/95 sm:block" />
@@ -473,7 +638,7 @@ export function CulturaUserProfile({
                   }
                 >
                   <UserPlus className="mr-2 h-4 w-4" />
-                  Inscribirme a grupo
+                  Inscribirme a {grupoLabel}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className={cn(
@@ -502,7 +667,7 @@ export function CulturaUserProfile({
         {showPostRegistroQuestion && !showCodigoDialog && (
           <div className="mb-5 sm:mb-6 rounded-2xl sm:rounded-3xl border border-lime-400/30 bg-gradient-to-br from-violet-900/60 to-fuchsia-900/40 p-4 sm:p-5 backdrop-blur-sm">
             <p className="text-sm sm:text-base font-medium leading-snug">
-              ¡Tu registro quedó listo! ¿Quieres inscribirte a un grupo cultural, convocatoria o evento?
+              ¡Tu registro quedó listo! ¿Quieres inscribirte a un grupo, convocatoria o evento de Cultura o Deporte?
             </p>
             <p className="mt-2 text-xs sm:text-sm text-zinc-300">
               Mira la esquina superior derecha: el botón <span className="font-semibold text-white">⋯</span> te muestra todas las opciones de inscripción.
@@ -529,7 +694,96 @@ export function CulturaUserProfile({
           </div>
         )}
 
-        {loading ? (
+        {panel === "fisioterapia" ? (
+          <section className="rounded-2xl sm:rounded-3xl border border-sky-400/20 bg-white/5 p-4 sm:p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <HeartPulse className="h-4 w-4 text-sky-300" />
+              <h2 className="text-base sm:text-lg font-semibold">Fisioterapia</h2>
+            </div>
+            {fisioLoading ? (
+              <div className="flex h-24 items-center justify-center">
+                <div className="h-7 w-7 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+              </div>
+            ) : !identity.deporte ? (
+              <p className="text-sm text-zinc-400">
+                Aún no tienes un perfil en Deporte, así que no hay historial de fisioterapia. Inscríbete a un grupo deportivo para vincularte.
+              </p>
+            ) : fisioBitacora.length === 0 && fisioSolicitudes.length === 0 && fisioSeguimientos.length === 0 && fisioOrdenes.length === 0 ? (
+              <p className="text-sm text-zinc-400">No tienes historial, órdenes ni seguimientos de fisioterapia.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Historial</p>
+                  {fisioBitacora.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Sin atenciones registradas</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {fisioBitacora.slice(0, 5).map((item) => (
+                        <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-2.5">
+                          <p className="text-xs font-medium">
+                            {TIPO_BITACORA_LABEL[item.tipo] || item.tipo}
+                          </p>
+                          <p className="text-[11px] text-zinc-400">
+                            {formatDate(item.fecha)}
+                            {item.zonaCorporal ? ` · ${item.zonaCorporal}` : ""}
+                          </p>
+                          {item.motivoAtencion && (
+                            <p className="mt-1 line-clamp-2 text-[11px] text-zinc-300">{item.motivoAtencion}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Órdenes</p>
+                  {fisioOrdenes.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Sin órdenes</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {fisioOrdenes.slice(0, 5).map((item) => (
+                        <div key={item.bitacoraId} className="rounded-xl border border-white/10 bg-black/20 p-2.5">
+                          <p className="text-xs font-medium">{item.descripcion}</p>
+                          <p className="text-[11px] text-zinc-400">
+                            {formatDate(item.fecha)}
+                            {item.destino ? ` · ${item.destino}` : ""}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sky-300">Seguimientos</p>
+                  {fisioSeguimientos.length === 0 && fisioSolicitudes.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Sin seguimientos ni solicitudes</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {fisioSeguimientos.slice(0, 4).map((item) => (
+                        <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-2.5">
+                          <p className="text-xs font-medium">{item.lesionAtencion || "Seguimiento"}</p>
+                          <p className="text-[11px] text-zinc-400">
+                            {item.estado} · {formatDate(item.fechaProgramada)}
+                          </p>
+                        </div>
+                      ))}
+                      {fisioSolicitudes.slice(0, 3).map((item) => (
+                        <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-2.5">
+                          <p className="text-xs font-medium">
+                            {TIPO_SOLICITUD_LABEL[item.tipo] || "Solicitud"} #{item.numero}
+                          </p>
+                          <p className="text-[11px] text-zinc-400">
+                            {item.estado} · {formatDate(item.fechaSolicitada)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        ) : loading ? (
           <div className="flex h-32 sm:h-40 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-lime-400 border-t-transparent" />
           </div>
@@ -537,10 +791,10 @@ export function CulturaUserProfile({
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8 lg:items-start">
             {/* Groups section */}
             <section>
-              <h2 className="mb-3 text-base sm:text-lg font-semibold">Mis grupos</h2>
+              <h2 className="mb-3 text-base sm:text-lg font-semibold">Mis grupos de {areaLabel.toLowerCase()}</h2>
               {groups.length === 0 ? (
                 <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
-                  Aún no estás inscrito en ningún grupo cultural.
+                  Aún no estás inscrito en ningún {grupoLabel}.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -549,8 +803,15 @@ export function CulturaUserProfile({
                       key={group.grupo}
                       className="flex items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 backdrop-blur-sm"
                     >
-                      <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-violet-500/80 to-fuchsia-500/80">
-                        <Music className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl",
+                          isDeporte
+                            ? "bg-gradient-to-br from-orange-500/80 to-amber-500/80"
+                            : "bg-gradient-to-br from-violet-500/80 to-fuchsia-500/80",
+                        )}
+                      >
+                        <GroupIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm sm:text-base font-medium">{group.grupo}</p>
@@ -694,10 +955,10 @@ export function CulturaUserProfile({
                 <DialogTitle className="text-base sm:text-lg pr-6">{selectedActivity.titulo}</DialogTitle>
                 <DialogDescription className="text-zinc-400">
                   {selectedActivity.tipo === "convocatoria"
-                    ? "Convocatoria cultural"
+                    ? `Convocatoria de ${areaLabel.toLowerCase()}`
                     : selectedActivity.tipo === "cineclu"
                       ? "Proyección Cineclú"
-                      : "Evento cultural"}
+                      : `Evento de ${areaLabel.toLowerCase()}`}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 text-sm">
@@ -741,9 +1002,9 @@ export function CulturaUserProfile({
       <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
         <DialogContent className={dialogClass}>
           <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Inscribirme a un grupo</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Inscribirme a un {grupoLabel}</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Selecciona el grupo cultural al que deseas inscribirte.
+              Estás en {areaLabel}. Selecciona el {grupoLabel} al que deseas inscribirte.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -753,7 +1014,7 @@ export function CulturaUserProfile({
               </p>
             ) : (
               <div className="space-y-2">
-                <Label className="text-zinc-300">Grupo cultural</Label>
+                <Label className="text-zinc-300">{isDeporte ? "Grupo deportivo" : "Grupo cultural"}</Label>
                 <Select value={selectedGroup} onValueChange={setSelectedGroup}>
                   <SelectTrigger className="border-zinc-700 bg-zinc-800 text-white">
                     <SelectValue placeholder="Selecciona un grupo" />
@@ -797,7 +1058,7 @@ export function CulturaUserProfile({
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">Inscribirme a convocatoria o evento</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Selecciona una convocatoria o evento disponible para inscribirte.
+              Estás en {areaLabel}. Selecciona una convocatoria o evento disponible para inscribirte.
             </DialogDescription>
           </DialogHeader>
 

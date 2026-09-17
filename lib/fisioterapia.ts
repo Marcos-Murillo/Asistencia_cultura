@@ -460,6 +460,27 @@ export async function listBitacora(actor: FisioterapiaActor): Promise<Fisioterap
   return items.sort((a, b) => b.fecha.getTime() - a.fecha.getTime())
 }
 
+export async function listAllBitacoraRecords(): Promise<FisioterapiaBitacora[]> {
+  const snap = await listFisioDocs(BITACORA)
+  return snap
+    .map((item) => toBitacora(item.id, item.data() as Record<string, unknown>))
+    .sort((a, b) => b.fecha.getTime() - a.fecha.getTime())
+}
+
+export async function listAllSolicitudRecords(): Promise<FisioterapiaSolicitud[]> {
+  const snap = await listFisioDocs(SOLICITUDES)
+  return snap
+    .map((item) => toSolicitud(item.id, item.data() as Record<string, unknown>))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+}
+
+export async function listAllSeguimientoRecords(): Promise<FisioterapiaSeguimiento[]> {
+  const snap = await listFisioDocs(SEGUIMIENTOS)
+  return snap
+    .map((item) => toSeguimiento(item.id, item.data() as Record<string, unknown>))
+    .sort((a, b) => a.fechaProgramada.getTime() - b.fechaProgramada.getTime())
+}
+
 export async function finalizarSolicitudEnBitacora(
   actor: FisioterapiaActor,
   solicitudId: string,
@@ -547,6 +568,57 @@ export async function getAthleteHistory(
     bitacora: bitacora.filter((item) => item.deportistaId === deportistaId),
     solicitudes: solicitudes.filter((item) => item.deportistaId === deportistaId),
     seguimientos: seguimientos.filter((item) => item.deportistaId === deportistaId),
+  }
+}
+
+async function listFisioByDeportista(col: string, deportistaId: string) {
+  try {
+    const snap = await getDocs(query(collection(db(), col), where("deportistaId", "==", deportistaId)))
+    if (!snap.empty) return snap.docs
+  } catch (error) {
+    if (!isPermissionDenied(error)) {
+      console.warn("[fisioterapia] query by deportistaId failed, falling back:", error)
+    }
+  }
+  const all = await listFisioDocs(col)
+  return all.filter((item) => String(item.data().deportistaId || "") === deportistaId)
+}
+
+export async function getParticipantFisioterapia(deportistaId: string): Promise<{
+  bitacora: FisioterapiaBitacora[]
+  solicitudes: FisioterapiaSolicitud[]
+  seguimientos: FisioterapiaSeguimiento[]
+  ordenes: Array<FisioterapiaOrden & { bitacoraId: string; fechaAtencion: Date }>
+}> {
+  if (!deportistaId) {
+    return { bitacora: [], solicitudes: [], seguimientos: [], ordenes: [] }
+  }
+
+  const [solicitudDocs, bitacoraDocs, seguimientoDocs] = await Promise.all([
+    listFisioByDeportista(SOLICITUDES, deportistaId),
+    listFisioByDeportista(BITACORA, deportistaId),
+    listFisioByDeportista(SEGUIMIENTOS, deportistaId),
+  ])
+
+  const solicitudes = solicitudDocs.map((item) => toSolicitud(item.id, item.data() as Record<string, unknown>))
+  const bitacora = bitacoraDocs.map((item) => toBitacora(item.id, item.data() as Record<string, unknown>))
+  const seguimientos = seguimientoDocs.map((item) => toSeguimiento(item.id, item.data() as Record<string, unknown>))
+  const ordenes = bitacora
+    .filter((item) => item.orden && item.orden.descripcion)
+    .map((item) => ({
+      descripcion: item.orden!.descripcion,
+      destino: item.orden!.destino,
+      fecha: item.orden!.fecha,
+      bitacoraId: item.id,
+      fechaAtencion: item.fecha,
+    }))
+    .sort((a, b) => b.fecha.getTime() - a.fecha.getTime())
+
+  return {
+    bitacora: bitacora.sort((a, b) => b.fecha.getTime() - a.fecha.getTime()),
+    solicitudes: solicitudes.sort((a, b) => b.fechaSolicitada.getTime() - a.fechaSolicitada.getTime()),
+    seguimientos: seguimientos.sort((a, b) => b.fechaProgramada.getTime() - a.fechaProgramada.getTime()),
+    ordenes,
   }
 }
 

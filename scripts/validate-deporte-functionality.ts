@@ -79,10 +79,12 @@ function printResults() {
 // ==================== VALIDACIONES ====================
 
 function validateDeportePageExists(): void {
-  const category = '1. Página de Inscripción Deporte'
-  const pagePath = resolve(process.cwd(), 'app/inscripcion-deporte/page.tsx')
+  const category = '1. Portal de participante (Deporte)'
+  const redirectPath = resolve(process.cwd(), 'app/inscripcion-deporte/page.tsx')
+  const profilePath = resolve(process.cwd(), 'components/cultura-user-profile.tsx')
+  const identityPath = resolve(process.cwd(), 'lib/participant-identity.ts')
   
-  if (existsSync(pagePath)) {
+  if (existsSync(redirectPath)) {
     addResult(category, 'Archivo existe', true, 'La página app/inscripcion-deporte/page.tsx existe')
   } else {
     addResult(category, 'Archivo existe', false, 'La página app/inscripcion-deporte/page.tsx NO existe')
@@ -90,152 +92,52 @@ function validateDeportePageExists(): void {
   }
 
   try {
-    const content = readFileSync(pagePath, 'utf-8')
-    
-    // Verificar que usa area='deporte'
-    const areaDeporteMatches = content.match(/area:\s*['"]deporte['"]/g) || []
-    if (areaDeporteMatches.length > 0) {
-      addResult(
-        category,
-        'Usa area="deporte"',
-        true,
-        `La página usa area='deporte' correctamente (${areaDeporteMatches.length} ocurrencias)`
-      )
+    const redirectContent = readFileSync(redirectPath, 'utf-8')
+    const profileContent = existsSync(profilePath) ? readFileSync(profilePath, 'utf-8') : ''
+    const identityContent = existsSync(identityPath) ? readFileSync(identityPath, 'utf-8') : ''
+
+    if (redirectContent.includes('/?area=deporte')) {
+      addResult(category, 'Redirect a portal unificado', true, 'inscripcion-deporte redirige a /?area=deporte')
     } else {
-      addResult(
-        category,
-        'Usa area="deporte"',
-        false,
-        'La página NO usa area="deporte" en las operaciones'
-      )
+      addResult(category, 'Redirect a portal unificado', false, 'inscripcion-deporte NO redirige a /?area=deporte')
     }
 
-    // Verificar que importa GRUPOS_DEPORTIVOS
-    if (content.includes('GRUPOS_DEPORTIVOS')) {
-      addResult(
-        category,
-        'Importa GRUPOS_DEPORTIVOS',
-        true,
-        'La página importa y usa GRUPOS_DEPORTIVOS de lib/data.ts'
-      )
+    if (profileContent.includes('areaActiva') && profileContent.includes('deporte')) {
+      addResult(category, 'Usa area="deporte"', true, 'El perfil del participante enruta inscripciones por área activa')
     } else {
-      addResult(
-        category,
-        'Importa GRUPOS_DEPORTIVOS',
-        false,
-        'La página NO importa GRUPOS_DEPORTIVOS'
-      )
+      addResult(category, 'Usa area="deporte"', false, 'El perfil NO distingue el área deporte')
     }
 
-    // Verificar que usa funciones de db-router con area
-    const dbRouterFunctions = [
-      'saveUserProfile',
-      'findSimilarUsers',
-    ]
-    
-    let allFunctionsUsed = true
-    const missingFunctions: string[] = []
-    
-    dbRouterFunctions.forEach(func => {
-      const regex = new RegExp(`${func}\\s*\\(\\s*['"]deporte['"]`, 'g')
-      if (!regex.test(content)) {
-        allFunctionsUsed = false
-        missingFunctions.push(func)
-      }
-    })
-
-    if (allFunctionsUsed) {
-      addResult(
-        category,
-        'Usa funciones de db-router con area',
-        true,
-        'Todas las funciones de db-router se llaman con area="deporte"'
-      )
+    if (identityContent.includes('ensureUserInArea')) {
+      addResult(category, 'ensureUserInArea', true, 'Hay réplica lazy del perfil hacia la BD destino')
     } else {
-      addResult(
-        category,
-        'Usa funciones de db-router con area',
-        false,
-        'Algunas funciones no usan area="deporte"',
-        `Funciones faltantes: ${missingFunctions.join(', ')}`
-      )
+      addResult(category, 'ensureUserInArea', false, 'Falta ensureUserInArea')
     }
 
-    // Verificar campo código estudiantil
-    if (content.includes('codigoEstudiantil')) {
-      addResult(
-        category,
-        'Campo código estudiantil presente',
-        true,
-        'El campo codigoEstudiantil está presente en el formulario'
-      )
+    if (profileContent.includes('enrollUserToGroup')) {
+      addResult(category, 'Usa enrollUserToGroup', true, 'El portal usa enrollUserToGroup para inscribir usuarios')
     } else {
-      addResult(
-        category,
-        'Campo código estudiantil presente',
-        false,
-        'El campo codigoEstudiantil NO está presente en el formulario'
-      )
+      addResult(category, 'Usa enrollUserToGroup', false, 'El portal NO usa enrollUserToGroup')
     }
 
-    // Verificar que usa enrollUserToGroup
-    if (content.includes('enrollUserToGroup')) {
-      addResult(
-        category,
-        'Usa enrollUserToGroup',
-        true,
-        'La página usa enrollUserToGroup para inscribir usuarios'
-      )
+    if (profileContent.includes('getUserEnrollments')) {
+      addResult(category, 'Usa getUserEnrollments', true, 'El portal usa getUserEnrollments')
     } else {
-      addResult(
-        category,
-        'Usa enrollUserToGroup',
-        false,
-        'La página NO usa enrollUserToGroup'
-      )
+      addResult(category, 'Usa getUserEnrollments', false, 'El portal NO usa getUserEnrollments')
     }
 
-    // Verificar que usa getUserEnrollments
-    if (content.includes('getUserEnrollments')) {
-      addResult(
-        category,
-        'Usa getUserEnrollments',
-        true,
-        'La página usa getUserEnrollments para obtener inscripciones'
-      )
+    if (profileContent.includes("Estás en") && profileContent.includes("Deporte")) {
+      addResult(category, "Guía de área visible", true, "El portal indica cuándo el participante está en Deporte")
     } else {
-      addResult(
-        category,
-        'Usa getUserEnrollments',
-        false,
-        'La página NO usa getUserEnrollments'
-      )
+      addResult(category, "Guía de área visible", false, "El portal no muestra claramente el área Deporte")
     }
-
-    // Verificar título correcto
-    if (content.includes('Grupos Deportivos') || content.includes('Deporte')) {
-      addResult(
-        category,
-        'Título apropiado',
-        true,
-        'La página tiene un título apropiado para Deporte'
-      )
-    } else {
-      addResult(
-        category,
-        'Título apropiado',
-        false,
-        'La página NO tiene un título apropiado para Deporte'
-      )
-    }
-
   } catch (error) {
     addResult(
       category,
-      'Lectura del archivo',
+      "Lectura del archivo",
       false,
-      'Error al leer el archivo de la página',
-      error instanceof Error ? error.message : String(error)
+      "Error al leer el archivo de la página",
+      error instanceof Error ? error.message : String(error),
     )
   }
 }

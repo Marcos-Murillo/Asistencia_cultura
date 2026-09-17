@@ -20,7 +20,8 @@ import {
   UserCog,
   Bell,
   ListChecks,
-  Trophy
+  Trophy,
+  HeartPulse,
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
@@ -65,6 +66,11 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
     { icon: ListChecks, label: "Representaciones", path: "/representaciones" },
     { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]
+
+  const fisioterapiaItem =
+    (area === "deporte" && isAdmin) || isSuperAdmin
+      ? [{ icon: HeartPulse, label: "Fisioterapia", path: "/resumen-fisioterapia" }]
+      : []
 
   // Torneos: solo deporte + admin/superadmin, o superadmin en cualquier área
   const torneosItem = (area === "deporte" && isAdmin) || isSuperAdmin
@@ -112,7 +118,7 @@ export function GlobalSidebar({ isOpen, onToggle }: GlobalSidebarProps) {
         <nav className="p-4 space-y-1 overflow-y-auto h-[calc(100vh-73px)]">
           {/* Páginas Generales */}
           <div className="space-y-1">
-            {[...generalNavItems, ...torneosItem].map((item) => {
+            {[...generalNavItems, ...fisioterapiaItem, ...torneosItem].map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.path || (item.path !== "/" && pathname.startsWith(item.path))
               

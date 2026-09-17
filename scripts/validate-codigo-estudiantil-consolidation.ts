@@ -42,7 +42,7 @@ if (typesContent.includes('codigoEstudiantil?: string')) {
 console.log('\n✓ Step 2: Checking form files...')
 const formFiles = [
   'app/page.tsx',
-  'app/inscripcion-deporte/page.tsx',
+  'components/cultura-user-profile.tsx',
   'app/convocatorias/page.tsx'
 ]
 
@@ -74,14 +74,14 @@ for (const file of formFiles) {
 
 // Test 3: Check that EGRESADO can enter codigoEstudiantil
 console.log('\n✓ Step 3: Checking EGRESADO can enter codigoEstudiantil...')
-const deportePagePath = path.join(process.cwd(), 'app/inscripcion-deporte/page.tsx')
+const deportePagePath = path.join(process.cwd(), 'app/page.tsx')
 const deporteContent = fs.readFileSync(deportePagePath, 'utf-8')
 
 if (deporteContent.includes('formData.estamento === "EGRESADO"') && 
     deporteContent.includes('codigoEstudiantil')) {
-  console.log('  ✓ EGRESADO can enter codigoEstudiantil in deporte form')
+  console.log('  ✓ EGRESADO can enter codigoEstudiantil in the unified participant form')
 } else {
-  console.log('  ✗ EGRESADO cannot enter codigoEstudiantil in deporte form')
+  console.log('  ✗ EGRESADO cannot enter codigoEstudiantil in the unified participant form')
   allPassed = false
 }
 

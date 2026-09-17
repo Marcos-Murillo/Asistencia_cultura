@@ -25,16 +25,25 @@ import {
 } from "@/lib/data"
 import {
   saveUserProfile,
-  findSimilarUsers,
   getAllCulturalGroups as getAllCulturalGroupsRouter,
-  getUserByNumeroDocumento,
 } from "@/lib/db-router"
+import {
+  findSimilarUsersBothAreas,
+  identityFromUser,
+  loginParticipant,
+  lookupParticipantByDocumento,
+  type PortalIdentity,
+} from "@/lib/participant-identity"
+import type { Area } from "@/lib/firebase-config"
 import type { FormData, SimilarUser, UserProfile } from "@/lib/types"
 
 export default function RegistroAsistencia() {
   const { toast } = useToast()
-  const [gruposCulturales, setGruposCulturales] = useState<string[]>([])
-  const [loadingGroups, setLoadingGroups] = useState(true)
+  const [gruposPorArea, setGruposPorArea] = useState<{ cultura: string[]; deporte: string[] }>({
+    cultura: [],
+    deporte: [],
+  })
+  const [, setLoadingGroups] = useState(true)
   const [formData, setFormData] = useState<FormData>({
     nombres: "",
     correo: "",
@@ -57,7 +66,7 @@ export default function RegistroAsistencia() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [error, setError] = useState("")
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
+  const [identity, setIdentity] = useState<PortalIdentity | null>(null)
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -66,29 +75,31 @@ export default function RegistroAsistencia() {
   const [loginCorreo, setLoginCorreo] = useState("")
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [showPostRegistroQuestion, setShowPostRegistroQuestion] = useState(false)
+  const [registroArea, setRegistroArea] = useState<Area | "">("")
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const requiresFacultyOnly = isDocenteEstamento(formData.estamento)
-  const totalSteps = (requiresAcademicInfo || requiresFacultyOnly) ? 3 : 2
+  const areaStep = (requiresAcademicInfo || requiresFacultyOnly) ? 4 : 3
+  const totalSteps = areaStep
 
-  // Cargar grupos culturales desde la base de datos
+  // Cargar grupos de cultura y deporte
   useEffect(() => {
     const loadGroups = async () => {
       try {
         setLoadingGroups(true)
-        console.log("[RegistroAsistencia] Loading groups from database for area: cultura")
-        const groups = await getAllCulturalGroupsRouter('cultura')
-        const groupNames = groups
-          .filter(g => g.activo) // Solo grupos activos
-          .map(g => g.nombre)
-          .sort()
-        console.log("[RegistroAsistencia] Loaded", groupNames.length, "active groups")
-        setGruposCulturales(groupNames)
+        const [culturaGroups, deporteGroups] = await Promise.all([
+          getAllCulturalGroupsRouter("cultura"),
+          getAllCulturalGroupsRouter("deporte"),
+        ])
+        setGruposPorArea({
+          cultura: culturaGroups.filter((g) => g.activo).map((g) => g.nombre).sort(),
+          deporte: deporteGroups.filter((g) => g.activo).map((g) => g.nombre).sort(),
+        })
       } catch (error) {
         console.error("[RegistroAsistencia] Error loading groups:", error)
         toast({
           title: "Error",
-          description: "No se pudieron cargar los grupos culturales. Por favor recarga la página.",
+          description: "No se pudieron cargar los grupos. Por favor recarga la página.",
           variant: "destructive",
         })
       } finally {
@@ -104,27 +115,17 @@ export default function RegistroAsistencia() {
     setError("")
     setIsLoggingIn(true)
     try {
-      const user = await getUserByNumeroDocumento("cultura", loginDocumento.trim())
-      if (!user) {
-        setError("No encontramos un usuario con ese número de documento. Si no tienes un usuario, selecciona “No tengo un usuario”.")
-        return
-      }
-
-      const correoOk = user.correo?.toLowerCase?.() === loginCorreo.trim().toLowerCase()
-      if (!correoOk) {
-        setError("El correo no coincide con el registrado para ese documento. Verifica e intenta nuevamente.")
-        return
-      }
-
-      setSelectedUser(user)
+      const nextIdentity = await loginParticipant(loginDocumento, loginCorreo)
+      setIdentity(nextIdentity)
       setAuthMode("perfil")
       setShowPostRegistroQuestion(false)
       toast({
         title: "Ingreso exitoso",
-        description: `¡Hola ${user.nombres}!`,
+        description: `¡Hola ${nextIdentity.profile.nombres}!`,
       })
     } catch (err) {
-      setError("No fue posible iniciar sesión. Intenta nuevamente.")
+      const message = err instanceof Error ? err.message : "No fue posible iniciar sesión. Intenta nuevamente."
+      setError(message)
     } finally {
       setIsLoggingIn(false)
     }
@@ -140,8 +141,7 @@ export default function RegistroAsistencia() {
       ) {
         setIsCheckingSimilarity(true)
         try {
-          const similar = await findSimilarUsers(
-            'cultura',
+          const similar = await findSimilarUsersBothAreas(
             formData.nombres,
             formData.correo,
             formData.numeroDocumento,
@@ -193,19 +193,26 @@ export default function RegistroAsistencia() {
   }
 
   const handleSelectUser = async (user: UserProfile) => {
-    setSelectedUser(user)
-    setShowSuggestions(false)
-    setAuthMode("perfil")
-    setShowPostRegistroQuestion(false)
-    toast({
-      title: "Usuario reconocido",
-      description: `¡Hola ${user.nombres}! Ya tienes una cuenta registrada.`,
-    })
+    try {
+      const nextIdentity = await identityFromUser(user)
+      setIdentity(nextIdentity)
+      setShowSuggestions(false)
+      setAuthMode("perfil")
+      setShowPostRegistroQuestion(false)
+      toast({
+        title: "Usuario reconocido",
+        description: `¡Hola ${nextIdentity.profile.nombres}! Ya tienes una cuenta registrada.`,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No fue posible abrir tu perfil."
+      setError(message)
+      toast({ title: "No se pudo ingresar", description: message, variant: "destructive" })
+    }
   }
 
   const handleDismissSuggestions = () => {
     setShowSuggestions(false)
-    setSelectedUser(null)
+    setIdentity(null)
   }
 
   const validateStep = (step: number): boolean => {
@@ -225,16 +232,20 @@ export default function RegistroAsistencia() {
       case 2:
         return !!(formData.sede && formData.estamento)
       case 3:
-        if (formData.estamento === "ESTUDIANTE") {
-          return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
+        if (requiresAcademicInfo) {
+          if (formData.estamento === "ESTUDIANTE") {
+            return !!(formData.codigoEstudiantil && formData.codigoEstudiantil.length === 9 && formData.facultad && formData.programaAcademico)
+          }
+          if (formData.estamento === "EGRESADO") {
+            return !!(formData.facultad && formData.programaAcademico)
+          }
         }
-        if (formData.estamento === "EGRESADO") {
-          return !!(formData.facultad && formData.programaAcademico)
-        }
-        if (isDocenteEstamento(formData.estamento)) {
+        if (requiresFacultyOnly) {
           return !!formData.facultad
         }
-        return true
+        return registroArea === "cultura" || registroArea === "deporte"
+      case 4:
+        return registroArea === "cultura" || registroArea === "deporte"
       default:
         return false
     }
@@ -266,6 +277,15 @@ export default function RegistroAsistencia() {
       return
     }
 
+    if (!registroArea) {
+      toast({
+        title: "Elige un área",
+        description: "Indica si perteneces a Cultura o a Deporte para guardar tu registro.",
+        variant: "destructive",
+      })
+      return
+    }
+
     if (isSubmitting) return
 
     setError("")
@@ -273,7 +293,7 @@ export default function RegistroAsistencia() {
 
     try {
       const userProfile = {
-        area: 'cultura' as const,
+        area: registroArea,
         nombres: formData.nombres,
         correo: formData.correo,
         genero: formData.genero as UserProfile["genero"],
@@ -300,11 +320,28 @@ export default function RegistroAsistencia() {
           }),
       }
 
-      const userId = await saveUserProfile('cultura', userProfile)
+      const existing = await lookupParticipantByDocumento(formData.numeroDocumento)
+      if (existing.status === "conflict") {
+        throw new Error(
+          "Este documento ya existe en Cultura y Deporte con correos distintos. Escribe a bienestar para unificar tu cuenta.",
+        )
+      }
+      if (existing.status === "found") {
+        setIdentity(existing.identity)
+        setAuthMode("perfil")
+        setShowPostRegistroQuestion(false)
+        toast({
+          title: "Ya tienes cuenta",
+          description: "Encontramos tu perfil. Ingresaste con el documento registrado.",
+        })
+        return
+      }
+
+      const userId = await saveUserProfile(registroArea, userProfile)
 
       const nextUser: UserProfile = {
         id: userId,
-        area: "cultura",
+        area: registroArea,
         nombres: formData.nombres,
         correo: formData.correo,
         genero: formData.genero as UserProfile["genero"],
@@ -322,7 +359,13 @@ export default function RegistroAsistencia() {
         lastAttendance: new Date(),
       }
 
-      setSelectedUser(nextUser)
+      setIdentity({
+        documento: nextUser.numeroDocumento,
+        correo: nextUser.correo,
+        profile: nextUser,
+        cultura: registroArea === "cultura" ? nextUser : undefined,
+        deporte: registroArea === "deporte" ? nextUser : undefined,
+      })
       setAuthMode("perfil")
       setShowPostRegistroQuestion(true)
       toast({
@@ -356,7 +399,7 @@ export default function RegistroAsistencia() {
     return (
       <div className="space-y-6">
         <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
-          <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">Sistema de Gestión Cultural</CardTitle>
+          <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">Cultura y Deporte</CardTitle>
           <CardDescription className="text-base md:text-lg">Ingresa con tu documento y correo</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 md:space-y-6 px-4 md:px-6">
@@ -415,18 +458,26 @@ export default function RegistroAsistencia() {
   }
 
   const renderPerfil = () => {
-    if (!selectedUser) return null
+    if (!identity) return null
 
     return (
       <CulturaUserProfile
-        user={selectedUser}
+        identity={identity}
         showPostRegistroQuestion={showPostRegistroQuestion}
         onDismissQuestion={() => setShowPostRegistroQuestion(false)}
-        onUserUpdated={(updated) => setSelectedUser(updated)}
-        gruposDisponibles={gruposCulturales}
+        onIdentityUpdated={setIdentity}
+        gruposPorArea={gruposPorArea}
+        initialArea={
+          registroArea === "cultura" || registroArea === "deporte"
+            ? registroArea
+            : identity.deporte && !identity.cultura
+              ? "deporte"
+              : "cultura"
+        }
         onLogout={() => {
           setAuthMode("login")
-          setSelectedUser(null)
+          setIdentity(null)
+          setRegistroArea("")
           setShowPostRegistroQuestion(false)
           setError("")
         }}
@@ -735,14 +786,52 @@ export default function RegistroAsistencia() {
             </div>
           )
         }
-        return null
+        return renderAreaChoice()
+
+      case 4:
+        return renderAreaChoice()
 
       default:
         return null
     }
   }
 
+  const renderAreaChoice = () => (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600 text-center">
+        Esta elección define dónde se guarda tu perfil. Si después te inscribes en la otra área, se copiará tu información.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => setRegistroArea("cultura")}
+          className={`rounded-xl border-2 p-5 text-left transition ${
+            registroArea === "cultura"
+              ? "border-violet-600 bg-violet-50"
+              : "border-gray-200 bg-white hover:border-violet-300"
+          }`}
+        >
+          <p className="text-lg font-semibold text-gray-900">Cultura</p>
+          <p className="mt-1 text-sm text-gray-600">Grupos, convocatorias y eventos culturales</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setRegistroArea("deporte")}
+          className={`rounded-xl border-2 p-5 text-left transition ${
+            registroArea === "deporte"
+              ? "border-orange-500 bg-orange-50"
+              : "border-gray-200 bg-white hover:border-orange-300"
+          }`}
+        >
+          <p className="text-lg font-semibold text-gray-900">Deporte</p>
+          <p className="mt-1 text-sm text-gray-600">Grupos, convocatorias y eventos deportivos</p>
+        </button>
+      </div>
+    </div>
+  )
+
   const getStepTitle = () => {
+    if (currentStep === areaStep) return "Área a la que perteneces"
     switch (currentStep) {
       case 1:
         return "Información Personal"
@@ -773,7 +862,7 @@ export default function RegistroAsistencia() {
                   <CardTitle className="text-xl md:text-2xl font-bold text-gray-900">
                     Registro de Usuario
                   </CardTitle>
-                  <CardDescription className="text-base md:text-lg">Sistema de Gestión Cultural — Universidad del Valle</CardDescription>
+                    <CardDescription className="text-base md:text-lg">Cultura y Deporte — Universidad del Valle</CardDescription>
                   <div className="flex justify-center mt-3 md:mt-4">
                     <div className="flex space-x-2">
                       {Array.from({ length: totalSteps }, (_, i) => (
