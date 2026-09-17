@@ -68,13 +68,14 @@ export function SolicitudDrawer({
   )
 
   if (!solicitud) return null
+  const current = solicitud
 
   async function handleAssign() {
     const selected = fisioterapeutas.find((item) => item.id === fisioId)
     if (!selected) return
     setSaving(true)
     try {
-      await assignSolicitud(actor, solicitud.id, selected.id, selected.nombres)
+      await assignSolicitud(actor, current.id, selected.id, selected.nombres)
       onChanged()
     } finally {
       setSaving(false)
@@ -85,9 +86,9 @@ export function SolicitudDrawer({
     setSaving(true)
     try {
       if (estado === "Realizada") {
-        await finalizarSolicitudEnBitacora(actor, solicitud.id, realizado || "Actividad realizada")
+        await finalizarSolicitudEnBitacora(actor, current.id, realizado || "Actividad realizada")
       } else {
-        await updateSolicitudEstado(actor, solicitud.id, estado)
+        await updateSolicitudEstado(actor, current.id, estado)
       }
       onChanged()
     } finally {
