@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -362,7 +362,7 @@ export default function ConvocatoriasPage() {
 
       const selectedConvocatoria = activeEvents.find((item) => item.id === formData.eventoId)
       const extraQuestions = getEventQuestions(selectedConvocatoria)
-      const alreadyEnrolled = userEventEnrollments.includes(formData.eventoId)
+      const alreadyEnrolled = Boolean(formData.eventoId && userEventEnrollments.includes(formData.eventoId))
       if (extraQuestions.length > 0) {
         const answers = await buildInscriptionAnswers({
           area,
@@ -988,7 +988,7 @@ export default function ConvocatoriasPage() {
                       >
                         {isSubmitting
                           ? (uploadStatus || "Guardando...")
-                          : userEventEnrollments.includes(formData.eventoId)
+                          : Boolean(formData.eventoId && userEventEnrollments.includes(formData.eventoId))
                             ? "Guardar cambios del formulario"
                             : "Confirmar Inscripción"}
                       </Button>
