@@ -117,7 +117,7 @@ export default function EventoAsistentesPage() {
       )
       const formResponses = new Map<string, EventFormResponse>()
       for (const map of formResponseMaps) {
-        for (const [userId, response] of map.entries()) {
+        for (const [userId, response] of Array.from(map.entries())) {
           const key = String(userId)
           const existing = formResponses.get(key)
           if (!existing || response.submittedAt > existing.submittedAt) {
@@ -138,7 +138,7 @@ export default function EventoAsistentesPage() {
         formResponse: formResponses.get(String(attendee.id)),
       }))
 
-      for (const [userId, response] of formResponses.entries()) {
+      for (const [userId, response] of Array.from(formResponses.entries())) {
         if (!merged.some((attendee) => String(attendee.id) === String(userId))) {
           merged.push({
             id: userId,
