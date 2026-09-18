@@ -37,6 +37,7 @@
     "date-fns": "^4.1.0",
     "firebase": "^12.1.0",
     "geist": "^1.4.2",
+    "googleapis": "^181.0.0",
     "groq-sdk": "^0.37.0",
     "jose": "^6.2.2",
     "jsonwebtoken": "^9.0.3",

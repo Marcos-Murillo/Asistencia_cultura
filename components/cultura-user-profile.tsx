@@ -54,8 +54,13 @@ import {
   getUserRealEventEnrollments,
   saveEventAttendance,
   saveRealEventAttendance,
+  saveEventFormResponse,
+  getEventFormResponseForUser,
 } from "@/lib/db-router"
 import type { Area } from "@/lib/firebase-config"
+import { draftFromAnswers, emptyDraft, getEventQuestions, validateInscriptionAnswers, type InscriptionAnswerDraft } from "@/lib/inscription-form"
+import { InscriptionFormFields } from "@/components/inscription-form-fields"
+import { buildInscriptionAnswers } from "@/lib/submit-inscription-answers"
 import {
   ensureUserInArea,
   mergeIdentityUser,
@@ -65,6 +70,7 @@ import {
 import { getParticipantFisioterapia, TIPO_BITACORA_LABEL, TIPO_SOLICITUD_LABEL } from "@/lib/fisioterapia"
 import type {
   Event,
+  EventInscriptionForm,
   FisioterapiaBitacora,
   FisioterapiaSeguimiento,
   FisioterapiaSolicitud,
@@ -99,6 +105,8 @@ type AvailableEnrollment = {
   fechaEvento?: Date
   fechaApertura: Date
   fechaVencimiento: Date
+  inscriptionForm?: EventInscriptionForm
+  alreadyEnrolled?: boolean
 }
 
 interface CulturaUserProfileProps {
@@ -168,6 +176,9 @@ export function CulturaUserProfile({
   const [loadingAvailable, setLoadingAvailable] = useState(false)
   const [availableItems, setAvailableItems] = useState<AvailableEnrollment[]>([])
   const [enrollingEventId, setEnrollingEventId] = useState<string | null>(null)
+  const [formItem, setFormItem] = useState<AvailableEnrollment | null>(null)
+  const [inscriptionDraft, setInscriptionDraft] = useState<Record<string, InscriptionAnswerDraft>>({})
+  const [uploadStatus, setUploadStatus] = useState("")
   const [panel, setPanel] = useState<"cultura" | "deporte" | "fisioterapia">(initialArea)
   const [fisioLoading, setFisioLoading] = useState(false)
   const [fisioLoaded, setFisioLoaded] = useState(false)
@@ -294,7 +305,7 @@ export function CulturaUserProfile({
 
       const items: AvailableEnrollment[] = [
         ...convocatorias
-          .filter((e) => !enrolledConv.has(e.id))
+          .filter((e) => !enrolledConv.has(e.id) || getEventQuestions(e).length > 0)
           .map((e) => ({
             id: e.id,
             tipo: "convocatoria" as const,
@@ -304,6 +315,8 @@ export function CulturaUserProfile({
             fechaEvento: e.fechaEvento,
             fechaApertura: e.fechaApertura,
             fechaVencimiento: e.fechaVencimiento,
+            inscriptionForm: e.inscriptionForm,
+            alreadyEnrolled: enrolledConv.has(e.id),
           })),
         ...eventos
           .filter((e) => !enrolledReal.has(e.id))
@@ -456,18 +469,57 @@ export function CulturaUserProfile({
   }
 
   async function handleEnrollEvent(item: AvailableEnrollment) {
+    const questions = item.tipo === "convocatoria" ? getEventQuestions({ inscriptionForm: item.inscriptionForm }) : []
+    if (questions.length > 0 && formItem?.id !== item.id) {
+      setFormItem(item)
+      try {
+        const targetUser = await resolveAreaUser()
+        const existing = await getEventFormResponseForUser(areaActiva, item.id, targetUser.id)
+        setInscriptionDraft(draftFromAnswers(questions, existing?.answers))
+      } catch {
+        setInscriptionDraft(emptyDraft(questions))
+      }
+      return
+    }
+    if (questions.length > 0) {
+      const formError = validateInscriptionAnswers(questions, inscriptionDraft)
+      if (formError) {
+        toast({ title: "Formulario incompleto", description: formError, variant: "destructive" })
+        return
+      }
+    }
+
     setEnrollingEventId(item.id)
+    setUploadStatus("")
     try {
       const targetUser = await resolveAreaUser()
       if (item.tipo === "evento") {
         await saveRealEventAttendance(areaActiva, targetUser.id, item.id)
       } else {
-        await saveEventAttendance(areaActiva, targetUser.id, item.id)
+        if (!item.alreadyEnrolled) {
+          await saveEventAttendance(areaActiva, targetUser.id, item.id)
+        }
+        if (questions.length > 0) {
+          const answers = await buildInscriptionAnswers({
+            area: areaActiva,
+            eventId: item.id,
+            userId: targetUser.id,
+            userName: targetUser.nombres,
+            userDocument: targetUser.numeroDocumento,
+            questions,
+            draft: inscriptionDraft,
+            onProgress: setUploadStatus,
+          })
+          await saveEventFormResponse(areaActiva, item.id, targetUser.id, answers)
+        }
       }
       toast({
-        title: "Inscripción exitosa",
-        description: `Te inscribiste a ${item.nombre}`,
+        title: item.alreadyEnrolled ? "Formulario actualizado" : "Inscripción exitosa",
+        description: item.alreadyEnrolled
+          ? `Se actualizaron tus respuestas de ${item.nombre}`
+          : `Te inscribiste a ${item.nombre}`,
       })
+      setFormItem(null)
       await loadProfileData()
       await loadAvailableEnrollments()
     } catch (error: unknown) {
@@ -475,6 +527,7 @@ export function CulturaUserProfile({
       toast({ title: "Error", description: message, variant: "destructive" })
     } finally {
       setEnrollingEventId(null)
+      setUploadStatus("")
     }
   }
 
@@ -1058,7 +1111,7 @@ export function CulturaUserProfile({
           <DialogHeader>
             <DialogTitle className="text-base sm:text-lg">Inscribirme a convocatoria o evento</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Estás en {areaLabel}. Selecciona una convocatoria o evento disponible para inscribirte.
+              Estás en {areaLabel}. Puedes inscribirte o actualizar el formulario de una convocatoria en la que ya estás.
             </DialogDescription>
           </DialogHeader>
 
@@ -1104,8 +1157,28 @@ export function CulturaUserProfile({
                           disabled={enrollingEventId === item.id}
                           onClick={() => handleEnrollEvent(item)}
                         >
-                          {enrollingEventId === item.id ? "Inscribiendo..." : "Inscribirme"}
+                          {enrollingEventId === item.id
+                            ? uploadStatus || "Guardando..."
+                            : formItem?.id === item.id
+                              ? item.alreadyEnrolled
+                                ? "Guardar cambios"
+                                : "Enviar inscripción"
+                              : item.alreadyEnrolled
+                                ? "Editar formulario"
+                                : getEventQuestions({ inscriptionForm: item.inscriptionForm }).length
+                                  ? "Completar formulario"
+                                  : "Inscribirme"}
                         </Button>
+                        {formItem?.id === item.id && (
+                          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                            <InscriptionFormFields
+                              questions={getEventQuestions({ inscriptionForm: item.inscriptionForm })}
+                              value={inscriptionDraft}
+                              onChange={setInscriptionDraft}
+                              disabled={enrollingEventId === item.id}
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

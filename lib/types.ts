@@ -135,6 +135,53 @@ export interface GroupTracking {
   }[]
 }
 
+export type InscriptionQuestionType = "text" | "multiple_choice" | "pdf" | "photo" | "video" | "audio"
+
+export interface QuestionVisibilityRule {
+  questionId: string
+  values: string[]
+}
+
+export interface InscriptionQuestion {
+  id: string
+  label: string
+  type: InscriptionQuestionType
+  required: boolean
+  options?: string[]
+  allowMultiple?: boolean
+  visibleIf?: QuestionVisibilityRule
+}
+
+export interface EventInscriptionForm {
+  enabled: boolean
+  questions: InscriptionQuestion[]
+}
+
+export interface DriveFileLink {
+  fileId: string
+  name: string
+  mimeType: string
+  webViewLink: string
+  webContentLink?: string
+}
+
+export interface InscriptionAnswer {
+  questionId: string
+  label: string
+  type: InscriptionQuestionType
+  text?: string
+  selected?: string[]
+  files?: DriveFileLink[]
+}
+
+export interface EventFormResponse {
+  id: string
+  eventId: string
+  userId: string
+  answers: InscriptionAnswer[]
+  submittedAt: Date
+}
+
 export interface Event {
   id: string
   nombre: string
@@ -145,6 +192,8 @@ export interface Event {
   fechaVencimiento: Date
   createdAt: Date
   activo: boolean
+  inscriptionForm?: EventInscriptionForm
+  driveFolderId?: string
 }
 
 export interface EventAttendanceEntry {

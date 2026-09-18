@@ -18,8 +18,10 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { getAllEvents, createEvent, deleteEvent, toggleEventActive, updateEvent } from "@/lib/db-router"
-import type { Event } from "@/lib/types"
-import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search, Pencil } from "lucide-react"
+import type { Event, EventInscriptionForm } from "@/lib/types"
+import { emptyInscriptionForm, sanitizeInscriptionForm } from "@/lib/inscription-form"
+import { InscriptionFormBuilder } from "@/components/inscription-form-builder"
+import { Calendar, Clock, MapPin, Plus, Trash2, Power, PowerOff, BarChart3, Users, Search, Pencil, FileText } from "lucide-react"
 import Link from "next/link"
 import { useArea } from "@/contexts/area-context"
 
@@ -35,6 +37,7 @@ export default function EventosPage() {
     lugar: "",
     fechaApertura: "",
     fechaVencimiento: "",
+    inscriptionForm: emptyInscriptionForm(),
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
@@ -48,6 +51,7 @@ export default function EventosPage() {
     lugar: "",
     fechaApertura: "",
     fechaVencimiento: "",
+    inscriptionForm: emptyInscriptionForm() as EventInscriptionForm,
   })
 
   useEffect(() => {
@@ -98,13 +102,23 @@ export default function EventosPage() {
         return
       }
 
-      await createEvent(area, {
+      const eventId = await createEvent(area, {
         nombre: formData.nombre,
         hora: formData.hora,
         lugar: formData.lugar,
         fechaApertura,
         fechaVencimiento,
+        inscriptionForm: sanitizeInscriptionForm(formData.inscriptionForm),
       })
+      try {
+        await fetch("/api/drive/ensure-event-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ area, eventId, eventName: formData.nombre }),
+        })
+      } catch (driveError) {
+        console.warn("No se pudo crear la carpeta de Drive al crear la convocatoria:", driveError)
+      }
 
       setSuccess("Evento creado exitosamente")
       setFormData({
@@ -113,6 +127,7 @@ export default function EventosPage() {
         lugar: "",
         fechaApertura: "",
         fechaVencimiento: "",
+        inscriptionForm: emptyInscriptionForm(),
       })
       setDialogOpen(false)
       await loadEvents()
@@ -168,6 +183,7 @@ export default function EventosPage() {
       lugar: event.lugar,
       fechaApertura: toDatetimeLocal(event.fechaApertura),
       fechaVencimiento: toDatetimeLocal(event.fechaVencimiento),
+      inscriptionForm: event.inscriptionForm ?? emptyInscriptionForm(),
     })
     setEditDialogOpen(true)
   }
@@ -191,7 +207,17 @@ export default function EventosPage() {
         lugar: editFormData.lugar,
         fechaApertura,
         fechaVencimiento,
+        inscriptionForm: sanitizeInscriptionForm(editFormData.inscriptionForm),
       })
+      try {
+        await fetch("/api/drive/ensure-event-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ area, eventId: editingEvent.id, eventName: editFormData.nombre }),
+        })
+      } catch (driveError) {
+        console.warn("No se pudo actualizar la carpeta de Drive:", driveError)
+      }
       setSuccess("Convocatoria actualizada exitosamente")
       setEditDialogOpen(false)
       setEditingEvent(null)
@@ -233,12 +259,12 @@ export default function EventosPage() {
                   Crear Convocatoria
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
+              <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Crear Nueva Convocatoria</DialogTitle>
                   <DialogDescription>
-                    Complete la información de la convocatoria. Los asistentes podrán registrarse entre las fechas
-                    especificadas.
+                    Complete la información de la convocatoria. Opcionalmente añade un formulario de inscripción
+                    (preguntas abiertas, opción múltiple y archivos).
                   </DialogDescription>
                 </DialogHeader>
 
@@ -301,6 +327,11 @@ export default function EventosPage() {
                       />
                     </div>
                   </div>
+
+                  <InscriptionFormBuilder
+                    value={formData.inscriptionForm}
+                    onChange={(inscriptionForm) => setFormData({ ...formData, inscriptionForm })}
+                  />
 
                   {error && (
                     <Alert variant="destructive">
@@ -402,13 +433,19 @@ export default function EventosPage() {
                           <span>{new Date(event.fechaVencimiento).toLocaleString("es-CO")}</span>
                         </div>
                       </div>
+                      {event.inscriptionForm?.enabled && (
+                        <div className="flex items-center gap-2 text-purple-700">
+                          <FileText className="h-4 w-4" />
+                          <span>{event.inscriptionForm.questions.length} pregunta(s) de inscripción</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-col gap-2 pt-4 border-t">
                       <Link href={`/crear-convocatorias/${event.id}/asistentes`}>
                         <Button variant="outline" size="sm" className="w-full bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
                           <Users className="h-4 w-4 mr-2" />
-                          Ver Asistentes
+                          Ver Inscritos
                         </Button>
                       </Link>
                       <div className="flex gap-2">
@@ -454,10 +491,10 @@ export default function EventosPage() {
 
       {/* Dialog editar convocatoria */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Convocatoria</DialogTitle>
-            <DialogDescription>Modifica los datos de la convocatoria.</DialogDescription>
+            <DialogDescription>Modifica los datos y el formulario de inscripción.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4 mt-4">
             <div className="space-y-2">
@@ -512,6 +549,10 @@ export default function EventosPage() {
                 />
               </div>
             </div>
+            <InscriptionFormBuilder
+              value={editFormData.inscriptionForm}
+              onChange={(inscriptionForm) => setEditFormData({ ...editFormData, inscriptionForm })}
+            />
             {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
             <div className="flex justify-end gap-3 pt-4">
               <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>

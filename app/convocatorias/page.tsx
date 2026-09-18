@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -31,8 +31,19 @@ import {
   getActiveRealEvents,
   saveRealEventAttendance,
   getUserRealEventEnrollments,
+  saveEventFormResponse,
+  getEventFormResponseForUser,
 } from "@/lib/db-router"
 import type { FormData, SimilarUser, UserProfile, Event } from "@/lib/types"
+import {
+  draftFromAnswers,
+  emptyDraft,
+  getEventQuestions,
+  validateInscriptionAnswers,
+  type InscriptionAnswerDraft,
+} from "@/lib/inscription-form"
+import { InscriptionFormFields } from "@/components/inscription-form-fields"
+import { buildInscriptionAnswers } from "@/lib/submit-inscription-answers"
 
 export default function ConvocatoriasPage() {
   const area: 'cultura' = 'cultura' // Área hardcoded para cultura
@@ -60,6 +71,7 @@ export default function ConvocatoriasPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [successIsEdit, setSuccessIsEdit] = useState(false)
   const [similarUsers, setSimilarUsers] = useState<SimilarUser[]>([])
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [activeEvents, setActiveEvents] = useState<Event[]>([])
@@ -67,6 +79,8 @@ export default function ConvocatoriasPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [userEventEnrollments, setUserEventEnrollments] = useState<string[]>([])
   const [userRealEventEnrollments, setUserRealEventEnrollments] = useState<string[]>([])
+  const [inscriptionDraft, setInscriptionDraft] = useState<Record<string, InscriptionAnswerDraft>>({})
+  const [uploadStatus, setUploadStatus] = useState("")
 
   const requiresAcademicInfo = formData.estamento === "ESTUDIANTE" || formData.estamento === "EGRESADO"
   const requiresFacultyOnly = isDocenteEstamento(formData.estamento)
@@ -118,6 +132,8 @@ export default function ConvocatoriasPage() {
         newData.programaAcademico = ""
       }
 
+      return newData
+
       if (field === "estamento" && value !== "ESTUDIANTE" && value !== "EGRESADO" && !isDocenteEstamento(value)) {
         newData.codigoEstudiantil = ""
         newData.facultad = ""
@@ -136,6 +152,33 @@ export default function ConvocatoriasPage() {
       return newData
     })
   }
+
+  useEffect(() => {
+    const event = activeEvents.find((item) => item.id === formData.eventoId)
+    const questions = getEventQuestions(event)
+    if (!formData.eventoId || !questions.length) {
+      setInscriptionDraft({})
+      return
+    }
+
+    let cancelled = false
+    const userId = selectedUser?.id
+    setInscriptionDraft(emptyDraft(questions))
+    if (!userId) return
+
+    getEventFormResponseForUser(area, formData.eventoId, userId)
+      .then((existing) => {
+        if (cancelled) return
+        setInscriptionDraft(draftFromAnswers(questions, existing?.answers))
+      })
+      .catch((error) => {
+        console.error("Error cargando formulario previo:", error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [formData.eventoId, selectedUser?.id, area, activeEvents])
 
   const handleSelectUser = async (user: UserProfile) => {
     setSelectedUser(user)
@@ -176,9 +219,16 @@ export default function ConvocatoriasPage() {
     setSelectedUser(null)
   }
 
+  const extraQuestionsAreValid = () => {
+    const selected = activeEvents.find((item) => item.id === formData.eventoId)
+    const questions = getEventQuestions(selected)
+    if (!questions.length) return true
+    return !validateInscriptionAnswers(questions, inscriptionDraft)
+  }
+
   const validateStep = (step: number): boolean => {
     if (selectedUser) {
-      return !!formData.eventoId
+      return !!formData.eventoId && extraQuestionsAreValid()
     }
 
     switch (step) {
@@ -207,9 +257,9 @@ export default function ConvocatoriasPage() {
           return !!formData.facultad
         }
         // No es estudiante/egresado/docente: paso 3 es selección de evento
-        return !!formData.eventoId
+        return !!formData.eventoId && extraQuestionsAreValid()
       case 4:
-        return !!formData.eventoId
+        return !!formData.eventoId && extraQuestionsAreValid()
       default:
         return false
     }
@@ -250,8 +300,17 @@ export default function ConvocatoriasPage() {
       return
     }
 
+    const selectedConvocatoria = activeEvents.find((item) => item.id === formData.eventoId)
+    const extraQuestions = getEventQuestions(selectedConvocatoria)
+    const formError = validateInscriptionAnswers(extraQuestions, inscriptionDraft)
+    if (formError) {
+      setError(formError)
+      return
+    }
+
     setIsSubmitting(true)
     setError("")
+    setUploadStatus("")
 
     try {
       let userId: string
@@ -300,9 +359,28 @@ export default function ConvocatoriasPage() {
       } else {
         await saveEventAttendance(area, userId, formData.eventoId)
       }
+
+      const selectedConvocatoria = activeEvents.find((item) => item.id === formData.eventoId)
+      const extraQuestions = getEventQuestions(selectedConvocatoria)
+      const alreadyEnrolled = userEventEnrollments.includes(formData.eventoId)
+      if (extraQuestions.length > 0) {
+        const answers = await buildInscriptionAnswers({
+          area,
+          eventId: formData.eventoId,
+          userId,
+          userName: selectedUser?.nombres || formData.nombres,
+          userDocument: selectedUser?.numeroDocumento || formData.numeroDocumento,
+          questions: extraQuestions,
+          draft: inscriptionDraft,
+          onProgress: setUploadStatus,
+        })
+        await saveEventFormResponse(area, formData.eventoId, userId, answers)
+      }
+
       console.log("[Convocatorias] Event attendance saved successfully")
 
       setSuccess(true)
+      setSuccessIsEdit(alreadyEnrolled && extraQuestions.length > 0)
       setTimeout(() => {
         setFormData({
           nombres: "",
@@ -323,16 +401,20 @@ export default function ConvocatoriasPage() {
         })
         setCurrentStep(1)
         setSuccess(false)
+        setSuccessIsEdit(false)
         setSelectedUser(null)
         setSimilarUsers([])
         setUserEventEnrollments([])
         setUserRealEventEnrollments([])
+        setInscriptionDraft({})
+        setUploadStatus("")
       }, 3000)
     } catch (error: any) {
       console.error("Error saving event attendance:", error)
       setError(error.message || "Hubo un problema al registrar la inscripción. Por favor intenta nuevamente.")
     } finally {
       setIsSubmitting(false)
+      setUploadStatus("")
     }
   }
 
@@ -669,11 +751,12 @@ export default function ConvocatoriasPage() {
   const renderEventSelection = () => {
     const availableConvocatorias = activeEvents.filter(e => !userEventEnrollments.includes(e.id))
     const enrolledConvocatorias = activeEvents.filter(e => userEventEnrollments.includes(e.id))
+    const editableConvocatorias = enrolledConvocatorias.filter(e => getEventQuestions(e).length > 0)
     const availableRealEvents = activeRealEvents.filter(e => !userRealEventEnrollments.includes(e.id))
     const enrolledRealEvents = activeRealEvents.filter(e => userRealEventEnrollments.includes(e.id))
 
     const allEnrolled = [...enrolledConvocatorias, ...enrolledRealEvents]
-    const totalAvailable = availableConvocatorias.length + availableRealEvents.length
+    const totalAvailable = availableConvocatorias.length + availableRealEvents.length + editableConvocatorias.length
 
     const allEvents = activeEvents.length === 0 && activeRealEvents.length === 0
 
@@ -708,7 +791,12 @@ export default function ConvocatoriasPage() {
             <AlertDescription className="text-green-800">
               <strong>Ya estás inscrito en:</strong>
               <ul className="mt-2 space-y-1 text-sm">
-                {allEnrolled.map(e => <li key={e.id}>• {e.nombre}</li>)}
+                {allEnrolled.map(e => (
+                  <li key={e.id}>
+                    • {e.nombre}
+                    {getEventQuestions(e).length > 0 ? " — puedes editar el formulario abajo" : ""}
+                  </li>
+                ))}
               </ul>
             </AlertDescription>
           </Alert>
@@ -719,6 +807,9 @@ export default function ConvocatoriasPage() {
             <AlertCircle className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-800">
               <strong>Ya estás inscrito en todas las convocatorias y eventos disponibles.</strong>
+              {editableConvocatorias.length > 0
+                ? " Elige una convocatoria para actualizar su formulario."
+                : ""}
             </AlertDescription>
           </Alert>
         ) : (
@@ -736,6 +827,16 @@ export default function ConvocatoriasPage() {
                       {availableConvocatorias.map(e => (
                         <SelectItem key={e.id} value={e.id}>
                           {e.nombre} - {e.hora} ({e.lugar})
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {editableConvocatorias.length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50">EDITAR FORMULARIO</div>
+                      {editableConvocatorias.map(e => (
+                        <SelectItem key={`edit-${e.id}`} value={e.id}>
+                          {e.nombre} — actualizar respuestas
                         </SelectItem>
                       ))}
                     </>
@@ -763,10 +864,24 @@ export default function ConvocatoriasPage() {
                       {selectedEventInfo._tipo === "evento" ? "Evento" : "Convocatoria"}: {selectedEventInfo.nombre}
                     </p>
                     <p className="text-xs mt-1 text-gray-500">
-                      Asegúrate de seleccionar la opción correcta antes de confirmar tu inscripción.
+                      {selectedEventInfo._tipo === "convocatoria" && userEventEnrollments.includes(selectedEventInfo.id)
+                        ? "Ya estás inscrito. Puedes corregir el formulario y volver a enviarlo."
+                        : "Asegúrate de seleccionar la opción correcta antes de confirmar tu inscripción."}
                     </p>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {selectedEventInfo && selectedEventInfo._tipo === "convocatoria" && getEventQuestions(selectedEventInfo).length > 0 && (
+              <div className="rounded-lg border bg-white p-4">
+                <p className="text-sm font-medium mb-3">Formulario de la convocatoria</p>
+                <InscriptionFormFields
+                  questions={getEventQuestions(selectedEventInfo)}
+                  value={inscriptionDraft}
+                  onChange={setInscriptionDraft}
+                  disabled={isSubmitting}
+                />
               </div>
             )}
           </>
@@ -840,9 +955,11 @@ export default function ConvocatoriasPage() {
                 <Alert className="border-green-200 bg-green-50">
                   <CheckCircle className="h-4 w-4 text-green-600" />
                   <AlertDescription className="text-green-800">
-                    <strong>¡Inscripción exitosa!</strong>
+                    <strong>{successIsEdit ? "Formulario actualizado" : "¡Inscripción exitosa!"}</strong>
                     <br />
-                    Tu inscripción al evento ha sido registrada correctamente.
+                    {successIsEdit
+                      ? "Tus respuestas y archivos quedaron guardados de nuevo."
+                      : "Tu inscripción al evento ha sido registrada correctamente."}
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -866,17 +983,14 @@ export default function ConvocatoriasPage() {
                     {(selectedUser || currentStep === totalSteps) ? (
                       <Button
                         onClick={handleSubmit}
-                        disabled={
-                          isSubmitting || 
-                          !validateStep(currentStep) || 
-                          (!!selectedUser && 
-                            activeEvents.filter(e => !userEventEnrollments.includes(e.id)).length === 0 &&
-                            activeRealEvents.filter(e => !userRealEventEnrollments.includes(e.id)).length === 0
-                          )
-                        }
+                        disabled={isSubmitting || !validateStep(currentStep) || !formData.eventoId}
                         className="flex-1 bg-purple-600 hover:bg-purple-700"
                       >
-                        {isSubmitting ? "Registrando..." : "Confirmar Inscripción"}
+                        {isSubmitting
+                          ? (uploadStatus || "Guardando...")
+                          : userEventEnrollments.includes(formData.eventoId)
+                            ? "Guardar cambios del formulario"
+                            : "Confirmar Inscripción"}
                       </Button>
                     ) : (
                       <Button

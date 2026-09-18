@@ -11,7 +11,10 @@ import type {
   AttendanceRecord,
   UserProfile,
   Event,
+  EventFormResponse,
+  InscriptionAnswer,
 } from "./types"
+import { sanitizeInscriptionForm } from "./inscription-form"
 import { sortUsersByNombres, toLocalDateKey, isSameLocalDay } from "./utils"
 
 // CulturalGroup interface (from firestore.ts)
@@ -132,6 +135,51 @@ function filterUndefinedValues(obj: any): any {
     }
   }
   return filtered
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as T
+  }
+  if (value && typeof value === "object" && !(value instanceof Date) && typeof (value as { toDate?: unknown }).toDate !== "function") {
+    const cleaned: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (nested !== undefined) cleaned[key] = stripUndefinedDeep(nested)
+    }
+    return cleaned as T
+  }
+  return value
+}
+
+function eventFormResponseDocId(eventId: string, userId: string) {
+  return `${String(eventId)}__${String(userId)}`
+}
+
+function parseFormResponseDoc(docSnap: { id: string; data: () => any }): EventFormResponse | null {
+  const data = docSnap.data() || {}
+  let userId = String(data.userId || data.usuarioId || "")
+  let eventId = String(data.eventId || data.eventoId || "")
+  if (!eventId || !userId) {
+    const parts = String(docSnap.id).split("__")
+    if (parts.length >= 2) {
+      eventId = eventId || parts[0]
+      userId = userId || parts.slice(1).join("__")
+    }
+  }
+  if (!userId) return null
+  const rawAnswers = data.answers ?? data.respuestas
+  const answers = Array.isArray(rawAnswers)
+    ? rawAnswers
+    : rawAnswers && typeof rawAnswers === "object"
+      ? Object.values(rawAnswers)
+      : []
+  return {
+    id: docSnap.id,
+    eventId,
+    userId,
+    answers,
+    submittedAt: timestampToDate(data.submittedAt || data.createdAt || Date.now()),
+  }
 }
 
 // Save user profile (area-aware) — validates no duplicate cedula/correo/nombre
@@ -744,6 +792,7 @@ export async function getActiveEvents(area: Area): Promise<Event[]> {
 // ============================================================================
 
 const EVENT_ATTENDANCE_COLLECTION = "event_attendance_records"
+const EVENT_FORM_RESPONSES_COLLECTION = "event_form_responses"
 
 // Save event attendance (area-aware)
 export async function saveEventAttendance(area: Area, userId: string, eventId: string): Promise<void> {
@@ -763,7 +812,7 @@ export async function saveEventAttendance(area: Area, userId: string, eventId: s
     const existingAttendanceSnapshot = await getDocs(existingAttendanceQuery)
 
     if (!existingAttendanceSnapshot.empty) {
-      throw new Error("Ya estás inscrito en este evento")
+      return
     }
 
     const eventAttendance = {
@@ -784,6 +833,116 @@ export async function saveEventAttendance(area: Area, userId: string, eventId: s
   } catch (error) {
     console.error("[db-router] Error saving event attendance:", error)
     throw error
+  }
+}
+
+export async function saveEventFormResponse(
+  area: Area,
+  eventId: string,
+  userId: string,
+  answers: InscriptionAnswer[],
+): Promise<void> {
+  validateAreaSpecified(area)
+  const db = getFirestoreForArea(area)
+  const cleanEventId = String(eventId)
+  const cleanUserId = String(userId)
+  const payload = stripUndefinedDeep({
+    eventId: cleanEventId,
+    userId: cleanUserId,
+    answers: answers || [],
+    submittedAt: Timestamp.fromDate(new Date()),
+  })
+  const responseRef = doc(db, EVENT_FORM_RESPONSES_COLLECTION, eventFormResponseDocId(cleanEventId, cleanUserId))
+  await setDoc(responseRef, payload, { merge: true })
+  try {
+    const existing = await getDocs(
+      query(
+        collection(db, EVENT_FORM_RESPONSES_COLLECTION),
+        where("eventId", "==", cleanEventId),
+        where("userId", "==", cleanUserId),
+      ),
+    )
+    await Promise.all(
+      existing.docs
+        .filter((docSnap) => docSnap.id !== responseRef.id)
+        .map((docSnap) => updateDoc(docSnap.ref, payload)),
+    )
+  } catch (error) {
+    console.warn("[db-router] No se pudieron actualizar respuestas legacy del formulario:", error)
+  }
+}
+
+export async function getEventFormResponseForUser(
+  area: Area,
+  eventId: string,
+  userId: string,
+): Promise<EventFormResponse | null> {
+  validateAreaSpecified(area)
+  const db = getFirestoreForArea(area)
+  const cleanEventId = String(eventId)
+  const cleanUserId = String(userId)
+  const direct = await getDoc(doc(db, EVENT_FORM_RESPONSES_COLLECTION, eventFormResponseDocId(cleanEventId, cleanUserId)))
+  if (direct.exists()) {
+    return parseFormResponseDoc(direct)
+  }
+  try {
+    const snapshot = await getDocs(
+      query(
+        collection(db, EVENT_FORM_RESPONSES_COLLECTION),
+        where("eventId", "==", cleanEventId),
+        where("userId", "==", cleanUserId),
+      ),
+    )
+    const docs = snapshot.docs
+      .map((docSnap) => parseFormResponseDoc(docSnap))
+      .filter((item): item is EventFormResponse => Boolean(item))
+      .sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime())
+    return docs[0] || null
+  } catch (error) {
+    console.error("[db-router] Error getting form response for user:", error)
+    const all = await getEventFormResponsesByEvent(area, cleanEventId)
+    return all.get(cleanUserId) || null
+  }
+}
+
+export async function getEventFormResponsesByEvent(
+  area: Area,
+  eventId: string,
+): Promise<Map<string, EventFormResponse>> {
+  validateAreaSpecified(area)
+  const cleanEventId = String(eventId)
+  const latest = new Map<string, EventFormResponse>()
+
+  const ingest = (docSnap: { id: string; data: () => any }) => {
+    const response = parseFormResponseDoc(docSnap)
+    if (!response?.userId) return
+    if (String(response.eventId) !== cleanEventId) return
+    const existing = latest.get(response.userId)
+    if (!existing || response.submittedAt > existing.submittedAt) {
+      latest.set(response.userId, response)
+    }
+  }
+
+  try {
+    const db = getFirestoreForArea(area)
+    const ref = collection(db, EVENT_FORM_RESPONSES_COLLECTION)
+    try {
+      const snapshot = await getDocs(query(ref, where("eventId", "==", cleanEventId)))
+      snapshot.forEach((docSnap) => ingest(docSnap))
+    } catch (error) {
+      console.warn("[db-router] Query de formularios por eventId falló, leyendo colección:", error)
+    }
+
+    if (latest.size === 0) {
+      const snapshot = await getDocs(ref)
+      snapshot.forEach((docSnap) => ingest(docSnap))
+    }
+
+    console.log("[db-router] Form responses for event", cleanEventId, "in", area, ":", latest.size)
+    return latest
+  } catch (error) {
+    console.error("[db-router] Error getting event form responses:", error)
+    return latest
   }
 }
 
@@ -1227,6 +1386,7 @@ export async function createEvent(area: Area, eventData: Omit<Event, "id" | "cre
     
     const event = {
       ...eventData,
+      inscriptionForm: sanitizeInscriptionForm(eventData.inscriptionForm),
       createdAt: serverTimestamp(),
       activo: true,
     }
@@ -1261,6 +1421,11 @@ export async function deleteEvent(area: Area, eventId: string): Promise<void> {
     await Promise.all(deletePromises)
 
     console.log("[db-router] All event attendance records deleted")
+
+    const formResponsesRef = collection(db, EVENT_FORM_RESPONSES_COLLECTION)
+    const formResponsesQuery = query(formResponsesRef, where("eventId", "==", eventId))
+    const formResponsesSnapshot = await getDocs(formResponsesQuery)
+    await Promise.all(formResponsesSnapshot.docs.map((responseDoc) => deleteDoc(responseDoc.ref)))
 
     // Then delete the event
     const eventRef = doc(db, EVENTS_COLLECTION, eventId)
@@ -1299,6 +1464,7 @@ export async function updateEvent(area: Area, eventId: string, eventData: Omit<E
       lugar: eventData.lugar,
       fechaApertura: Timestamp.fromDate(new Date(eventData.fechaApertura)),
       fechaVencimiento: Timestamp.fromDate(new Date(eventData.fechaVencimiento)),
+      inscriptionForm: sanitizeInscriptionForm(eventData.inscriptionForm),
     })
     console.log("[db-router] Event updated:", eventId, "in area:", area)
   } catch (error) {
@@ -1654,18 +1820,24 @@ export async function getEventByIdRouter(area: Area, eventId: string): Promise<E
     }
 
     const eventData = eventSnap.data()
-    console.log("[db-router] Retrieved event:", eventId, "from area:", area)
-    
+    console.log("[db-router] Retrieved convocatoria:", eventId, "from collection", EVENTS_COLLECTION, "area:", area)
+
+    let inscriptionForm
+    try {
+      inscriptionForm = sanitizeInscriptionForm(eventData.inscriptionForm)
+    } catch (error) {
+      console.error("[db-router] Error sanitizing inscription form:", error)
+      inscriptionForm = { enabled: false, questions: [] }
+    }
+
     return {
       id: eventSnap.id,
-      nombre: eventData.nombre,
+      ...eventData,
       fechaApertura: timestampToDate(eventData.fechaApertura),
       fechaVencimiento: timestampToDate(eventData.fechaVencimiento || eventData.fechaCierre),
-      hora: eventData.hora,
-      lugar: eventData.lugar,
-      activo: eventData.activo,
       createdAt: timestampToDate(eventData.createdAt),
-    }
+      inscriptionForm,
+    } as Event
   } catch (error) {
     console.error("[db-router] Error getting event by ID:", error)
     return null
@@ -1691,19 +1863,33 @@ export async function getEventAttendeesRouter(
 
     for (const docSnap of snapshot.docs) {
       const attendanceData = docSnap.data()
-      const userRef = doc(db, USERS_COLLECTION, attendanceData.userId)
+      const userId = String(attendanceData.userId || "")
+      if (!userId) continue
+      const userRef = doc(db, USERS_COLLECTION, userId)
       const userSnap = await getDoc(userRef)
+      const userData = userSnap.exists() ? userSnap.data() : {}
+      const timestamp = timestampToDate(attendanceData.timestamp)
 
-      if (userSnap.exists()) {
-        const userData = userSnap.data()
-        attendees.push({
-          id: userSnap.id,
-          ...userData,
-          createdAt: timestampToDate(userData.createdAt),
-          lastAttendance: timestampToDate(userData.lastAttendance),
-          fechaAsistencia: timestampToDate(attendanceData.timestamp),
-        } as UserProfile & { fechaAsistencia: Date })
-      }
+      attendees.push({
+        id: userId,
+        nombres: String(userData.nombres || "Sin nombre"),
+        correo: String(userData.correo || ""),
+        numeroDocumento: String(userData.numeroDocumento || ""),
+        telefono: String(userData.telefono || ""),
+        genero: userData.genero || "OTRO",
+        etnia: userData.etnia || "NO RESPONDE",
+        tipoDocumento: userData.tipoDocumento || "CEDULA",
+        edad: Number(userData.edad || 0),
+        sede: userData.sede || "NINGUNA",
+        estamento: userData.estamento || "INVITADO",
+        codigoEstudiantil: userData.codigoEstudiantil,
+        facultad: userData.facultad,
+        programaAcademico: userData.programaAcademico,
+        area,
+        createdAt: userData.createdAt ? timestampToDate(userData.createdAt) : timestamp,
+        lastAttendance: userData.lastAttendance ? timestampToDate(userData.lastAttendance) : timestamp,
+        fechaAsistencia: timestamp,
+      } as UserProfile & { fechaAsistencia: Date })
     }
 
     return attendees.sort((a, b) => b.fechaAsistencia.getTime() - a.fechaAsistencia.getTime())

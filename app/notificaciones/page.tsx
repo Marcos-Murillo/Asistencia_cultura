@@ -6,7 +6,20 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Button } from "@/components/ui/button"
+import { DatePicker } from "@/components/ui/date-picker"
+import { Calendar as CalendarPicker } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Bell, Users, Clock, Calendar, Shield, X, RefreshCw } from "lucide-react"
+import { endOfDay, endOfMonth, format, startOfDay, startOfMonth } from "date-fns"
+import { es } from "date-fns/locale"
+import type { DateRange } from "react-day-picker"
 import { getAttendanceNotifications, getAllCulturalGroups } from "@/lib/db-router"
 import { useArea } from "@/contexts/area-context"
 import { getCurrentUserRole, isAdmin as checkIsAdmin, isSuperAdmin as checkIsSuperAdmin } from "@/lib/auth-helpers"
@@ -54,8 +67,11 @@ export default function NotificacionesPage() {
   // Filter states
   const [filterGrupo, setFilterGrupo] = useState("")
   const [filterManager, setFilterManager] = useState("")
-  const [filterDia, setFilterDia] = useState("")
   const [filterHora, setFilterHora] = useState("")
+  const [dateMode, setDateMode] = useState<"dia" | "mes" | "periodo">("dia")
+  const [filterDate, setFilterDate] = useState<Date | undefined>()
+  const [filterMonth, setFilterMonth] = useState("")
+  const [filterRange, setFilterRange] = useState<DateRange | undefined>()
 
   useEffect(() => {
     const admin = checkIsAdmin()
@@ -98,11 +114,6 @@ export default function NotificacionesPage() {
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [notifications])
 
-  const diaOptions: ComboboxOption[] = useMemo(() => {
-    const unique = Array.from(new Set(notifications.map(n => formatDate(n.timestamp)))).sort()
-    return unique.map(d => ({ value: d, label: d }))
-  }, [notifications])
-
   const horaOptions: ComboboxOption[] = useMemo(() => {
     const unique = Array.from(new Set(notifications.map(n => {
       const h = n.timestamp.getHours()
@@ -116,23 +127,53 @@ export default function NotificacionesPage() {
     return notifications.filter(n => {
       if (filterGrupo && n.grupoCultural !== filterGrupo) return false
       if (filterManager && n.markedById !== filterManager) return false
-      if (filterDia && formatDate(n.timestamp) !== filterDia) return false
       if (filterHora) {
         const h = n.timestamp.getHours()
         const label = `${h.toString().padStart(2, "0")}:00 - ${(h + 1).toString().padStart(2, "0")}:00`
         if (label !== filterHora) return false
       }
+
+      const time = n.timestamp.getTime()
+      if (dateMode === "dia" && filterDate) {
+        if (time < startOfDay(filterDate).getTime() || time > endOfDay(filterDate).getTime()) return false
+      }
+      if (dateMode === "mes" && filterMonth) {
+        const [year, month] = filterMonth.split("-").map(Number)
+        if (!year || !month) return false
+        const start = startOfMonth(new Date(year, month - 1, 1))
+        const end = endOfMonth(start)
+        if (time < start.getTime() || time > end.getTime()) return false
+      }
+      if (dateMode === "periodo" && filterRange?.from) {
+        const start = startOfDay(filterRange.from)
+        const end = endOfDay(filterRange.to || filterRange.from)
+        if (time < start.getTime() || time > end.getTime()) return false
+      }
       return true
     })
-  }, [notifications, filterGrupo, filterManager, filterDia, filterHora])
+  }, [notifications, filterGrupo, filterManager, filterHora, dateMode, filterDate, filterMonth, filterRange])
 
-  const hasFilters = filterGrupo || filterManager || filterDia || filterHora
+  const hasDateFilter =
+    (dateMode === "dia" && Boolean(filterDate)) ||
+    (dateMode === "mes" && Boolean(filterMonth)) ||
+    (dateMode === "periodo" && Boolean(filterRange?.from))
+
+  const hasFilters = Boolean(filterGrupo || filterManager || filterHora || hasDateFilter)
+
+  const periodLabel =
+    filterRange?.from && filterRange?.to
+      ? `${format(filterRange.from, "d MMM yyyy", { locale: es })} – ${format(filterRange.to, "d MMM yyyy", { locale: es })}`
+      : filterRange?.from
+        ? `Desde ${format(filterRange.from, "d MMM yyyy", { locale: es })}`
+        : "Elegir periodo"
 
   const clearFilters = () => {
     setFilterGrupo("")
     setFilterManager("")
-    setFilterDia("")
     setFilterHora("")
+    setFilterDate(undefined)
+    setFilterMonth("")
+    setFilterRange(undefined)
   }
 
   if (!authorized) return null
@@ -184,7 +225,7 @@ export default function NotificacionesPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-gray-600">
                     Grupo {area === "deporte" ? "Deportivo" : "Cultural"}
@@ -212,15 +253,65 @@ export default function NotificacionesPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Día</label>
-                  <Combobox
-                    options={diaOptions}
-                    value={filterDia}
-                    onValueChange={setFilterDia}
-                    placeholder="Todos los días"
-                    searchPlaceholder="Buscar día..."
-                    emptyText="No encontrado"
-                  />
+                  <label className="text-xs font-medium text-gray-600">Filtrar fecha</label>
+                  <Select
+                    value={dateMode}
+                    onValueChange={(value: "dia" | "mes" | "periodo") => {
+                      setDateMode(value)
+                      setFilterDate(undefined)
+                      setFilterMonth("")
+                      setFilterRange(undefined)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="dia">Por día</SelectItem>
+                      <SelectItem value="mes">Por mes</SelectItem>
+                      <SelectItem value="periodo">Por periodo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">
+                    {dateMode === "dia" ? "Día" : dateMode === "mes" ? "Mes" : "Periodo"}
+                  </label>
+                  {dateMode === "dia" && (
+                    <DatePicker
+                      date={filterDate}
+                      onDateChange={setFilterDate}
+                      placeholder="Todos los días"
+                    />
+                  )}
+                  {dateMode === "mes" && (
+                    <input
+                      type="month"
+                      value={filterMonth}
+                      onChange={(event) => setFilterMonth(event.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  )}
+                  {dateMode === "periodo" && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start font-normal">
+                          <Calendar className="mr-2 h-4 w-4" />
+                          <span className="truncate">{periodLabel}</span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <CalendarPicker
+                          mode="range"
+                          selected={filterRange}
+                          onSelect={setFilterRange}
+                          numberOfMonths={2}
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
 
                 <div className="space-y-1">

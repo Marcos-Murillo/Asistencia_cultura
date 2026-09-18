@@ -194,7 +194,7 @@ function EventosTabContent({
                     <Link href={`/crear-eventos/${event.id}/asistentes`}>
                       <Button variant="outline" size="sm" className="w-full bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100">
                         <Users className="h-4 w-4 mr-2" />
-                        Ver Inscritos
+                        Ver Asistentes
                       </Button>
                     </Link>
                     <div className="flex gap-2">
