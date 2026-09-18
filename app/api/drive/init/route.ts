@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getFirestoreForArea, type Area } from "@/lib/firebase-config"
 import { doc, getDoc, updateDoc } from "firebase/firestore"
-import { FILE_QUESTION_TYPES, QUESTION_UPLOAD_LIMITS, sanitizeInscriptionForm } from "@/lib/inscription-form"
+import { isFileQuestionType, QUESTION_UPLOAD_LIMITS, sanitizeInscriptionForm } from "@/lib/inscription-form"
 import { ensureEventAndUserFolders, safeDriveFileName, startResumableUpload } from "@/lib/google-drive"
 
 export const runtime = "nodejs"
@@ -39,12 +39,11 @@ export async function POST(request: Request) {
     const eventData = eventSnap.data()
     const form = sanitizeInscriptionForm(eventData.inscriptionForm)
     const question = form.questions.find((item) => item.id === questionId)
-    if (!form.enabled || !question || !FILE_QUESTION_TYPES.includes(question.type)) {
+    if (!form.enabled || !question || !isFileQuestionType(question.type)) {
       return NextResponse.json({ error: "Esta pregunta no admite archivos" }, { status: 400 })
     }
 
-    const type = question.type as "pdf" | "photo" | "video" | "audio"
-    const limits = QUESTION_UPLOAD_LIMITS[type]
+    const limits = QUESTION_UPLOAD_LIMITS[question.type]
     if (size <= 0 || size > limits.maxBytes) {
       return NextResponse.json({ error: `El archivo supera el máximo (${limits.label})` }, { status: 400 })
     }

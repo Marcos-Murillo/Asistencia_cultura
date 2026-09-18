@@ -8,10 +8,16 @@ import type {
   QuestionVisibilityRule,
 } from "./types"
 
-export const FILE_QUESTION_TYPES: InscriptionQuestionType[] = ["pdf", "photo", "video", "audio"]
+export type FileQuestionType = "pdf" | "photo" | "video" | "audio"
+
+export const FILE_QUESTION_TYPES: FileQuestionType[] = ["pdf", "photo", "video", "audio"]
+
+export function isFileQuestionType(type: InscriptionQuestionType): type is FileQuestionType {
+  return type === "pdf" || type === "photo" || type === "video" || type === "audio"
+}
 
 export const QUESTION_UPLOAD_LIMITS: Record<
-  "pdf" | "photo" | "video" | "audio",
+  FileQuestionType,
   { maxBytes: number; mime: string[]; accept: string; label: string }
 > = {
   pdf: {

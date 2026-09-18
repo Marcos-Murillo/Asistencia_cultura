@@ -1,5 +1,5 @@
 import type { Area } from "./firebase-config"
-import { FILE_QUESTION_TYPES, QUESTION_UPLOAD_LIMITS } from "./inscription-form"
+import { isFileQuestionType, QUESTION_UPLOAD_LIMITS } from "./inscription-form"
 import type { DriveFileLink, InscriptionQuestionType } from "./types"
 
 const CHUNK_SIZE = 256 * 1024
@@ -15,7 +15,7 @@ export async function uploadInscriptionFile(params: {
   userDocument?: string
   onProgress?: (percent: number) => void
 }): Promise<DriveFileLink> {
-  if (!FILE_QUESTION_TYPES.includes(params.questionType)) {
+  if (!isFileQuestionType(params.questionType)) {
     throw new Error("Tipo de archivo no válido")
   }
 

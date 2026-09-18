@@ -5,7 +5,7 @@ import { FileAudio, FileText, FileVideo, ImageIcon, Upload } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { QuestionnaireChoice, QuestionnaireChoices } from "@/components/ui/questionnaire"
-import { FILE_QUESTION_TYPES, getVisibleQuestions, QUESTION_UPLOAD_LIMITS, type InscriptionAnswerDraft } from "@/lib/inscription-form"
+import { getVisibleQuestions, isFileQuestionType, QUESTION_UPLOAD_LIMITS, type FileQuestionType, type InscriptionAnswerDraft } from "@/lib/inscription-form"
 import type { InscriptionQuestion } from "@/lib/types"
 
 interface InscriptionFormFieldsProps {
@@ -76,9 +76,9 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
                 })}
               </QuestionnaireChoices>
             )}
-            {FILE_QUESTION_TYPES.includes(question.type) && (
+            {isFileQuestionType(question.type) && (
               <FilePickerField
-                type={question.type as keyof typeof FILE_ICONS}
+                type={question.type}
                 disabled={disabled}
                 file={current.file || null}
                 existingName={current.existingFiles?.[0]?.name}
