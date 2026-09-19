@@ -106,7 +106,10 @@ async function listFisioDocs(col: string) {
   try {
     const snap = await getDocs(collection(db(), FALLBACK_COLLECTION))
     snap.docs
-      .filter((item) => item.data()[FISIO_FLAG] === true && item.data().fisioCollection === col)
+      .filter((item) => {
+        const data = item.data() as Record<string, unknown>
+        return data[FISIO_FLAG] === true && data.fisioCollection === col
+      })
       .forEach((item) => collected.set(item.id, item))
   } catch (error) {
     if (!isPermissionDenied(error)) throw error
@@ -114,7 +117,10 @@ async function listFisioDocs(col: string) {
   try {
     const snap = await getDocs(collection(db(), "group_enrollments"))
     snap.docs
-      .filter((item) => item.data()[FISIO_FLAG] === true && item.data().fisioCollection === col)
+      .filter((item) => {
+        const data = item.data() as Record<string, unknown>
+        return data[FISIO_FLAG] === true && data.fisioCollection === col
+      })
       .forEach((item) => collected.set(item.id, item))
   } catch (error) {
     if (!isPermissionDenied(error) && collected.size === 0) throw error
@@ -581,7 +587,10 @@ async function listFisioByDeportista(col: string, deportistaId: string) {
     }
   }
   const all = await listFisioDocs(col)
-  return all.filter((item) => String(item.data().deportistaId || "") === deportistaId)
+  return all.filter((item) => {
+    const data = item.data() as Record<string, unknown>
+    return String(data.deportistaId || "") === deportistaId
+  })
 }
 
 export async function getParticipantFisioterapia(deportistaId: string): Promise<{

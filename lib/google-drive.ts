@@ -155,7 +155,7 @@ export async function proxyDriveChunk(params: {
       "Content-Range": params.contentRange,
       "Content-Type": params.contentType,
     },
-    body: params.body,
+    body: new Uint8Array(params.body),
   })
 }
 

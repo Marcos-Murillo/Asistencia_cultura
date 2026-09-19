@@ -273,7 +273,7 @@ describe('Cultura Backward Compatibility Regression Tests', () => {
       // Groups should be sorted alphabetically
       for (let i = 1; i < groups.length; i++) {
         expect(groups[i-1].nombre.localeCompare(groups[i].nombre)).toBeLessThanOrEqual(0)
-      })
+      }
     })
 
     test('getActiveEvents returns only active Cultura events', async () => {
