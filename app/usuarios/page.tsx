@@ -30,9 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import DeleteUserDialog from "@/components/delete-user-dialog"
-import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager, updateUserProfile as updateUserProfileRouter } from "@/lib/db-router"
-import { getUserEventEnrollments } from "@/lib/firestore"
-import { getAttendanceRecords } from "@/lib/storage"
+import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager, updateUserProfile as updateUserProfileRouter, getUserEventEnrollments as getUserEventEnrollmentsRouter, getUserRealEventEnrollments, getEventByIdRouter, getRealEventByIdRouter, getAttendanceRecords as getAttendanceRecordsRouter, removeUserFromGroup as removeUserFromGroupRouter } from "@/lib/db-router"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
 import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
 import { db } from "@/lib/firebase"
@@ -61,8 +59,12 @@ import {
   Building2,
   User as UserIcon,
   Music,
-  Pencil
+  Pencil,
+  X,
+  Megaphone,
 } from "lucide-react"
+
+type NamedItem = { id: string; nombre: string }
 
 const ITEMS_PER_PAGE = 20
 
@@ -82,8 +84,12 @@ export default function UsuariosPage() {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null)
   const [userDetailsOpen, setUserDetailsOpen] = useState(false)
   const [userGroups, setUserGroups] = useState<GroupEnrollment[]>([])
-  const [userEvents, setUserEvents] = useState<string[]>([])
+  const [userConvocatorias, setUserConvocatorias] = useState<NamedItem[]>([])
+  const [userRealEvents, setUserRealEvents] = useState<NamedItem[]>([])
   const [userAttendances, setUserAttendances] = useState<AttendanceRecord[]>([])
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [removingGroupId, setRemovingGroupId] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [userToAssignRole, setUserToAssignRole] = useState<UserProfile | null>(null)
@@ -225,6 +231,28 @@ export default function UsuariosPage() {
     return nombres.charAt(0).toUpperCase()
   }
 
+  const formatDateTime = (value?: Date | string) => {
+    if (!value) return "Sin registro"
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return "Sin registro"
+    return date.toLocaleDateString("es-CO", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
+  const roleLabel = (rol?: UserProfile["rol"]) => {
+    if (rol === "DIRECTOR") return area === "deporte" ? "Entrenador" : "Director"
+    if (rol === "MONITOR") return "Monitor"
+    if (rol === "ENTRENADOR") return "Entrenador"
+    if (rol === "FISIOTERAPEUTA") return "Fisioterapeuta"
+    if (rol === "SUPER_ADMIN") return "Super admin"
+    return "Estudiante"
+  }
+
   const handleDeleteUser = (user: UserProfile) => {
     setUserToDelete(user)
     setDeleteDialogOpen(true)
@@ -233,6 +261,10 @@ export default function UsuariosPage() {
   const confirmDeleteUser = async (userId: string) => {
     try {
       await deleteUserRouter(area, userId)
+      if (selectedUser?.id === userId) {
+        setUserDetailsOpen(false)
+        setSelectedUser(null)
+      }
       setSuccess("Usuario eliminado exitosamente")
       await loadUsers()
       setTimeout(() => setSuccess(null), 3000)
@@ -244,21 +276,73 @@ export default function UsuariosPage() {
 
   const handleViewUser = async (user: UserProfile) => {
     setSelectedUser(user)
+    setUserGroups([])
+    setUserConvocatorias([])
+    setUserRealEvents([])
+    setUserAttendances([])
+    setDetailsError(null)
     setUserDetailsOpen(true)
-    
-    // Cargar información adicional del usuario
+    setDetailsLoading(true)
+
     try {
-      const [groups, events, allAttendances] = await Promise.all([
+      const [groups, convocatoriaIds, eventIds, allAttendances] = await Promise.all([
         getUserEnrollmentsRouter(area, user.id),
-        getUserEventEnrollments(user.id),
-        getAttendanceRecords()
+        getUserEventEnrollmentsRouter(area, user.id),
+        getUserRealEventEnrollments(area, user.id),
+        getAttendanceRecordsRouter(area),
       ])
-      
-      setUserGroups(groups)
-      setUserEvents(events)
-      setUserAttendances(allAttendances.filter(a => a.numeroDocumento === user.numeroDocumento))
+
+      const uniqueConvocatorias = Array.from(new Set(convocatoriaIds.filter(Boolean)))
+      const uniqueEvents = Array.from(new Set(eventIds.filter(Boolean)))
+
+      const [convocatorias, eventos] = await Promise.all([
+        Promise.all(uniqueConvocatorias.map(async (id) => {
+          const event = await getEventByIdRouter(area, id)
+          return { id, nombre: event?.nombre || "Convocatoria sin nombre" }
+        })),
+        Promise.all(uniqueEvents.map(async (id) => {
+          const event = await getRealEventByIdRouter(area, id)
+          return { id, nombre: event?.nombre || "Evento sin nombre" }
+        })),
+      ])
+
+      setUserGroups(groups.filter((group) => group.grupoCultural && group.grupoCultural !== "__FISIOTERAPIA__"))
+      setUserConvocatorias(convocatorias)
+      setUserRealEvents(eventos)
+      setUserAttendances(allAttendances.filter((record) => record.numeroDocumento === user.numeroDocumento))
     } catch (error) {
-      console.error("Error loading user details:", error)
+      console.error("[Usuarios] Error loading user details from area", area, error)
+      setDetailsError("No se pudieron cargar grupos, convocatorias ni eventos. Revisa la conexión con la base de datos.")
+    } finally {
+      setDetailsLoading(false)
+    }
+  }
+
+  const handleRemoveUserFromGroup = async (group: GroupEnrollment) => {
+    if (!selectedUser) return
+    if (!isAdmin && !isSuperAdmin) {
+      setError("Solo los administradores pueden retirar usuarios de un grupo")
+      setTimeout(() => setError(null), 3000)
+      return
+    }
+
+    const confirmed = window.confirm(
+      `¿Quitar a ${formatNombre(selectedUser.nombres)} del grupo ${group.grupoCultural}?`
+    )
+    if (!confirmed) return
+
+    setRemovingGroupId(group.id)
+    try {
+      await removeUserFromGroupRouter(area, selectedUser.id, group.grupoCultural)
+      setUserGroups((prev) => prev.filter((item) => item.grupoCultural !== group.grupoCultural))
+      setSuccess(`${formatNombre(selectedUser.nombres)} fue retirado de ${group.grupoCultural}`)
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error) {
+      console.error("[Usuarios] Error removing user from group:", error)
+      setError("No se pudo retirar al usuario del grupo")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setRemovingGroupId(null)
     }
   }
 
@@ -508,6 +592,9 @@ export default function UsuariosPage() {
       if (editForm.programaAcademico.trim()) updates.programaAcademico = editForm.programaAcademico.trim()
 
       await updateUserProfileRouter(area, userToEdit.id, updates)
+      if (selectedUser?.id === userToEdit.id) {
+        setSelectedUser({ ...selectedUser, ...updates })
+      }
       setSuccess(`Usuario ${editForm.nombres} actualizado exitosamente`)
       setEditDialogOpen(false)
       await loadUsers()
@@ -806,209 +893,277 @@ export default function UsuariosPage() {
 
           {/* Dialog de Detalles del Usuario */}
           <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
-            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="text-2xl">Perfil del Usuario</DialogTitle>
+            <DialogContent className="flex max-h-[min(92vh,860px)] w-[calc(100%-1.5rem)] max-w-[720px] flex-col gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl sm:rounded-[28px] [&>button]:right-3 [&>button]:top-3 [&>button]:rounded-full [&>button]:text-white [&>button]:opacity-90 [&>button]:hover:bg-white/20 [&>button]:hover:opacity-100">
+              <DialogHeader className="sr-only">
+                <DialogTitle>Perfil del Usuario</DialogTitle>
                 <DialogDescription>Información completa y detallada</DialogDescription>
               </DialogHeader>
-              
+
               {selectedUser && (
-                <div className="space-y-6">
-                  {/* Header con Avatar y Info Principal */}
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl p-6 text-white">
-                    <div className="flex items-start gap-6">
-                      <Avatar className="h-24 w-24 border-4 border-white shadow-lg">
-                        <AvatarFallback className="bg-white text-blue-600 text-2xl font-bold">
+                <>
+                  <div className="relative h-28 shrink-0 overflow-hidden bg-[#5b4bdb]">
+                    <div className="absolute -left-6 top-3 h-16 w-16 rounded-full bg-[#ff7ad9]" />
+                    <div className="absolute left-12 top-5 h-14 w-24 rounded-[40%] bg-gradient-to-br from-[#ff8a3d] to-[#ff5a7a]" />
+                    <div className="absolute right-16 top-2 h-16 w-28 rotate-12 rounded-2xl bg-[#7c5cff]" />
+                    <div className="absolute -right-6 bottom-0 h-20 w-32 rounded-full bg-[#3d7eff]" />
+                    <div className="absolute bottom-1 left-24 h-10 w-20 rounded-full bg-[#6ee7ff]/80" />
+                  </div>
+
+                  <div className="shrink-0 px-6 pb-4">
+                    <div className="-mt-10 flex items-end justify-between gap-3">
+                      <Avatar className="h-[76px] w-[76px] border-4 border-white bg-[#f7c5d8] shadow-sm">
+                        <AvatarFallback className="bg-[#f7c5d8] text-xl font-semibold text-[#3d2a33]">
                           {getInitials(selectedUser.nombres)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-2">{formatNombre(selectedUser.nombres)}</h2>
-                        <div className="flex flex-wrap gap-2 mb-3">
-                          <Badge className="bg-white/20 text-white hover:bg-white/30">
-                            {selectedUser.genero}
-                          </Badge>
-                          <Badge className="bg-white/20 text-white hover:bg-white/30">
-                            {selectedUser.estamento}
-                          </Badge>
-                          <Badge className="bg-white/20 text-white hover:bg-white/30">
-                            {selectedUser.edad} años
-                          </Badge>
+                      {(isAdmin || isSuperAdmin) && (
+                        <div className="mb-1 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditUser(selectedUser)}
+                            className="flex h-10 w-10 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-600 transition hover:bg-violet-100"
+                            aria-label="Editar usuario"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(selectedUser)}
+                            className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100"
+                            aria-label="Eliminar usuario"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-4 w-4" />
-                            <span>{selectedUser.correo}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-4 w-4" />
-                            <span>{selectedUser.telefono}</span>
-                          </div>
-                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-gray-950">
+                          {formatNombre(selectedUser.nombres)}
+                        </h2>
+                        <p className="mt-0.5 text-sm text-gray-500">{selectedUser.estamento}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-medium text-violet-700">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[9px] font-bold text-white">
+                            {roleLabel(selectedUser.rol).slice(0, 1)}
+                          </span>
+                          {roleLabel(selectedUser.rol)}
+                        </span>
+                        {userGroups.length > 0 && (
+                          <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-700">
+                            +{userGroups.length}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl bg-indigo-50 px-3 py-2 text-center">
+                        <p className="text-sm font-semibold text-indigo-700">{detailsLoading ? "—" : userAttendances.length}</p>
+                        <p className="text-[11px] text-indigo-400">asistencias</p>
+                      </div>
+                      <div className="rounded-2xl bg-orange-50 px-3 py-2 text-center">
+                        <p className="text-sm font-semibold text-orange-700">{detailsLoading ? "—" : userGroups.length}</p>
+                        <p className="text-[11px] text-orange-400">grupos</p>
+                      </div>
+                      <div className="rounded-2xl bg-pink-50 px-3 py-2 text-center">
+                        <p className="text-sm font-semibold text-pink-700">{detailsLoading ? "—" : userConvocatorias.length + userRealEvents.length}</p>
+                        <p className="text-[11px] text-pink-400">inscripciones</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Grid de Información */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Información Personal */}
-                    <Card className="border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2 text-blue-900">
-                          <UserIcon className="h-5 w-5" />
-                          Información Personal
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium">Etnia</p>
-                          <p className="font-medium text-gray-900">{selectedUser.etnia}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium">Tipo de Documento</p>
-                          <p className="font-medium text-gray-900">{selectedUser.tipoDocumento}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium">Número de Documento</p>
-                          <p className="font-medium text-gray-900">{selectedUser.numeroDocumento}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Información Institucional */}
-                    <Card className="border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2 text-purple-900">
-                          <Building2 className="h-5 w-5" />
-                          Información Institucional
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div>
-                          <p className="text-xs text-gray-500 font-medium">Sede</p>
-                          <p className="font-medium text-gray-900">{selectedUser.sede}</p>
-                        </div>
-                        {selectedUser.codigoEstudiantil && (
-                          <div>
-                            <p className="text-xs text-gray-500 font-medium">Código Estudiante</p>
-                            <p className="font-medium text-gray-900">{selectedUser.codigoEstudiantil}</p>
-                          </div>
-                        )}
-                        {selectedUser.area === 'deporte' && selectedUser.codigoEstudiantil && (
-                          <div>
-                            <p className="text-xs text-gray-500 font-medium">Código Estudiantil</p>
-                            <p className="font-medium text-gray-900">{selectedUser.codigoEstudiantil}</p>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    {/* Información Académica */}
-                    {(selectedUser.facultad || selectedUser.programaAcademico) && (
-                      <Card className="border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 md:col-span-2">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-lg flex items-center gap-2 text-green-900">
-                            <GraduationCap className="h-5 w-5" />
-                            Información Académica
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {selectedUser.facultad && (
-                            <div>
-                              <p className="text-xs text-gray-500 font-medium">Facultad</p>
-                              <p className="font-medium text-gray-900">{selectedUser.facultad}</p>
-                            </div>
-                          )}
-                          {selectedUser.programaAcademico && (
-                            <div>
-                              <p className="text-xs text-gray-500 font-medium">Programa Académico</p>
-                              <p className="font-medium text-gray-900">{selectedUser.programaAcademico}</p>
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6 [scrollbar-width:thin] [scrollbar-color:rgb(216_214_230)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-violet-200">
+                    {detailsError && (
+                      <p className="mb-4 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">{detailsError}</p>
                     )}
 
-                    {/* Grupos Inscritos */}
-                    <Card className="border-2 border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2 text-orange-900">
-                          <Music className="h-5 w-5" />
-                          Grupos Culturales
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        {userGroups.length > 0 ? (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      <span className="inline-flex max-w-full items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-sm text-sky-800">
+                        <Mail className="h-4 w-4 shrink-0 text-sky-500" />
+                        <span className="truncate">{selectedUser.correo}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm text-emerald-800">
+                        <Phone className="h-4 w-4 shrink-0 text-emerald-500" />
+                        {selectedUser.telefono || "Sin teléfono"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
+                            <UserIcon className="h-3.5 w-3.5" />
+                          </span>
+                          Personal
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                          <div>
+                            <p className="text-[11px] text-gray-400">Género</p>
+                            <p className="font-medium text-gray-900">{selectedUser.genero}</p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] text-gray-400">Edad</p>
+                            <p className="font-medium text-gray-900">{selectedUser.edad} años</p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] text-gray-400">Etnia</p>
+                            <p className="font-medium text-gray-900">{selectedUser.etnia}</p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] text-gray-400">Documento</p>
+                            <p className="font-medium text-gray-900">{selectedUser.tipoDocumento}</p>
+                          </div>
+                          <div className="col-span-2">
+                            <p className="text-[11px] text-gray-400">Número</p>
+                            <p className="font-medium text-gray-900">{selectedUser.numeroDocumento}</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                            <Building2 className="h-3.5 w-3.5" />
+                          </span>
+                          Institucional
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                          <div>
+                            <p className="text-[11px] text-gray-400">Sede</p>
+                            <p className="font-medium text-gray-900">{selectedUser.sede}</p>
+                          </div>
+                          {selectedUser.codigoEstudiantil && (
+                            <div>
+                              <p className="text-[11px] text-gray-400">Código estudiantil</p>
+                              <p className="font-medium text-gray-900">{selectedUser.codigoEstudiantil}</p>
+                            </div>
+                          )}
+                        </div>
+                      </section>
+
+                      {(selectedUser.facultad || selectedUser.programaAcademico) && (
+                        <section className="sm:col-span-2">
+                          <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                              <GraduationCap className="h-3.5 w-3.5" />
+                            </span>
+                            Académica
+                          </p>
+                          <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                            {selectedUser.facultad && (
+                              <div>
+                                <p className="text-[11px] text-gray-400">Facultad</p>
+                                <p className="font-medium text-gray-900">{selectedUser.facultad}</p>
+                              </div>
+                            )}
+                            {selectedUser.programaAcademico && (
+                              <div>
+                                <p className="text-[11px] text-gray-400">Programa</p>
+                                <p className="font-medium text-gray-900">{selectedUser.programaAcademico}</p>
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      )}
+
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-orange-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
+                            <Music className="h-3.5 w-3.5" />
+                          </span>
+                          {area === "deporte" ? "Grupos" : "Grupos culturales"}
+                        </p>
+                        {detailsLoading ? (
+                          <p className="text-sm text-orange-400">Cargando grupos...</p>
+                        ) : userGroups.length > 0 ? (
                           <div className="flex flex-wrap gap-2">
                             {userGroups.map((group) => (
-                              <Badge key={group.id} className="bg-orange-500 text-white hover:bg-orange-600">
+                              <span key={group.id} className="inline-flex items-center gap-1 rounded-full bg-orange-50 py-1 pl-3 pr-1 text-sm font-medium text-orange-900">
                                 {group.grupoCultural}
-                              </Badge>
+                                {(isAdmin || isSuperAdmin) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveUserFromGroup(group)}
+                                    disabled={removingGroupId === group.id}
+                                    className="flex h-6 w-6 items-center justify-center rounded-full text-orange-400 transition hover:bg-white hover:text-rose-600 disabled:opacity-50"
+                                    aria-label={`Quitar de ${group.grupoCultural}`}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </span>
                             ))}
                           </div>
                         ) : (
-                          <p className="text-sm text-gray-500">No está inscrito en ningún grupo</p>
+                          <p className="text-sm text-gray-400">No está inscrito en ningún grupo</p>
                         )}
-                      </CardContent>
-                    </Card>
+                      </section>
 
-                    {/* Eventos Inscritos */}
-                    <Card className="border-2 border-pink-200 bg-gradient-to-br from-pink-50 to-rose-50">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2 text-pink-900">
-                          <Calendar className="h-5 w-5" />
-                          Eventos Inscritos
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        {userEvents.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium text-gray-900">
-                              {userEvents.length} evento(s) inscrito(s)
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {Array.from(new Set(userEvents)).map((eventId, index) => (
-                                <Badge key={index} className="bg-pink-500 text-white hover:bg-pink-600">
-                                  Evento {index + 1}
-                                </Badge>
-                              ))}
-                            </div>
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-fuchsia-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-fuchsia-100 text-fuchsia-600">
+                            <Megaphone className="h-3.5 w-3.5" />
+                          </span>
+                          Convocatorias
+                        </p>
+                        {detailsLoading ? (
+                          <p className="text-sm text-fuchsia-400">Cargando convocatorias...</p>
+                        ) : userConvocatorias.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {userConvocatorias.map((item) => (
+                              <span key={item.id} className="rounded-full bg-fuchsia-50 px-3 py-1 text-sm font-medium text-fuchsia-900">
+                                {item.nombre}
+                              </span>
+                            ))}
                           </div>
                         ) : (
-                          <p className="text-sm text-gray-500">No está inscrito en ningún evento</p>
+                          <p className="text-sm text-gray-400">No está inscrito en ninguna convocatoria</p>
                         )}
-                      </CardContent>
-                    </Card>
+                      </section>
 
-                    {/* Última Asistencia */}
-                    <Card className="border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-blue-50 md:col-span-2">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-lg flex items-center gap-2 text-indigo-900">
-                          <Calendar className="h-5 w-5" />
-                          Historial de Asistencia
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="text-center p-4 bg-white rounded-lg">
-                          <p className="text-2xl font-bold text-indigo-600">{userAttendances.length}</p>
-                          <p className="text-xs text-gray-500 font-medium">Total Asistencias</p>
-                        </div>
-                        <div className="md:col-span-2 p-4 bg-white rounded-lg">
-                          <p className="text-xs text-gray-500 font-medium mb-1">Última Asistencia</p>
-                          <p className="text-sm font-medium text-gray-900">
-                            {new Date(selectedUser.lastAttendance).toLocaleDateString("es-CO", {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit"
-                            })}
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sky-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
+                            <Calendar className="h-3.5 w-3.5" />
+                          </span>
+                          Eventos
+                        </p>
+                        {detailsLoading ? (
+                          <p className="text-sm text-sky-400">Cargando eventos...</p>
+                        ) : userRealEvents.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {userRealEvents.map((item) => (
+                              <span key={item.id} className="rounded-full bg-sky-50 px-3 py-1 text-sm font-medium text-sky-900">
+                                {item.nombre}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400">No está inscrito en ningún evento</p>
+                        )}
+                      </section>
+
+                      <section>
+                        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+                            <Calendar className="h-3.5 w-3.5" />
+                          </span>
+                          Asistencia
+                        </p>
+                        <div className="rounded-2xl bg-indigo-50 px-3 py-2">
+                          <p className="text-[11px] text-indigo-400">Última asistencia</p>
+                          <p className="text-sm font-medium text-indigo-950">
+                            {formatDateTime(userAttendances[0]?.timestamp || selectedUser.lastAttendance)}
                           </p>
                         </div>
-                      </CardContent>
-                    </Card>
+                      </section>
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </DialogContent>
           </Dialog>

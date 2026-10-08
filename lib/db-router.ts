@@ -1216,6 +1216,29 @@ export async function getUserEnrollments(area: Area, userId: string): Promise<Ar
   }
 }
 
+// Remove a user from a single group (area-aware)
+export async function removeUserFromGroup(area: Area, userId: string, grupoCultural: string): Promise<void> {
+  validateAreaSpecified(area)
+
+  try {
+    const db = getFirestoreForArea(area)
+    const enrollmentsRef = collection(db, "group_enrollments")
+    const enrollmentQuery = query(enrollmentsRef, where("userId", "==", userId))
+    const snapshot = await getDocs(enrollmentQuery)
+    const matches = snapshot.docs.filter((enrollmentDoc) => enrollmentDoc.data().grupoCultural === grupoCultural)
+
+    if (matches.length === 0) {
+      throw new Error("No se encontró la inscripción a ese grupo")
+    }
+
+    await Promise.all(matches.map((enrollmentDoc) => deleteDoc(enrollmentDoc.ref)))
+    console.log("[db-router] User", userId, "removed from group", grupoCultural, "in area:", area)
+  } catch (error) {
+    console.error("[db-router] Error removing user from group:", error)
+    throw error
+  }
+}
+
 // Update user profile fields (area-aware)
 export async function updateUserProfile(
   area: Area,
