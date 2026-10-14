@@ -79,9 +79,16 @@ export async function generatePDFReport(
     : 0
   const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos + totalCineclu
 
-  // Usuarios únicos en el período filtrado (para referencia en tablas)
-  const uniqueUsersInGroups = new Set(attendanceRecords.map((record) => `${record.nombres}|${record.numeroDocumento}`))
-    .size
+  // Suma de usuarios únicos por grupo en el período filtrado.
+  // Una persona inscrita en dos grupos cuenta una vez en cada grupo.
+  const usersByGroup: Record<string, Set<string>> = {}
+  attendanceRecords.forEach((record) => {
+    if (!usersByGroup[record.grupoCultural]) {
+      usersByGroup[record.grupoCultural] = new Set()
+    }
+    usersByGroup[record.grupoCultural].add(`${record.nombres}|${record.numeroDocumento}`)
+  })
+  const totalParticipantesUnicosGrupos = Object.values(usersByGroup).reduce((sum, users) => sum + users.size, 0)
 
   // Total de usuarios registrados en la plataforma (sin filtro de fechas — dato fijo)
   const totalUsuariosRegistrados = totalUsuariosPlataforma ?? new Set([
@@ -94,6 +101,7 @@ export async function generatePDFReport(
   const summaryData = [
     ["Total de usuarios registrados en la plataforma", totalUsuariosRegistrados.toString()],
     [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
+    [`Participantes únicos en ${gruposLabel}`, totalParticipantesUnicosGrupos.toString()],
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
     ["Inscripciones en Eventos", totalRealEventos.toString()],
     ["Asistencias en Cineclú", totalCineclu.toString()],
@@ -118,15 +126,6 @@ export async function generatePDFReport(
   doc.setFont("helvetica", "bold")
   doc.text(`USUARIOS ÚNICOS POR ${grupoLabel.toUpperCase()}`, 14, currentY)
   currentY += 7
-
-  const usersByGroup: Record<string, Set<string>> = {}
-
-  attendanceRecords.forEach((record) => {
-    if (!usersByGroup[record.grupoCultural]) {
-      usersByGroup[record.grupoCultural] = new Set()
-    }
-    usersByGroup[record.grupoCultural].add(`${record.nombres}|${record.numeroDocumento}`)
-  })
 
   const uniqueUsersByGroup = Object.entries(usersByGroup)
     .map(([group, users]) => {
