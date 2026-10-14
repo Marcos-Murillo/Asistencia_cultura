@@ -13,17 +13,9 @@ import { Plus, Trophy, Users, User, Calendar, MapPin, Pencil, Trash2, ChevronRig
 import Link from "next/link"
 import { getAllTorneos, createTorneo, updateTorneo, deleteTorneo } from "@/lib/db-router"
 import type { Torneo, TorneoDeporte, TorneoTipo } from "@/lib/types"
+import { estadoInscripcion, finInscripcion, fromDateInput, inicioInscripcion, labelDeporte, toDateInput, TORNEO_DEPORTES } from "@/lib/torneo-utils"
 
-const DEPORTES: { value: TorneoDeporte; label: string }[] = [
-  { value: "futbol", label: "Fútbol" },
-  { value: "baloncesto", label: "Baloncesto" },
-  { value: "voleibol", label: "Voleibol" },
-  { value: "tenis_mesa", label: "Tenis de Mesa" },
-  { value: "ajedrez", label: "Ajedrez" },
-  { value: "natacion", label: "Natación" },
-  { value: "atletismo", label: "Atletismo" },
-  { value: "otro", label: "Otro" },
-]
+const DEPORTES = TORNEO_DEPORTES
 
 const FASE_LABELS: Record<string, string> = {
   inscripcion: "Inscripción", grupos: "Fase de Grupos",
@@ -34,7 +26,10 @@ const FASE_COLORS: Record<string, string> = {
   eliminatorias: "bg-orange-100 text-orange-700", finalizado: "bg-green-100 text-green-700",
 }
 
-const emptyForm = { nombre: "", deporte: "" as TorneoDeporte, tipo: "" as TorneoTipo, descripcion: "", fechaInicio: "", fechaFin: "", lugar: "", equiposPorGrupo: "4" }
+const emptyForm = {
+  nombre: "", deporte: "" as TorneoDeporte, tipo: "grupal" as TorneoTipo, descripcion: "",
+  fechaInicio: "", fechaFin: "", inscripcionInicio: "", inscripcionFin: "", lugar: "",
+}
 
 export default function TorneosPage() {
   const [torneos, setTorneos] = useState<Torneo[]>([])
@@ -62,25 +57,33 @@ export default function TorneosPage() {
     setForm({
       nombre: t.nombre, deporte: t.deporte, tipo: t.tipo,
       descripcion: t.descripcion || "", lugar: t.lugar,
-      fechaInicio: t.fechaInicio.toISOString().split("T")[0],
-      fechaFin: t.fechaFin.toISOString().split("T")[0],
-      equiposPorGrupo: t.equiposPorGrupo?.toString() || "4",
+      fechaInicio: toDateInput(t.fechaInicio),
+      fechaFin: toDateInput(t.fechaFin),
+      inscripcionInicio: toDateInput(inicioInscripcion(t)),
+      inscripcionFin: toDateInput(finInscripcion(t)),
     })
     setError(""); setDialogOpen(true)
   }
 
   async function handleSubmit() {
-    if (!form.nombre || !form.deporte || !form.tipo || !form.fechaInicio || !form.fechaFin || !form.lugar) {
+    if (!form.nombre || !form.deporte || !form.tipo || !form.fechaInicio || !form.fechaFin || !form.inscripcionInicio || !form.inscripcionFin || !form.lugar) {
       setError("Completa todos los campos obligatorios."); return
+    }
+    const inscripcionInicio = fromDateInput(form.inscripcionInicio)
+    const inscripcionFin = fromDateInput(form.inscripcionFin, true)
+    if (inscripcionFin < inscripcionInicio) {
+      setError("La inscripción debe terminar después de empezar."); return
     }
     setSubmitting(true)
     try {
       const payload = {
         nombre: form.nombre, deporte: form.deporte, tipo: form.tipo,
         descripcion: form.descripcion, lugar: form.lugar,
-        fechaInicio: new Date(form.fechaInicio), fechaFin: new Date(form.fechaFin),
+        fechaInicio: fromDateInput(form.fechaInicio),
+        fechaFin: fromDateInput(form.fechaFin, true),
+        inscripcionInicio,
+        inscripcionFin,
         activo: true,
-        ...(form.tipo === "grupal" ? { equiposPorGrupo: parseInt(form.equiposPorGrupo) || 4 } : {}),
       }
       if (editingTorneo) {
         await updateTorneo(editingTorneo.id, payload)
@@ -134,7 +137,7 @@ export default function TorneosPage() {
                     <Badge className={`text-xs shrink-0 ${FASE_COLORS[t.fase]}`}>{FASE_LABELS[t.fase]}</Badge>
                   </div>
                   <CardDescription className="flex flex-wrap gap-2 mt-1">
-                    <span className="flex items-center gap-1"><Trophy className="h-3 w-3" />{DEPORTES.find(d => d.value === t.deporte)?.label}</span>
+                    <span className="flex items-center gap-1"><Trophy className="h-3 w-3" />{labelDeporte(t.deporte)}</span>
                     <Badge variant="outline" className="text-xs">{t.tipo === "individual" ? <><User className="h-3 w-3 mr-1" />Individual</> : <><Users className="h-3 w-3 mr-1" />Grupal</>}</Badge>
                   </CardDescription>
                 </CardHeader>
@@ -142,8 +145,13 @@ export default function TorneosPage() {
                   <div className="text-sm text-gray-600 space-y-1">
                     <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{t.lugar}</div>
                     <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />
-                      {t.fechaInicio.toLocaleDateString("es-CO")} — {t.fechaFin.toLocaleDateString("es-CO")}
+                      Inscripción: {inicioInscripcion(t).toLocaleDateString("es-CO")} — {finInscripcion(t).toLocaleDateString("es-CO")}
                     </div>
+                    {t.fase === "inscripcion" && (
+                      <Badge className={`text-xs ${estadoInscripcion(t) === "abierta" ? "bg-green-100 text-green-700" : estadoInscripcion(t) === "pendiente" ? "bg-amber-100 text-amber-700" : "bg-zinc-100 text-zinc-600"}`}>
+                        {estadoInscripcion(t) === "abierta" ? "Inscripciones abiertas" : estadoInscripcion(t) === "pendiente" ? "Inscripciones por abrir" : "Inscripciones cerradas"}
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex gap-2 pt-1">
                     <Link href={`/torneos/${t.id}`} className="flex-1">
@@ -165,7 +173,7 @@ export default function TorneosPage() {
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>{editingTorneo ? "Editar Torneo" : "Nuevo Torneo"}</DialogTitle>
-              <DialogDescription>Configura los datos del torneo deportivo.</DialogDescription>
+              <DialogDescription>Define el torneo y el periodo en el que los usuarios pueden inscribir sus equipos.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3 py-2">
               <div className="space-y-1">
@@ -191,23 +199,27 @@ export default function TorneosPage() {
                   </Select>
                 </div>
               </div>
-              {form.tipo === "grupal" && (
-                <div className="space-y-1">
-                  <Label>Equipos por grupo</Label>
-                  <Input type="number" min={2} max={8} value={form.equiposPorGrupo} onChange={e => setForm(f => ({ ...f, equiposPorGrupo: e.target.value }))} />
-                </div>
-              )}
               <div className="space-y-1">
                 <Label>Lugar *</Label>
                 <Input value={form.lugar} onChange={e => setForm(f => ({ ...f, lugar: e.target.value }))} placeholder="Ej: Coliseo Universitario" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label>Fecha inicio *</Label>
+                  <Label>Inscripciones desde *</Label>
+                  <Input type="date" value={form.inscripcionInicio} onChange={e => setForm(f => ({ ...f, inscripcionInicio: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Inscripciones hasta *</Label>
+                  <Input type="date" value={form.inscripcionFin} onChange={e => setForm(f => ({ ...f, inscripcionFin: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Inicio del torneo *</Label>
                   <Input type="date" value={form.fechaInicio} onChange={e => setForm(f => ({ ...f, fechaInicio: e.target.value }))} />
                 </div>
                 <div className="space-y-1">
-                  <Label>Fecha fin *</Label>
+                  <Label>Fin del torneo *</Label>
                   <Input type="date" value={form.fechaFin} onChange={e => setForm(f => ({ ...f, fechaFin: e.target.value }))} />
                 </div>
               </div>

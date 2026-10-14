@@ -320,20 +320,27 @@ export interface Torneo {
   descripcion?: string
   fechaInicio: Date
   fechaFin: Date
+  /** Ventana en la que los usuarios pueden crear o unirse a un equipo. */
+  inscripcionInicio?: Date
+  inscripcionFin?: Date
   lugar: string
   fase: TorneoFase
   activo: boolean
   createdAt: Date
-  // Solo para grupales
+  // Solo para grupales. Lo define el admin al cerrar inscripciones.
   equiposPorGrupo?: number
 }
+
+export type TorneoRol = "delegado" | "jugador"
 
 export interface TorneoEquipo {
   id: string
   torneoId: string
   nombre: string
-  codigo: string // ej: "a1b2"
+  codigo: string // 4 caracteres, letras y números
   createdAt: Date
+  delegadoId?: string
+  escudoUrl?: string
 }
 
 export interface TorneoInscripcion {
@@ -342,6 +349,7 @@ export interface TorneoInscripcion {
   userId: string
   // Para grupal: equipoId
   equipoId?: string
+  rol?: TorneoRol
   fechaInscripcion: Date
 }
 

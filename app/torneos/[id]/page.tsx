@@ -12,18 +12,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
-  Trophy, Users, User, Plus, Trash2, Pencil, Shuffle,
+  Trophy, Users, User, Trash2, Pencil, Shuffle,
   ArrowLeft, Copy, CheckCircle, BarChart2, Swords, ChevronRight,
-  MapPin, History, Search
+  MapPin, History, Search, FileSpreadsheet, FileText,
 } from "lucide-react"
 import Link from "next/link"
+import * as XLSX from "xlsx"
+import jsPDF from "jspdf"
+import { autoTable } from "jspdf-autotable"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
-  getTorneoById, getEquiposByTorneo, createEquipo, updateEquipo, deleteEquipo,
+  getTorneoById, getEquiposByTorneo, updateEquipo, deleteEquipo,
   getInscripcionesByTorneo, getGruposByTorneo, createGruposAleatorios,
   getPartidosByTorneo, createPartido, updatePartido, generarPartidosGrupo,
-  generarBracketEliminatorias, updateTorneo, getUserNamesByIds,
+  generarBracketEliminatorias, updateTorneo, getUserNamesByIds, getUserBriefsByIds,
+  deletePartido,
 } from "@/lib/db-router"
 import type { Torneo, TorneoEquipo, TorneoInscripcion, TorneoGrupo, TorneoPartido, PosicionGrupo, EstadisticasJugador } from "@/lib/types"
+import { finInscripcion, inicioInscripcion, inscripcionAbierta, inscripcionCerrada, labelDeporte } from "@/lib/torneo-utils"
 import { isSuperAdmin as checkSuperAdmin, isAdmin as checkAdmin } from "@/lib/auth-helpers"
 
 const STATS_FIELDS: Record<string, { key: keyof EstadisticasJugador; label: string }[]> = {
@@ -63,6 +69,12 @@ function calcPosiciones(partidos: TorneoPartido[], equipos: string[]): PosicionG
 }
 
 // Orden de fases para saber cuáles ya pasaron
+const FASE_LABELS: Record<string, string> = {
+  inscripcion: "Inscripción",
+  grupos: "Fase de grupos",
+  eliminatorias: "Eliminatorias",
+  finalizado: "Finalizado",
+}
 const FASE_ORDER = ["inscripcion", "grupos", "eliminatorias", "finalizado"]
 function fasePasada(torneoFase: string, fase: string): boolean {
   return FASE_ORDER.indexOf(torneoFase) > FASE_ORDER.indexOf(fase)
@@ -77,6 +89,17 @@ export default function TorneoAdminPage() {
   const [grupos, setGrupos] = useState<TorneoGrupo[]>([])
   const [partidos, setPartidos] = useState<TorneoPartido[]>([])
   const [userNames, setUserNames] = useState<Record<string, string>>({})
+  const [userBriefs, setUserBriefs] = useState<Record<string, {
+    nombres: string
+    numeroDocumento: string
+    correo: string
+    codigoEstudiantil: string
+    estamento: string
+    facultad: string
+    programaAcademico: string
+  }>>({})
+  const [porGrupo, setPorGrupo] = useState("4")
+  const [iniciando, setIniciando] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [error, setError] = useState("")
@@ -118,8 +141,11 @@ export default function TorneoAdminPage() {
         getPartidosByTorneo(torneoId),
       ])
       setTorneo(t); setEquipos(eq); setInscripciones(ins); setGrupos(gr); setPartidos(pts)
-      const names = await getUserNamesByIds(ins.map(i => i.userId))
+      if (t?.equiposPorGrupo) setPorGrupo(String(t.equiposPorGrupo))
+      const ids = ins.map(i => i.userId)
+      const [names, briefs] = await Promise.all([getUserNamesByIds(ids), getUserBriefsByIds(ids)])
       setUserNames(names)
+      setUserBriefs(briefs)
     } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
@@ -129,15 +155,110 @@ export default function TorneoAdminPage() {
     setTimeout(() => setCopiedCodigo(null), 2000)
   }
 
-  function openCreateEquipo() { setEditingEquipo(null); setEquipoNombre(""); setEquipoDialogOpen(true) }
   function openEditEquipo(e: TorneoEquipo) { setEditingEquipo(e); setEquipoNombre(e.nombre); setEquipoDialogOpen(true) }
+
+  const columnasLista = ["Equipo", "Nombre", "Cédula", "Código", "Estamento", "Facultad", "Programa"]
+
+  function filasDeEquipo(eq: TorneoEquipo): string[][] {
+    const miembros = inscripciones
+      .filter(i => i.equipoId === eq.id)
+      .sort((a, b) => (a.rol === "delegado" ? -1 : 1) - (b.rol === "delegado" ? -1 : 1))
+    if (miembros.length === 0) {
+      return [[eq.nombre, "Sin integrantes", "", "", "", "", ""]]
+    }
+    return miembros.map(miembro => {
+      const persona = userBriefs[miembro.userId]
+      return [
+        eq.nombre,
+        persona?.nombres || userNames[miembro.userId] || "",
+        persona?.numeroDocumento || "",
+        persona?.codigoEstudiantil || "",
+        persona?.estamento || "",
+        persona?.facultad || "",
+        persona?.programaAcademico || "",
+      ]
+    })
+  }
+
+  function descargarExcel() {
+    if (!torneo) return
+    const ordenados = [...equipos].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+    const rows: string[][] = []
+    ordenados.forEach((eq, index) => {
+      if (index > 0) rows.push([])
+      rows.push([eq.nombre.toUpperCase()])
+      rows.push(columnasLista)
+      rows.push(...filasDeEquipo(eq))
+    })
+    const sheet = XLSX.utils.aoa_to_sheet(rows)
+    sheet["!cols"] = [
+      { wch: 28 }, { wch: 32 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 28 }, { wch: 36 },
+    ]
+    const book = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(book, sheet, "Equipos")
+    XLSX.writeFile(book, `equipos_${torneo.nombre.replace(/\s+/g, "_")}.xlsx`)
+  }
+
+  function descargarPdf() {
+    if (!torneo) return
+    const doc = new jsPDF({ orientation: "landscape" })
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFontSize(16)
+    doc.text(torneo.nombre, 14, 16)
+    doc.setFontSize(10)
+    doc.text(`${labelDeporte(torneo.deporte)} · ${equipos.length} equipos · ${inscripciones.length} inscritos`, 14, 23)
+    let cursor = 32
+    const ordenados = [...equipos].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+    ordenados.forEach(eq => {
+      if (cursor > pageHeight - 40) {
+        doc.addPage()
+        cursor = 18
+      }
+      doc.setFontSize(12)
+      doc.text(eq.nombre.toUpperCase(), 14, cursor)
+      autoTable(doc, {
+        startY: cursor + 3,
+        head: [columnasLista],
+        body: filasDeEquipo(eq),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [234, 88, 12] },
+        margin: { left: 14, right: 14 },
+      })
+      cursor = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? cursor + 20) + 10
+    })
+    doc.save(`equipos_${torneo.nombre.replace(/\s+/g, "_")}.pdf`)
+  }
+
+  async function handleIniciarTorneo() {
+    if (!torneo) return
+    const cantidad = parseInt(porGrupo, 10)
+    if (!cantidad || cantidad < 2) { setError("Indica al menos 2 equipos por grupo"); return }
+    if (equipos.length < 2) { setError("Se necesitan al menos 2 equipos para iniciar"); return }
+    if (!confirm(`¿Iniciar el torneo con grupos de ${cantidad} equipos? Se armarán los grupos y los partidos.`)) return
+    setIniciando(true)
+    setError("")
+    try {
+      await Promise.all(partidos.filter(p => p.fase === "grupos").map(p => deletePartido(p.id)))
+      await updateTorneo(torneoId, { equiposPorGrupo: cantidad, fase: "grupos" })
+      await createGruposAleatorios(torneoId, equipos.map(e => e.id), cantidad)
+      const nuevos = await getGruposByTorneo(torneoId)
+      for (const grupo of nuevos) {
+        await generarPartidosGrupo(torneoId, grupo.id, grupo.equipos)
+      }
+      setSuccess("El torneo empezó. Los grupos y los partidos ya están listos.")
+      await loadAll()
+    } catch {
+      setError("No se pudo iniciar el torneo")
+    } finally {
+      setIniciando(false)
+    }
+  }
 
   async function handleEquipoSubmit() {
     if (!equipoNombre.trim()) return
     setEquipoSubmitting(true)
     try {
       if (editingEquipo) { await updateEquipo(editingEquipo.id, equipoNombre); setSuccess("Equipo actualizado") }
-      else { await createEquipo(torneoId, equipoNombre); setSuccess("Equipo creado") }
       setEquipoDialogOpen(false); await loadAll()
     } catch (e) { setError("Error al guardar equipo") } finally { setEquipoSubmitting(false) }
   }
@@ -249,10 +370,12 @@ export default function TorneoAdminPage() {
             </h1>
             <div className="flex flex-wrap gap-2 mt-1 text-sm text-gray-500">
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{torneo.lugar}</span>
+              <span>{labelDeporte(torneo.deporte)}</span>
+              <span>Inscripción {inicioInscripcion(torneo).toLocaleDateString("es-CO")} — {finInscripcion(torneo).toLocaleDateString("es-CO")}</span>
               <Badge className={`text-xs ${torneo.tipo === "individual" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                 {torneo.tipo === "individual" ? <><User className="h-3 w-3 mr-1" />Individual</> : <><Users className="h-3 w-3 mr-1" />Grupal</>}
               </Badge>
-              <Badge variant="outline" className="text-xs">{torneo.fase}</Badge>
+              <Badge variant="outline" className="text-xs">{FASE_LABELS[torneo.fase] || torneo.fase}</Badge>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -261,7 +384,7 @@ export default function TorneoAdminPage() {
                 <History className="h-4 w-4" />{mostrarAnteriores ? "Ocultar anteriores" : "Resultados anteriores"}
               </Button>
             )}
-            {isAdmin && torneo.fase !== "finalizado" && (
+            {isAdmin && torneo.fase !== "finalizado" && torneo.fase !== "inscripcion" && (
               <Button size="sm" onClick={handleAvanzarFase} className="bg-orange-600 hover:bg-orange-700 text-white gap-1">
                 <ChevronRight className="h-4 w-4" />Avanzar fase
               </Button>
@@ -283,72 +406,112 @@ export default function TorneoAdminPage() {
           {/* ── TAB ADMIN ── */}
           {isAdmin && (
             <TabsContent value="admin" className="space-y-6">
+              {torneo.tipo === "grupal" && torneo.fase === "inscripcion" && (
+                <Card className="border-orange-200">
+                  <CardHeader>
+                    <CardTitle className="text-base">Inicio del torneo</CardTitle>
+                    <CardDescription>
+                      {inscripcionAbierta(torneo)
+                        ? `Las inscripciones siguen abiertas hasta el ${finInscripcion(torneo).toLocaleDateString("es-CO")}. Cuando cierren, defines cuántos equipos van en cada grupo.`
+                        : inscripcionCerrada(torneo)
+                          ? "Las inscripciones ya cerraron. Elige cuántos equipos tendrá cada grupo para armar el calendario y empezar."
+                          : `Las inscripciones abren el ${inicioInscripcion(torneo).toLocaleDateString("es-CO")}.`}
+                    </CardDescription>
+                  </CardHeader>
+                  {inscripcionCerrada(torneo) && (
+                    <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                      <div className="space-y-1">
+                        <Label>Equipos por grupo</Label>
+                        <Input type="number" min={2} max={8} value={porGrupo} onChange={e => setPorGrupo(e.target.value)} className="w-28" />
+                      </div>
+                      <Button onClick={handleIniciarTorneo} disabled={iniciando} className="bg-orange-600 hover:bg-orange-700">
+                        {iniciando ? "Iniciando..." : "Iniciar torneo"}
+                      </Button>
+                    </CardContent>
+                  )}
+                </Card>
+              )}
+
               {torneo.tipo === "grupal" && (
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Equipos ({equipos.length})</CardTitle>
-                      <Button size="sm" onClick={openCreateEquipo} className="gap-1"><Plus className="h-4 w-4" />Nuevo equipo</Button>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Equipos ({equipos.length})</CardTitle>
+                        <CardDescription>Los equipos los crean los delegados durante las inscripciones.</CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={descargarExcel} className="h-8 gap-1.5 border-green-600 px-2.5 text-xs text-green-700 hover:bg-green-50">
+                          <FileSpreadsheet className="h-3.5 w-3.5" />Excel
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={descargarPdf} className="h-8 gap-1.5 border-red-600 px-2.5 text-xs text-red-700 hover:bg-red-50">
+                          <FileText className="h-3.5 w-3.5" />PDF
+                        </Button>
+                      </div>
                     </div>
-                    <CardDescription>Cada equipo recibe un código único para que los jugadores se inscriban.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {equipos.length === 0 ? <p className="text-sm text-gray-500">No hay equipos creados.</p> : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {equipos.map(eq => (
-                          <div key={eq.id} className="border rounded-lg p-3 bg-white flex items-center justify-between gap-2">
-                            <div>
-                              <p className="font-medium text-sm">{eq.nombre}</p>
-                              <div className="flex items-center gap-1 mt-1">
-                                <code className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-mono">{eq.codigo}</code>
-                                <button onClick={() => copyCodigo(eq.codigo)} className="text-gray-400 hover:text-gray-600">
-                                  {copiedCodigo === eq.codigo ? <CheckCircle className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                                </button>
+                    {equipos.length === 0 ? <p className="text-sm text-gray-500">Todavía no hay equipos inscritos.</p> : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {equipos.map(eq => {
+                          const miembros = inscripciones.filter(i => i.equipoId === eq.id)
+                          const delegadoId = eq.delegadoId || miembros.find(i => i.rol === "delegado")?.userId
+                          const delegadoNombre = delegadoId ? userNames[delegadoId] : ""
+                          return (
+                            <div key={eq.id} className="rounded-xl border bg-white p-3">
+                              <div className="flex items-start gap-3">
+                                <Avatar className="h-12 w-12 border">
+                                  {eq.escudoUrl ? <AvatarImage src={eq.escudoUrl} alt="" /> : null}
+                                  <AvatarFallback className="bg-orange-100 text-orange-700 text-xs font-semibold">
+                                    {eq.nombre.slice(0, 2).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className="font-semibold leading-tight">{eq.nombre}</p>
+                                      <p className="text-xs text-gray-500">
+                                        {miembros.length} {miembros.length === 1 ? "integrante" : "integrantes"}
+                                        {delegadoNombre ? ` · ${delegadoNombre}` : ""}
+                                      </p>
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => openEditEquipo(eq)}><Pencil className="h-3 w-3" /></Button>
+                                      <Button size="sm" variant="destructive" className="h-7 px-2" onClick={() => handleDeleteEquipo(eq.id)}><Trash2 className="h-3 w-3" /></Button>
+                                    </div>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1">
+                                    <code className="text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded font-mono tracking-wider">{eq.codigo}</code>
+                                    <button onClick={() => copyCodigo(eq.codigo)} className="text-gray-400 hover:text-gray-600" aria-label="Copiar código">
+                                      {copiedCodigo === eq.codigo ? <CheckCircle className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
+                              <ul className="mt-3 space-y-1 border-t pt-2">
+                                {miembros.length === 0 ? <li className="text-xs text-gray-400">Sin integrantes</li> : miembros.map(miembro => (
+                                  <li key={miembro.id} className="flex items-center justify-between text-sm">
+                                    <span className="truncate">{userNames[miembro.userId] || "Sin nombre"}</span>
+                                    {miembro.rol === "delegado" && <span className="text-[11px] text-orange-600">Delegado</span>}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => openEditEquipo(eq)}><Pencil className="h-3 w-3" /></Button>
-                              <Button size="sm" variant="destructive" className="h-7 px-2" onClick={() => handleDeleteEquipo(eq.id)}><Trash2 className="h-3 w-3" /></Button>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </CardContent>
                 </Card>
               )}
 
-              {/* Inscritos */}
+              {torneo.tipo !== "grupal" && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2"><User className="h-5 w-5" />Inscritos ({inscripciones.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {inscripciones.length === 0 ? <p className="text-sm text-gray-500">Nadie inscrito aún.</p> : torneo.tipo === "grupal" ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {equipos.map(eq => {
-                        const miembros = inscripciones.filter(i => i.equipoId === eq.id)
-                        return (
-                          <div key={eq.id} className="border rounded-lg p-3 bg-white space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="font-semibold text-sm text-orange-800">{eq.nombre}</p>
-                              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">{miembros.length} inscrito{miembros.length !== 1 ? "s" : ""}</span>
-                            </div>
-                            {miembros.length === 0 ? <p className="text-xs text-gray-400 italic">Sin inscritos</p> : (
-                              <ul className="space-y-1">
-                                {miembros.map((i, idx) => (
-                                  <li key={i.id} className="text-xs text-gray-700 flex items-center gap-1.5">
-                                    <span className="w-4 h-4 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
-                                    {userNames[i.userId] || i.userId.slice(0, 10) + "..."}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
+                  {inscripciones.length === 0 ? <p className="text-sm text-gray-500">Nadie inscrito aún.</p> : (
                     <div className="text-sm text-gray-600 space-y-1">
                       {inscripciones.map((i, idx) => (
                         <div key={i.id} className="flex items-center gap-2 py-1 border-b last:border-0">
@@ -360,6 +523,7 @@ export default function TorneoAdminPage() {
                   )}
                 </CardContent>
               </Card>
+              )}
 
               {/* Fase de grupos — oculta si ya pasó, salvo mostrarAnteriores */}
               {(torneo.fase === "grupos" || (gruposPasados && mostrarAnteriores)) && (

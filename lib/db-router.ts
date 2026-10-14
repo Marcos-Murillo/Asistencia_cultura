@@ -2644,39 +2644,58 @@ const TORNEO_GRUPOS_COL = "torneo_grupos"
 const TORNEO_PARTIDOS_COL = "torneo_partidos"
 
 function genCodigo(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+  const numbers = "23456789"
+  const pool = letters + numbers
+  const chars = [
+    letters[Math.floor(Math.random() * letters.length)],
+    numbers[Math.floor(Math.random() * numbers.length)],
+    pool[Math.floor(Math.random() * pool.length)],
+    pool[Math.floor(Math.random() * pool.length)],
+  ]
+  return chars.sort(() => Math.random() - 0.5).join("")
+}
+
+function mapTorneoDoc(id: string, data: Record<string, any>): Torneo {
+  return {
+    id,
+    ...data,
+    fechaInicio: timestampToDate(data.fechaInicio),
+    fechaFin: timestampToDate(data.fechaFin),
+    createdAt: timestampToDate(data.createdAt),
+    ...(data.inscripcionInicio ? { inscripcionInicio: timestampToDate(data.inscripcionInicio) } : {}),
+    ...(data.inscripcionFin ? { inscripcionFin: timestampToDate(data.inscripcionFin) } : {}),
+  } as Torneo
 }
 
 // ── Torneos ──────────────────────────────────────────────────────────────────
 export async function getAllTorneos(): Promise<Torneo[]> {
   const db = getFirestoreForArea("deporte")
   const snap = await getDocs(collection(db, TORNEOS_COL))
-  return snap.docs.map(d => ({
-    id: d.id, ...d.data(),
-    fechaInicio: timestampToDate(d.data().fechaInicio),
-    fechaFin: timestampToDate(d.data().fechaFin),
-    createdAt: timestampToDate(d.data().createdAt),
-  } as Torneo)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  return snap.docs
+    .map(d => mapTorneoDoc(d.id, d.data()))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
 }
 
 export async function getTorneoById(torneoId: string): Promise<Torneo | null> {
   const db = getFirestoreForArea("deporte")
   const snap = await getDoc(doc(db, TORNEOS_COL, torneoId))
   if (!snap.exists()) return null
-  const d = snap.data()
-  return { id: snap.id, ...d, fechaInicio: timestampToDate(d.fechaInicio), fechaFin: timestampToDate(d.fechaFin), createdAt: timestampToDate(d.createdAt) } as Torneo
+  return mapTorneoDoc(snap.id, snap.data())
 }
 
 export async function createTorneo(data: Omit<Torneo, "id" | "createdAt" | "fase">): Promise<string> {
   const db = getFirestoreForArea("deporte")
-  const ref = await addDoc(collection(db, TORNEOS_COL), {
+  const payload = filterUndefinedValues({
     ...data,
     fechaInicio: Timestamp.fromDate(new Date(data.fechaInicio)),
     fechaFin: Timestamp.fromDate(new Date(data.fechaFin)),
+    inscripcionInicio: data.inscripcionInicio ? Timestamp.fromDate(new Date(data.inscripcionInicio)) : undefined,
+    inscripcionFin: data.inscripcionFin ? Timestamp.fromDate(new Date(data.inscripcionFin)) : undefined,
     fase: "inscripcion",
     createdAt: serverTimestamp(),
   })
+  const ref = await addDoc(collection(db, TORNEOS_COL), payload)
   return ref.id
 }
 
@@ -2685,7 +2704,9 @@ export async function updateTorneo(torneoId: string, data: Partial<Omit<Torneo, 
   const clean: Record<string, any> = { ...data }
   if (data.fechaInicio) clean.fechaInicio = Timestamp.fromDate(new Date(data.fechaInicio))
   if (data.fechaFin) clean.fechaFin = Timestamp.fromDate(new Date(data.fechaFin))
-  await updateDoc(doc(db, TORNEOS_COL, torneoId), clean)
+  if (data.inscripcionInicio) clean.inscripcionInicio = Timestamp.fromDate(new Date(data.inscripcionInicio))
+  if (data.inscripcionFin) clean.inscripcionFin = Timestamp.fromDate(new Date(data.inscripcionFin))
+  await updateDoc(doc(db, TORNEOS_COL, torneoId), filterUndefinedValues(clean))
 }
 
 export async function deleteTorneo(torneoId: string): Promise<void> {
@@ -2701,14 +2722,48 @@ export async function getEquiposByTorneo(torneoId: string): Promise<TorneoEquipo
   return snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: timestampToDate(d.data().createdAt) } as TorneoEquipo))
 }
 
-export async function createEquipo(torneoId: string, nombre: string): Promise<TorneoEquipo> {
+export async function createEquipo(
+  torneoId: string,
+  nombre: string,
+  extra?: { delegadoId?: string; escudoUrl?: string },
+): Promise<TorneoEquipo> {
   const db = getFirestoreForArea("deporte")
-  // Generar código único
   let codigo = genCodigo()
-  const existing = await getDocs(query(collection(db, TORNEO_EQUIPOS_COL), where("torneoId", "==", torneoId), where("codigo", "==", codigo)))
-  while (!existing.empty) { codigo = genCodigo() }
-  const ref = await addDoc(collection(db, TORNEO_EQUIPOS_COL), { torneoId, nombre, codigo, createdAt: serverTimestamp() })
-  return { id: ref.id, torneoId, nombre, codigo, createdAt: new Date() }
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const existing = await getDocs(query(
+      collection(db, TORNEO_EQUIPOS_COL),
+      where("torneoId", "==", torneoId),
+      where("codigo", "==", codigo),
+    ))
+    if (existing.empty) break
+    codigo = genCodigo()
+  }
+  const payload = filterUndefinedValues({
+    torneoId,
+    nombre: nombre.trim(),
+    codigo,
+    delegadoId: extra?.delegadoId,
+    escudoUrl: extra?.escudoUrl,
+    createdAt: serverTimestamp(),
+  })
+  const ref = await addDoc(collection(db, TORNEO_EQUIPOS_COL), payload)
+  if (extra?.delegadoId) {
+    await inscribirEnTorneo(torneoId, extra.delegadoId, ref.id, "delegado")
+  }
+  return {
+    id: ref.id,
+    torneoId,
+    nombre: nombre.trim(),
+    codigo,
+    createdAt: new Date(),
+    ...(extra?.delegadoId ? { delegadoId: extra.delegadoId } : {}),
+    ...(extra?.escudoUrl ? { escudoUrl: extra.escudoUrl } : {}),
+  }
+}
+
+export async function updateEquipoEscudo(equipoId: string, escudoUrl: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  await updateDoc(doc(db, TORNEO_EQUIPOS_COL, equipoId), { escudoUrl })
 }
 
 export async function updateEquipo(equipoId: string, nombre: string): Promise<void> {
@@ -2723,21 +2778,56 @@ export async function deleteEquipo(equipoId: string): Promise<void> {
 
 export async function getEquipoByCodigo(torneoId: string, codigo: string): Promise<TorneoEquipo | null> {
   const db = getFirestoreForArea("deporte")
-  const q = query(collection(db, TORNEO_EQUIPOS_COL), where("torneoId", "==", torneoId), where("codigo", "==", codigo.toLowerCase()))
-  const snap = await getDocs(q)
-  if (snap.empty) return null
-  const d = snap.docs[0]
-  return { id: d.id, ...d.data(), createdAt: timestampToDate(d.data().createdAt) } as TorneoEquipo
+  const raw = codigo.trim()
+  const variants = Array.from(new Set([raw, raw.toUpperCase(), raw.toLowerCase()].filter(Boolean)))
+  for (const value of variants) {
+    const snap = await getDocs(query(
+      collection(db, TORNEO_EQUIPOS_COL),
+      where("torneoId", "==", torneoId),
+      where("codigo", "==", value),
+    ))
+    if (!snap.empty) {
+      const d = snap.docs[0]
+      return { id: d.id, ...d.data(), createdAt: timestampToDate(d.data().createdAt) } as TorneoEquipo
+    }
+  }
+  return null
 }
 
 // ── Inscripciones ─────────────────────────────────────────────────────────────
-export async function inscribirEnTorneo(torneoId: string, userId: string, equipoId?: string): Promise<void> {
+export async function inscribirEnTorneo(
+  torneoId: string,
+  userId: string,
+  equipoId?: string,
+  rol?: "delegado" | "jugador",
+): Promise<void> {
   const db = getFirestoreForArea("deporte")
   const existing = await getDocs(query(collection(db, TORNEO_INSCRIPCIONES_COL), where("torneoId", "==", torneoId), where("userId", "==", userId)))
   if (!existing.empty) throw new Error("Ya estás inscrito en este torneo")
   const data: Record<string, any> = { torneoId, userId, fechaInscripcion: serverTimestamp() }
   if (equipoId) data.equipoId = equipoId
+  data.rol = rol ?? (equipoId ? "jugador" : "jugador")
   await addDoc(collection(db, TORNEO_INSCRIPCIONES_COL), data)
+}
+
+export async function getInscripcionesDeUsuario(userId: string): Promise<TorneoInscripcion[]> {
+  const db = getFirestoreForArea("deporte")
+  const snap = await getDocs(query(collection(db, TORNEO_INSCRIPCIONES_COL), where("userId", "==", userId)))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data(), fechaInscripcion: timestampToDate(d.data().fechaInscripcion) } as TorneoInscripcion))
+    .sort((a, b) => b.fechaInscripcion.getTime() - a.fechaInscripcion.getTime())
+}
+
+export async function getInscripcionDeUsuario(torneoId: string, userId: string): Promise<TorneoInscripcion | null> {
+  const db = getFirestoreForArea("deporte")
+  const snap = await getDocs(query(
+    collection(db, TORNEO_INSCRIPCIONES_COL),
+    where("torneoId", "==", torneoId),
+    where("userId", "==", userId),
+  ))
+  if (snap.empty) return null
+  const d = snap.docs[0]
+  return { id: d.id, ...d.data(), fechaInscripcion: timestampToDate(d.data().fechaInscripcion) } as TorneoInscripcion
 }
 
 export async function getInscripcionesByTorneo(torneoId: string): Promise<TorneoInscripcion[]> {
@@ -2747,20 +2837,68 @@ export async function getInscripcionesByTorneo(torneoId: string): Promise<Torneo
   return snap.docs.map(d => ({ id: d.id, ...d.data(), fechaInscripcion: timestampToDate(d.data().fechaInscripcion) } as TorneoInscripcion))
 }
 
-export async function getMiembrosEquipo(torneoId: string, equipoId: string): Promise<{ userId: string; nombres: string }[]> {
+export async function getMiembrosEquipo(torneoId: string, equipoId: string): Promise<{ userId: string; nombres: string; rol?: string }[]> {
   const db = getFirestoreForArea("deporte")
   const q = query(collection(db, TORNEO_INSCRIPCIONES_COL), where("torneoId", "==", torneoId), where("equipoId", "==", equipoId))
   const snap = await getDocs(q)
   if (snap.empty) return []
-  const userIds = snap.docs.map(d => d.data().userId as string)
-  const miembros: { userId: string; nombres: string }[] = []
+  const roles = new Map<string, string | undefined>()
+  snap.docs.forEach(d => roles.set(d.data().userId as string, d.data().rol as string | undefined))
+  const userIds = Array.from(roles.keys())
+  const miembros: { userId: string; nombres: string; rol?: string }[] = []
   for (let i = 0; i < userIds.length; i += 10) {
     const batch = userIds.slice(i, i + 10)
     const uq = query(collection(db, USERS_COLLECTION), where("__name__", "in", batch))
     const uSnap = await getDocs(uq)
-    uSnap.docs.forEach(d => miembros.push({ userId: d.id, nombres: d.data().nombres || "" }))
+    uSnap.docs.forEach(d => miembros.push({ userId: d.id, nombres: d.data().nombres || "", rol: roles.get(d.id) }))
   }
-  return miembros
+  return miembros.sort((a, b) => (a.rol === "delegado" ? -1 : 0) - (b.rol === "delegado" ? -1 : 0) || a.nombres.localeCompare(b.nombres))
+}
+
+export async function getUserBriefsByIds(userIds: string[]): Promise<Record<string, {
+  nombres: string
+  numeroDocumento: string
+  correo: string
+  codigoEstudiantil: string
+  estamento: string
+  facultad: string
+  programaAcademico: string
+}>> {
+  if (userIds.length === 0) return {}
+  const db = getFirestoreForArea("deporte")
+  const briefs: Record<string, {
+    nombres: string
+    numeroDocumento: string
+    correo: string
+    codigoEstudiantil: string
+    estamento: string
+    facultad: string
+    programaAcademico: string
+  }> = {}
+  const unique = Array.from(new Set(userIds))
+  for (let i = 0; i < unique.length; i += 10) {
+    const batch = unique.slice(i, i + 10)
+    const uq = query(collection(db, USERS_COLLECTION), where("__name__", "in", batch))
+    const uSnap = await getDocs(uq)
+    uSnap.docs.forEach(d => {
+      const data = d.data()
+      briefs[d.id] = {
+        nombres: data.nombres || "",
+        numeroDocumento: data.numeroDocumento || "",
+        correo: data.correo || "",
+        codigoEstudiantil: data.codigoEstudiantil || "",
+        estamento: data.estamento || "",
+        facultad: data.facultad || "",
+        programaAcademico: data.programaAcademico || "",
+      }
+    })
+  }
+  return briefs
+}
+
+export async function deletePartido(partidoId: string): Promise<void> {
+  const db = getFirestoreForArea("deporte")
+  await deleteDoc(doc(db, TORNEO_PARTIDOS_COL, partidoId))
 }
 
 export async function getUserNamesByIds(userIds: string[]): Promise<Record<string, string>> {

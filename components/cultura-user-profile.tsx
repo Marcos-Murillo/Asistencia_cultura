@@ -39,8 +39,11 @@ import {
   Megaphone,
   MoreHorizontal,
   Music,
+  Trophy,
   UserPlus,
 } from "lucide-react"
+import { TorneoInscripcionDialog } from "@/components/torneo-inscripcion-dialog"
+import { TorneosUsuarioSection } from "@/components/torneos-usuario-section"
 import {
   enrollUserToGroup,
   getActiveEvents,
@@ -165,6 +168,7 @@ export function CulturaUserProfile({
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null)
   const [showGroupDialog, setShowGroupDialog] = useState(false)
+  const [showTorneoDialog, setShowTorneoDialog] = useState(false)
   const [showEventDialog, setShowEventDialog] = useState(false)
   const [showCodigoDialog, setShowCodigoDialog] = useState(() => needsCodigoEstudiantil(user))
   const [menuOpen, setMenuOpen] = useState(false)
@@ -533,6 +537,7 @@ export function CulturaUserProfile({
 
   const convocatorias = activities.filter((a) => a.tipo === "convocatoria")
   const eventos = activities.filter((a) => a.tipo === "evento" || a.tipo === "cineclu")
+  const eventosDeporte = activities.filter((a) => a.tipo === "evento")
   const availableConvocatorias = availableItems.filter((i) => i.tipo === "convocatoria")
   const availableEventos = availableItems.filter((i) => i.tipo === "evento")
 
@@ -648,7 +653,7 @@ export function CulturaUserProfile({
               >
                 <p className="font-semibold text-lime-300">¿Cómo inscribirte?</p>
                 <p className="mt-1.5 leading-relaxed text-zinc-300">
-                  Pulsa el botón <span className="font-semibold text-white">⋯</span> para abrir el menú y elegir un {grupoLabel}, convocatoria o evento.
+                  Pulsa el botón <span className="font-semibold text-white">⋯</span> para abrir el menú y elegir un {grupoLabel}{isDeporte ? ", torneo" : ""}, convocatoria o evento.
                 </p>
                 <div className="absolute -right-2 top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-lime-400/50 bg-zinc-900/95 sm:hidden" />
                 <div className="absolute -top-2 right-4 hidden h-3 w-3 rotate-45 border-l border-t border-lime-400/50 bg-zinc-900/95 sm:block" />
@@ -693,6 +698,15 @@ export function CulturaUserProfile({
                   <UserPlus className="mr-2 h-4 w-4" />
                   Inscribirme a {grupoLabel}
                 </DropdownMenuItem>
+                {isDeporte && (
+                  <DropdownMenuItem
+                    className="focus:bg-zinc-800 focus:text-white"
+                    onClick={() => handleTutorialMenuAction(() => setShowTorneoDialog(true))}
+                  >
+                    <Trophy className="mr-2 h-4 w-4" />
+                    Inscribirme a torneo
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   className={cn(
                     "focus:bg-zinc-800 focus:text-white",
@@ -883,69 +897,107 @@ export function CulturaUserProfile({
             </section>
 
             <div className="space-y-6">
-              {/* Convocatorias section */}
-              <section>
-                <h2 className="mb-3 text-base sm:text-lg font-semibold">Convocatorias</h2>
-                {convocatorias.length === 0 ? (
-                  <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
-                    No tienes convocatorias registradas.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {convocatorias.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setSelectedActivity(item)}
-                        className="flex w-full items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 text-left backdrop-blur-sm transition hover:bg-white/10"
-                      >
-                        <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-lime-400/90 to-lime-300/80">
-                          <Megaphone className="h-4 w-4 sm:h-5 sm:w-5 text-zinc-950" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm sm:text-base font-medium">{item.titulo}</p>
-                          <p className="truncate text-xs text-zinc-400">{item.subtitulo}</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
+              {isDeporte ? (
+                <>
+                  <section>
+                    <h2 className="mb-3 text-base sm:text-lg font-semibold">Eventos y convocatorias</h2>
+                    {convocatorias.length === 0 && eventosDeporte.length === 0 ? (
+                      <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
+                        No tienes eventos ni convocatorias registradas.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {[...convocatorias, ...eventosDeporte].map((item) => (
+                          <button
+                            key={`${item.tipo}-${item.id}`}
+                            type="button"
+                            onClick={() => setSelectedActivity(item)}
+                            className="flex w-full items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 text-left backdrop-blur-sm transition hover:bg-white/10"
+                          >
+                            <div className={`flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl ${item.tipo === "convocatoria" ? "bg-gradient-to-br from-lime-400/90 to-lime-300/80" : "bg-gradient-to-br from-orange-500/80 to-amber-500/80"}`}>
+                              {item.tipo === "convocatoria" ? (
+                                <Megaphone className="h-4 w-4 sm:h-5 sm:w-5 text-zinc-950" />
+                              ) : (
+                                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm sm:text-base font-medium">{item.titulo}</p>
+                              <p className="truncate text-xs text-zinc-400">{item.subtitulo}</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                  {areaUser && <TorneosUsuarioSection userId={areaUser.id} />}
+                </>
+              ) : (
+                <>
+                  <section>
+                    <h2 className="mb-3 text-base sm:text-lg font-semibold">Convocatorias</h2>
+                    {convocatorias.length === 0 ? (
+                      <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
+                        No tienes convocatorias registradas.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {convocatorias.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setSelectedActivity(item)}
+                            className="flex w-full items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 text-left backdrop-blur-sm transition hover:bg-white/10"
+                          >
+                            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-lime-400/90 to-lime-300/80">
+                              <Megaphone className="h-4 w-4 sm:h-5 sm:w-5 text-zinc-950" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm sm:text-base font-medium">{item.titulo}</p>
+                              <p className="truncate text-xs text-zinc-400">{item.subtitulo}</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
-              {/* Events + Cineclú section */}
-              <section>
-                <h2 className="mb-3 text-base sm:text-lg font-semibold">Eventos y Cineclú</h2>
-                {eventos.length === 0 ? (
-                  <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
-                    No tienes eventos ni proyecciones registradas.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {eventos.map((item) => (
-                      <button
-                        key={`${item.tipo}-${item.id}`}
-                        type="button"
-                        onClick={() => setSelectedActivity(item)}
-                        className="flex w-full items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 text-left backdrop-blur-sm transition hover:bg-white/10"
-                      >
-                        <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-violet-500/80 to-indigo-500/80">
-                          {item.tipo === "cineclu" ? (
-                            <Film className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-                          ) : (
-                            <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm sm:text-base font-medium">{item.titulo}</p>
-                          <p className="truncate text-xs text-zinc-400">{item.subtitulo}</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
+                  <section>
+                    <h2 className="mb-3 text-base sm:text-lg font-semibold">Eventos y Cineclú</h2>
+                    {eventos.length === 0 ? (
+                      <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-5 text-center text-sm text-zinc-400">
+                        No tienes eventos ni proyecciones registradas.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {eventos.map((item) => (
+                          <button
+                            key={`${item.tipo}-${item.id}`}
+                            type="button"
+                            onClick={() => setSelectedActivity(item)}
+                            className="flex w-full items-center gap-3 rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4 text-left backdrop-blur-sm transition hover:bg-white/10"
+                          >
+                            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-gradient-to-br from-violet-500/80 to-indigo-500/80">
+                              {item.tipo === "cineclu" ? (
+                                <Film className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                              ) : (
+                                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm sm:text-base font-medium">{item.titulo}</p>
+                              <p className="truncate text-xs text-zinc-400">{item.subtitulo}</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1226,6 +1278,13 @@ export function CulturaUserProfile({
           </div>
         </DialogContent>
       </Dialog>
+
+      <TorneoInscripcionDialog
+        open={showTorneoDialog}
+        onOpenChange={setShowTorneoDialog}
+        identity={identity}
+        onIdentityUpdated={onIdentityUpdated}
+      />
     </div>
   )
 }
