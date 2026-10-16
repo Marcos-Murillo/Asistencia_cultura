@@ -1069,62 +1069,61 @@ export async function getGroupsWithEnrollmentCounts(area: Area): Promise<Array<{
     // Create a map of userId to user data
     const userMap = new Map(users.map(u => [u.id, u]))
     
-    // Count enrollments per group
-    const groupCounts = new Map<string, {
-      total: number
-      mujer: number
-      hombre: number
-      otro: number
-    }>()
-    
-    // Initialize counts for all groups
+    // Personas distintas por grupo. Una inscripción duplicada de la misma persona
+    // no suma otra vez, y no hace falta que el perfil exista en users.
+    const usersByGroup = new Map<string, Set<string>>()
+    const genderByGroup = new Map<string, { mujer: number; hombre: number; otro: number }>()
+
     groups.forEach(group => {
-      groupCounts.set(group.nombre, {
-        total: 0,
-        mujer: 0,
-        hombre: 0,
-        otro: 0
-      })
-    })
-    
-    // Count enrollments
-    let matchedEnrollments = 0
-    let unmatchedEnrollments = 0
-    
-    enrollments.forEach(enrollment => {
-      const user = userMap.get(enrollment.userId)
-      if (user) {
-        matchedEnrollments++
-        const counts = groupCounts.get(enrollment.grupoCultural)
-        if (counts) {
-          counts.total++
-          const gender = user.genero.toLowerCase() as 'mujer' | 'hombre' | 'otro'
-          if (gender === 'mujer' || gender === 'hombre' || gender === 'otro') {
-            counts[gender]++
-          }
-          console.log("[db-router] Counted enrollment:", enrollment.grupoCultural, "User:", user.nombres, "Gender:", gender)
-        } else {
-          console.log("[db-router] WARNING: Enrollment for unknown group:", enrollment.grupoCultural)
-        }
-      } else {
-        unmatchedEnrollments++
-        console.log("[db-router] WARNING: Enrollment for unknown user:", enrollment.userId)
+      if (!usersByGroup.has(group.nombre)) {
+        usersByGroup.set(group.nombre, new Set())
+        genderByGroup.set(group.nombre, { mujer: 0, hombre: 0, otro: 0 })
       }
     })
-    
-    console.log("[db-router] Matched enrollments:", matchedEnrollments, "Unmatched:", unmatchedEnrollments)
-    
-    // Convert to result format
+
+    let enrollmentsSinPerfil = 0
+    let enrollmentsGrupoDesconocido = 0
+    let inscripcionesDuplicadas = 0
+
+    enrollments.forEach(enrollment => {
+      const users = usersByGroup.get(enrollment.grupoCultural)
+      if (!users) {
+        enrollmentsGrupoDesconocido++
+        return
+      }
+      if (!enrollment.userId || users.has(enrollment.userId)) {
+        inscripcionesDuplicadas++
+        return
+      }
+      users.add(enrollment.userId)
+
+      const user = userMap.get(enrollment.userId)
+      if (!user) {
+        enrollmentsSinPerfil++
+        return
+      }
+      const gender = String(user.genero || "").toLowerCase() as "mujer" | "hombre" | "otro"
+      const genderCounts = genderByGroup.get(enrollment.grupoCultural)
+      if (genderCounts && (gender === "mujer" || gender === "hombre" || gender === "otro")) {
+        genderCounts[gender]++
+      }
+    })
+
+    console.log(
+      "[db-router] Unique users by group. Without profile:",
+      enrollmentsSinPerfil,
+      "Unknown group:",
+      enrollmentsGrupoDesconocido,
+      "Duplicate enrollments:",
+      inscripcionesDuplicadas,
+    )
+
     const result = groups.map(group => {
-      const counts = groupCounts.get(group.nombre) || { total: 0, mujer: 0, hombre: 0, otro: 0 }
+      const gender = genderByGroup.get(group.nombre) || { mujer: 0, hombre: 0, otro: 0 }
       return {
         nombre: group.nombre,
-        totalInscritos: counts.total,
-        inscritosPorGenero: {
-          mujer: counts.mujer,
-          hombre: counts.hombre,
-          otro: counts.otro
-        }
+        totalInscritos: usersByGroup.get(group.nombre)?.size ?? 0,
+        inscritosPorGenero: gender,
       }
     })
     

@@ -33,7 +33,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search, Edit, Trash, Plus } from "lucide-react"
 import Link from "next/link"
 import { getAllGroupsWithEnrollments, getAllCulturalGroups, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, migrateEnrollmentsToCompositeIds } from "@/lib/firestore"
-import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, type CulturalGroup } from "@/lib/db-router"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllGroupEnrollments, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, type CulturalGroup } from "@/lib/db-router"
 
 import type { GroupWithEnrollments, UserProfile, GroupManager, UserRole } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
@@ -45,6 +45,7 @@ export default function GruposPage() {
   const { area } = useArea()
   const [groups, setGroups] = useState<GroupWithEnrollments[]>([])
   const [filteredGroups, setFilteredGroups] = useState<GroupWithEnrollments[]>([])
+  const [totalInscritosUnicos, setTotalInscritosUnicos] = useState(0)
   const [culturalGroups, setCulturalGroups] = useState<CulturalGroup[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
@@ -128,8 +129,11 @@ export default function GruposPage() {
       console.log("[Grupos] Area:", area)
       console.log("[Grupos] Permissions:", permissions)
       
-      // Get groups with enrollment counts from area-aware router
-      const groupsWithCounts = await getGroupsWithEnrollmentCounts(area)
+      // Conteos por grupo y personas distintas, con la misma regla del indicador 1
+      const [groupsWithCounts, allEnrollments] = await Promise.all([
+        getGroupsWithEnrollmentCounts(area),
+        getAllGroupEnrollments(area),
+      ])
       console.log("[Grupos] Groups with enrollment counts:", groupsWithCounts.length)
       console.log("[Grupos] Sample groups:", groupsWithCounts.slice(0, 3))
       
@@ -156,6 +160,14 @@ export default function GruposPage() {
       
       setGroups(filteredGroupsWithCounts)
       setFilteredGroups(filteredGroupsWithCounts)
+
+      // Misma suma que el indicador 1: userId distintos en group_enrollments.
+      // Quien está en varios grupos cuenta una vez. Si el rol no ve todos los
+      // grupos, el total se limita a las personas de los grupos visibles.
+      const enrollmentsEnVista = permissions?.canViewAllGroups
+        ? allEnrollments
+        : allEnrollments.filter(enrollment => filteredGroupNames.has(enrollment.grupoCultural))
+      setTotalInscritosUnicos(new Set(enrollmentsEnVista.map(enrollment => enrollment.userId)).size)
 
       // Cargar encargados de cada grupo
       const managersMap: Record<string, (GroupManager & { user: UserProfile })[]> = {}
@@ -438,7 +450,6 @@ export default function GruposPage() {
     label: grupo.nombre,
   }))
 
-  const totalInscritos = filteredGroups.reduce((sum, g) => sum + g.totalInscritos, 0)
   const gruposConInscritos = filteredGroups.filter(g => g.totalInscritos > 0).length
 
   if (loading) {
@@ -581,7 +592,8 @@ export default function GruposPage() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Total Inscritos</p>
-                    <p className="text-2xl font-bold text-gray-900">{totalInscritos}</p>
+                    <p className="text-2xl font-bold text-gray-900">{totalInscritosUnicos}</p>
+                    <p className="text-xs text-gray-400">Personas distintas</p>
                   </div>
                 </div>
               </CardContent>
