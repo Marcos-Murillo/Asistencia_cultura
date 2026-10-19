@@ -73,9 +73,9 @@ export async function generatePDFReport(
   const totalConvocatorias = eventStats?.totalParticipants || 0
   const totalRealEventos = realEventStats?.totalParticipants || 0
   const totalCineclu = cinecluEventStats?.totalParticipants || 0
-  // Contar participaciones únicas en representaciones (por userId)
+  // Misma cuenta que el indicador 2: una plaza por integrante en cada representación.
   const totalRepresentaciones = representaciones
-    ? new Set(representaciones.flatMap(r => r.miembros.map(m => m.userId))).size
+    ? representaciones.reduce((sum, r) => sum + r.miembros.length, 0)
     : 0
   const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos + totalCineclu
 
@@ -105,7 +105,7 @@ export async function generatePDFReport(
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
     ["Inscripciones en Eventos", totalRealEventos.toString()],
     ["Asistencias en Cineclú", totalCineclu.toString()],
-    ["Artistas en Representaciones", totalRepresentaciones.toString()],
+    ["Participaciones en Representaciones", totalRepresentaciones.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
   ]
 
