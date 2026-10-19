@@ -23,8 +23,8 @@ import { getAttendanceRecords as getAttendanceRecordsRouter, getEventAttendanceR
 import { generateEventStats } from "@/lib/event-stats"
 import type { AttendanceStats, AttendanceRecord, EventStats, EventAttendanceEntry, UserProfile, UserRole } from "@/lib/types"
 import type { Representacion } from "@/lib/db-router"
-import { generatePDFReport, type IndicadoresConfig } from "@/lib/pdf-generator"
-import { getAllUsers, getAllGroupEnrollments } from "@/lib/db-router"
+import { generatePDFReport, isWithinReportRange, type IndicadoresConfig } from "@/lib/pdf-generator"
+import { getAllUsers } from "@/lib/db-router"
 import { useArea } from "@/contexts/area-context"
 import { getRolePermissions, filterAttendanceByAssignment, type RolePermissions } from "@/lib/role-manager"
 import { getCurrentUserRole, getAssignedGroups } from "@/lib/auth-helpers"
@@ -97,7 +97,6 @@ export default function EstadisticasPage() {
   const [realEventStats, setRealEventStats] = useState<EventStats | null>(null)
   const [allRepresentaciones, setAllRepresentaciones] = useState<Representacion[]>([])
   const [totalUsuariosPlataforma, setTotalUsuariosPlataforma] = useState<number>(0)
-  const [totalInscritosGrupos, setTotalInscritosGrupos] = useState<number>(0)
   // Metas planeadas para los indicadores (ingresadas por el usuario antes de generar PDF)
   const [metaInscritosGrupos, setMetaInscritosGrupos] = useState("")
   const [metaActividadesArtisticas, setMetaActividadesArtisticas] = useState("")
@@ -220,18 +219,11 @@ export default function EstadisticasPage() {
           console.error("[Estadisticas] Error loading representaciones:", e)
         }
 
-        // Cargar total de usuarios registrados y total de inscritos a grupos (sin filtro de fechas)
+        // Cargar total de usuarios registrados en la plataforma
         try {
-          const [allUsersData, allEnrollmentsData] = await Promise.all([
-            getAllUsers(area),
-            getAllGroupEnrollments(area),
-          ])
+          const allUsersData = await getAllUsers(area)
           setTotalUsuariosPlataforma(allUsersData.length)
-          // Inscritos únicos: contar userIds únicos en los enrollments
-          const uniqueEnrolled = new Set(allEnrollmentsData.map(e => e.userId)).size
-          setTotalInscritosGrupos(uniqueEnrolled)
           console.log("[Estadisticas] Total usuarios plataforma:", allUsersData.length)
-          console.log("[Estadisticas] Total inscritos únicos a grupos:", uniqueEnrolled)
         } catch (e) {
           console.error("[Estadisticas] Error loading totals:", e)
         }
@@ -300,6 +292,33 @@ export default function EstadisticasPage() {
 
   const progStats = useMemo(() => generateStatsFromRecords(filteredProgRecords), [filteredProgRecords])
   const facStats = useMemo(() => generateStatsFromRecords(filteredFacRecords), [filteredFacRecords])
+
+  const rangoPdf = useMemo(
+    () => pdfFechaDesde || pdfFechaHasta
+      ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
+      : undefined,
+    [pdfFechaDesde, pdfFechaHasta],
+  )
+
+  const alcanzadoInscritosPeriodo = useMemo(() => {
+    const usersByGroup: Record<string, Set<string>> = {}
+    allAttendanceRecords.forEach(record => {
+      if (!isWithinReportRange(record.timestamp, rangoPdf)) return
+      if (!usersByGroup[record.grupoCultural]) usersByGroup[record.grupoCultural] = new Set()
+      usersByGroup[record.grupoCultural].add(`${record.nombres}|${record.numeroDocumento}`)
+    })
+    return Object.values(usersByGroup).reduce((sum, users) => sum + users.size, 0)
+  }, [allAttendanceRecords, rangoPdf])
+
+  const alcanzadoActividadesPeriodo = useMemo(() => {
+    const plazasRepresentaciones = allRepresentaciones
+      .filter(rep => isWithinReportRange(rep.fechaEvento, rangoPdf))
+      .reduce((sum, rep) => sum + rep.miembros.length, 0)
+    return allEventRecords.filter(record => isWithinReportRange(record.entry.timestamp, rangoPdf)).length
+      + allRealEventRecords.filter(record => isWithinReportRange(record.entry.timestamp, rangoPdf)).length
+      + allCinecluEventRecords.filter(record => isWithinReportRange(record.entry.timestamp, rangoPdf)).length
+      + plazasRepresentaciones
+  }, [allEventRecords, allRealEventRecords, allCinecluEventRecords, allRepresentaciones, rangoPdf])
 
   const handleFiltersChange = (filters: FilterState) => {
     let filtered = allRecords
@@ -423,31 +442,17 @@ export default function EstadisticasPage() {
       console.log("[Estadisticas] Area:", area)
       console.log("[Estadisticas] Date range:", pdfFechaDesde, "->", pdfFechaHasta)
 
-      // Filtrar registros por rango de fechas si se especificó
+      const dateRange = pdfFechaDesde || pdfFechaHasta
+        ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
+        : undefined
+
+      // Filtrar registros por el día calendario que eligió el usuario.
       const filterByDate = <T extends { timestamp: Date | string }>(records: T[]): T[] => {
-        return records.filter(r => {
-          const ts = new Date(r.timestamp)
-          if (pdfFechaDesde && ts < new Date(pdfFechaDesde)) return false
-          if (pdfFechaHasta) {
-            const hasta = new Date(pdfFechaHasta)
-            hasta.setHours(23, 59, 59)
-            if (ts > hasta) return false
-          }
-          return true
-        })
+        return records.filter(record => isWithinReportRange(record.timestamp, dateRange))
       }
 
       const filterEventByDate = <T extends { entry: { timestamp: Date | string } }>(records: T[]): T[] => {
-        return records.filter(r => {
-          const ts = new Date(r.entry.timestamp)
-          if (pdfFechaDesde && ts < new Date(pdfFechaDesde)) return false
-          if (pdfFechaHasta) {
-            const hasta = new Date(pdfFechaHasta)
-            hasta.setHours(23, 59, 59)
-            if (ts > hasta) return false
-          }
-          return true
-        })
+        return records.filter(record => isWithinReportRange(record.entry.timestamp, dateRange))
       }
 
       const filteredAttendance = filterByDate(allAttendanceRecords)
@@ -459,10 +464,6 @@ export default function EstadisticasPage() {
       const filteredEventStats = generateEventStats(filteredEvents)
       const filteredRealEventStats = generateEventStats(filteredRealEvents)
       const filteredCinecluEventStats = generateEventStats(filteredCinecluEvents)
-
-      const dateRange = pdfFechaDesde || pdfFechaHasta
-        ? { desde: pdfFechaDesde || undefined, hasta: pdfFechaHasta || undefined }
-        : undefined
 
       await generatePDFReport(
         filteredStats,
@@ -477,7 +478,6 @@ export default function EstadisticasPage() {
         filteredCinecluEvents.length > 0 ? filteredCinecluEvents : undefined,
         filteredCinecluEventStats.totalParticipants > 0 ? filteredCinecluEventStats : undefined,
         totalUsuariosPlataforma > 0 ? totalUsuariosPlataforma : undefined,
-        totalInscritosGrupos > 0 ? totalInscritosGrupos : undefined,
         area === 'cultura' && (metaInscritosGrupos || metaActividadesArtisticas)
           ? {
               metaInscritosGrupos: parseInt(metaInscritosGrupos) || 0,
@@ -954,7 +954,7 @@ export default function EstadisticasPage() {
             <DialogTitle>Rango de fechas del reporte</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-gray-500">Selecciona el período que quieres incluir en el reporte. Puedes elegir cualquier rango, sin límite al mes actual. Deja los campos vacíos para incluir todos los registros.</p>
+            <p className="text-sm text-gray-500">Selecciona el período que quieres incluir en el reporte. Puedes elegir cualquier rango, sin límite al mes actual. Deja los campos vacíos para incluir todos los registros. Las metas alcanzadas y las representaciones usan estas mismas fechas.</p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label htmlFor="pdf-desde">Desde</Label>
@@ -1001,9 +1001,9 @@ export default function EstadisticasPage() {
                         onChange={e => setMetaInscritosGrupos(e.target.value)}
                         className="h-9"
                       />
-                      {totalInscritosGrupos > 0 && (
+                      {allAttendanceRecords.length > 0 && (
                         <span className="text-xs text-gray-500 whitespace-nowrap">
-                          Alcanzado: <strong>{totalInscritosGrupos}</strong>
+                          Alcanzado: <strong>{alcanzadoInscritosPeriodo}</strong>
                         </span>
                       )}
                     </div>
@@ -1022,14 +1022,9 @@ export default function EstadisticasPage() {
                         onChange={e => setMetaActividadesArtisticas(e.target.value)}
                         className="h-9"
                       />
-                      {(allEventRecords.length + allRealEventRecords.length + allCinecluEventRecords.length) > 0 && (
-                        <span className="text-xs text-gray-500 whitespace-nowrap">
-                          Alcanzado: <strong>
-                            {allEventRecords.length + allRealEventRecords.length + allCinecluEventRecords.length
-                              + (allRepresentaciones.reduce((s, r) => s + r.miembros.length, 0))}
-                          </strong>
-                        </span>
-                      )}
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        Alcanzado: <strong>{alcanzadoActividadesPeriodo}</strong>
+                      </span>
                     </div>
                   </div>
                 </div>

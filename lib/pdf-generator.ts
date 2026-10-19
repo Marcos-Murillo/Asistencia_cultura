@@ -9,6 +9,35 @@ export interface IndicadoresConfig {
   metaActividadesArtisticas: number // meta planeada actividades artísticas extracurriculares
 }
 
+/** Día calendario YYYY-MM-DD. Las fechas del informe se comparan así, sin horas. */
+function reportDayKey(value: Date | string): string {
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/)
+    if (match) return match[1]
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return ""
+    value = parsed
+  }
+  if (Number.isNaN(value.getTime())) return ""
+  const month = String(value.getMonth() + 1).padStart(2, "0")
+  const day = String(value.getDate()).padStart(2, "0")
+  return `${value.getFullYear()}-${month}-${day}`
+}
+
+/** Incluye el día completo de "desde" y de "hasta". Sin rango, incluye todo. */
+export function isWithinReportRange(
+  value: Date | string | undefined,
+  range?: { desde?: string; hasta?: string },
+): boolean {
+  if (!range?.desde && !range?.hasta) return true
+  if (!value) return false
+  const day = reportDayKey(value)
+  if (!day) return false
+  if (range.desde && day < range.desde) return false
+  if (range.hasta && day > range.hasta) return false
+  return true
+}
+
 export async function generatePDFReport(
   stats: AttendanceStats,
   attendanceRecords: AttendanceRecord[],
@@ -22,7 +51,6 @@ export async function generatePDFReport(
   cinecluEventRecords?: { entry: EventAttendanceEntry; user: UserProfile; eventName: string }[],
   cinecluEventStats?: EventStats,
   totalUsuariosPlataforma?: number,   // total real de usuarios registrados (sin filtro de fechas)
-  totalInscritosGrupos?: number,      // total de inscritos únicos a grupos culturales (sin filtro de fechas)
   indicadoresConfig?: IndicadoresConfig,
 ) {
   console.log("[PDF] ========== GENERATING PDF REPORT ==========")
@@ -31,11 +59,26 @@ export async function generatePDFReport(
   console.log("[PDF] Event records received:", eventRecords.length)
   console.log("[PDF] Stats total participants:", stats.totalParticipants)
   console.log("[PDF] Event stats total:", eventStats?.totalParticipants || 0)
-  
+
+  // Las representaciones usan la fecha del evento. Sin rango, se conservan todas.
+  representaciones = (representaciones ?? []).filter((rep) => isWithinReportRange(rep.fechaEvento, dateRange))
+  const enPeriodo = Boolean(dateRange?.desde || dateRange?.hasta)
+
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   let currentY = 20
+
+  const writeNote = (text: string) => {
+    doc.setFontSize(8)
+    doc.setFont("helvetica", "italic")
+    doc.setTextColor(80, 80, 80)
+    const lines = doc.splitTextToSize(text, pageWidth - 28)
+    doc.text(lines, 14, currentY)
+    doc.setTextColor(0, 0, 0)
+    doc.setFont("helvetica", "normal")
+    currentY += lines.length * 4 + 3
+  }
 
   // Determinar terminología según el área
   const areaLabel = area === 'deporte' ? 'Deportivos' : 'Culturales'
@@ -62,12 +105,38 @@ export async function generatePDFReport(
     doc.text(`Fecha: ${new Date().toLocaleDateString("es-CO")}`, pageWidth / 2, currentY, { align: "center" })
   }
 
-  currentY += 15
+  currentY += 12
+
+  doc.setFontSize(12)
+  doc.setFont("helvetica", "bold")
+  doc.text("CÓMO LEER ESTE INFORME", 14, currentY)
+  currentY += 6
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [["Término", "Qué significa"]],
+    body: [
+      ["Participación", "Una asistencia o una inscripción. La misma persona suma una por cada registro."],
+      ["Usuario único", "Una persona distinta. En un grupo, cada persona cuenta una sola vez."],
+      ["Plaza", "Un puesto en una lista: un integrante de una representación o una asistencia a una proyección."],
+      ["Inscrito a grupo", "Persona con asistencia en un grupo durante el período. En dos grupos cuenta una vez en cada uno."],
+      ["Meta alcanzada", "El conteo del informe. Si eliges fechas, solo entran los registros de ese período."],
+    ],
+    theme: "grid",
+    headStyles: { fillColor: [15, 23, 42], fontStyle: "bold", fontSize: 8 },
+    bodyStyles: { fontSize: 8 },
+    columnStyles: { 0: { cellWidth: 38, fontStyle: "bold" } },
+    margin: { left: 14, right: 14 },
+  })
+  currentY = (doc as any).lastAutoTable.finalY + 12
 
   doc.setFontSize(16)
   doc.setFont("helvetica", "bold")
   doc.text("RESUMEN GENERAL", 14, currentY)
-  currentY += 10
+  currentY += 6
+  writeNote(enPeriodo
+    ? "Estas cantidades corresponden al período del informe. Una participación es una asistencia o una inscripción: la misma persona puede sumar más de una."
+    : "No hay fechas seleccionadas, así que estas cantidades incluyen todos los registros. Una participación es una asistencia o una inscripción: la misma persona puede sumar más de una.")
 
   const totalGruposCulturales = stats.totalParticipants
   const totalConvocatorias = eventStats?.totalParticipants || 0
@@ -125,7 +194,10 @@ export async function generatePDFReport(
   doc.setFontSize(14)
   doc.setFont("helvetica", "bold")
   doc.text(`USUARIOS ÚNICOS POR ${grupoLabel.toUpperCase()}`, 14, currentY)
-  currentY += 7
+  currentY += 5
+  writeNote(enPeriodo
+    ? "Cada fila cuenta una vez a cada persona con asistencia en ese grupo durante el período. La columna Total Participaciones suma todas las asistencias del grupo."
+    : "Cada fila cuenta una vez a cada persona con asistencia en ese grupo. La columna Total Participaciones suma todas las asistencias del grupo.")
 
   const uniqueUsersByGroup = Object.entries(usersByGroup)
     .map(([group, users]) => {
@@ -168,7 +240,10 @@ export async function generatePDFReport(
   doc.setFontSize(18)
   doc.setFont("helvetica", "bold")
   doc.text(gruposLabel.toUpperCase(), 14, currentY)
-  currentY += 15
+  currentY += 6
+  writeNote(
+    `${enPeriodo ? "En el período hay" : "Hay"} ${totalParticipantesUnicosGrupos.toLocaleString("es-CO")} participantes únicos en los ${gruposLabel.toLowerCase()}: una persona con asistencia cuenta una vez en cada grupo. Esas personas registraron ${totalGruposCulturales.toLocaleString("es-CO")} asistencias. Cada asistencia es una participación. A continuación se muestran por género, grupo, facultad y programa.`,
+  )
 
   // 1. TABLA: Total de Participaciones por Género
   doc.setFontSize(14)
@@ -423,7 +498,8 @@ export async function generatePDFReport(
     doc.setFontSize(18)
     doc.setFont("helvetica", "bold")
     doc.text("CONVOCATORIAS", 14, currentY)
-    currentY += 15
+    currentY += 6
+    writeNote(`${enPeriodo ? "En el período hay" : "Hay"} ${totalConvocatorias.toLocaleString("es-CO")} inscripciones. Cada inscripción es una participación. La misma persona en dos convocatorias cuenta dos veces.`)
 
     // 5. Género convocatorias
     doc.setFontSize(14)
@@ -664,7 +740,8 @@ export async function generatePDFReport(
     doc.setFontSize(18)
     doc.setFont("helvetica", "bold")
     doc.text("EVENTOS", 14, currentY)
-    currentY += 15
+    currentY += 6
+    writeNote(`${enPeriodo ? "En el período hay" : "Hay"} ${totalRealEventos.toLocaleString("es-CO")} inscripciones. Cada inscripción es una participación. La misma persona en dos eventos cuenta dos veces.`)
 
     // Género
     doc.setFontSize(14)
@@ -755,17 +832,8 @@ export async function generatePDFReport(
     doc.setFontSize(18)
     doc.setFont("helvetica", "bold")
     doc.text("EVENTOS CINECLÚ", 14, currentY)
-    currentY += 8
-
-    doc.setFontSize(9)
-    doc.setFont("helvetica", "italic")
-    doc.setTextColor(80, 80, 80)
-    doc.text(
-      "Asistencias registradas en proyecciones del Cineclú de la Vicerrectoría de Cultura.",
-      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
-    )
-    doc.setTextColor(0, 0, 0)
-    currentY += 14
+    currentY += 6
+    writeNote(`${enPeriodo ? "En el período hay" : "Hay"} ${totalCineclu.toLocaleString("es-CO")} asistencias a proyecciones del Cineclú. Cada asistencia es una participación. La misma persona en dos proyecciones cuenta dos veces.`)
 
     doc.setFontSize(14)
     doc.setFont("helvetica", "bold")
@@ -853,20 +921,10 @@ export async function generatePDFReport(
     doc.text("REPRESENTACIONES EN EVENTOS", pageWidth / 2, currentY, { align: "center" })
     currentY += 8
 
-    doc.setFontSize(9)
-    doc.setFont("helvetica", "italic")
-    doc.setTextColor(80, 80, 80)
-    doc.text(
-      "Los siguientes datos corresponden a los artistas que participaron representando los diferentes grupos culturales de la Universidad del Valle.",
-      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
-    )
-    doc.setTextColor(0, 0, 0)
-    currentY += 14
-
-    // Calcular estadísticas globales de representaciones
     const allRepMembers = representaciones.flatMap(r => r.miembros)
     const totalRep = allRepMembers.length
     const uniqueRepUsers = new Set(allRepMembers.map(m => m.userId)).size
+    writeNote(`${enPeriodo ? "Solo entran las representaciones cuya fecha cae en el período." : "Se incluyen todas las representaciones."} Hay ${totalRepresentaciones.toLocaleString("es-CO")} plazas: cada integrante de una lista cuenta una. Esas plazas corresponden a ${uniqueRepUsers.toLocaleString("es-CO")} artistas distintos.`)
 
     const repByGenero: Record<string, number> = {}
     const repByFacultad: Record<string, number> = {}
@@ -1034,12 +1092,15 @@ export async function generatePDFReport(
     doc.setFontSize(9)
     doc.setFont("helvetica", "italic")
     doc.setTextColor(80, 80, 80)
-    doc.text(
-      "Seguimiento de metas del Plan de Acción Institucional — Área de Cultura, Bienestar Universitario, Universidad del Valle.",
-      pageWidth / 2, currentY, { align: "center", maxWidth: pageWidth - 28 }
+    const indicadoresIntro = doc.splitTextToSize(
+      enPeriodo
+        ? "Seguimiento de metas del Plan de Acción Institucional — Área de Cultura, Bienestar Universitario, Universidad del Valle. Las metas alcanzadas cuentan solo lo ocurrido en el período de este informe."
+        : "Seguimiento de metas del Plan de Acción Institucional — Área de Cultura, Bienestar Universitario, Universidad del Valle. Este informe no tiene fechas, así que las metas alcanzadas incluyen todos los registros.",
+      pageWidth - 28
     )
+    doc.text(indicadoresIntro, pageWidth / 2, currentY, { align: "center" })
     doc.setTextColor(0, 0, 0)
-    currentY += 14
+    currentY += indicadoresIntro.length * 4 + 6
 
     // ─────────────────────────────────────────────────────────────────────────
     // INDICADOR 1: Inscritos a grupos e iniciativas culturales
@@ -1058,11 +1119,12 @@ export async function generatePDFReport(
       pageWidth - 28
     )
     doc.text(titulo1Lines, 14, currentY)
-    currentY += titulo1Lines.length * 5 + 4
+    currentY += titulo1Lines.length * 5 + 2
+    writeNote(enPeriodo
+      ? "La meta alcanzada es la misma cifra de Participantes únicos en grupos del resumen: personas con asistencia en el período, contadas una vez en cada grupo."
+      : "La meta alcanzada es la misma cifra de Participantes únicos en grupos del resumen. Como el informe no tiene fechas, entran todas las asistencias.")
 
-    // Calcular datos indicador 1
-    // Meta alcanzada = total de inscritos únicos a grupos culturales (group_enrollments sin filtro de fecha)
-    const metaAlcanzada1 = totalInscritosGrupos ?? new Set(attendanceRecords.map(r => r.numeroDocumento)).size
+    const metaAlcanzada1 = totalParticipantesUnicosGrupos
     const metaPlaneada1 = indicadoresConfig.metaInscritosGrupos
     const porcentaje1 = metaPlaneada1 > 0 ? Math.round((metaAlcanzada1 / metaPlaneada1) * 100) : 0
 
@@ -1127,14 +1189,10 @@ export async function generatePDFReport(
       pageWidth - 28
     )
     doc.text(titulo2Lines, 14, currentY)
-    currentY += titulo2Lines.length * 5 + 4
-
-    doc.setFontSize(8)
-    doc.setFont("helvetica", "italic")
-    doc.setTextColor(100, 100, 100)
-    doc.text("Incluye: convocatorias + eventos + cineclú + representaciones (participaciones totales)", 14, currentY)
-    doc.setTextColor(0, 0, 0)
-    currentY += 8
+    currentY += titulo2Lines.length * 5 + 2
+    writeNote(enPeriodo
+      ? "Dentro del período suma convocatorias, eventos, cineclú y representaciones. Cada registro es una participación: la misma persona puede contar varias veces."
+      : "Suma convocatorias, eventos, cineclú y representaciones. Cada registro es una participación: la misma persona puede contar varias veces.")
 
     // Calcular datos indicador 2
     const totalConvocatoriasInd2 = eventStats?.totalParticipants ?? 0
