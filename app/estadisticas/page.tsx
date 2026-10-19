@@ -383,15 +383,13 @@ export default function EstadisticasPage() {
   ]
 
   function handleDownloadExcel(selectedColumns: string[], fechaDesde?: string, fechaHasta?: string) {
+    const range = fechaDesde || fechaHasta
+      ? { desde: fechaDesde, hasta: fechaHasta }
+      : undefined
     // Agrupar registros por usuario (numeroDocumento + grupoCultural)
     const userMap = new Map<string, { record: AttendanceRecord; count: number }>()
     allAttendanceRecords.forEach(r => {
-      const ts = new Date(r.timestamp)
-      if (fechaDesde && ts < new Date(fechaDesde)) return
-      if (fechaHasta) {
-        const h = new Date(fechaHasta); h.setHours(23, 59, 59)
-        if (ts > h) return
-      }
+      if (!isWithinReportRange(r.timestamp, range)) return
       const key = `${r.numeroDocumento}||${r.grupoCultural}`
       if (!userMap.has(key)) {
         userMap.set(key, { record: r, count: 0 })
