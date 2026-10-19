@@ -149,15 +149,26 @@ export async function generatePDFReport(
   const totalGeneral = totalGruposCulturales + totalConvocatorias + totalRealEventos + totalCineclu
 
   // Suma de usuarios únicos por grupo en el período filtrado.
-  // Una persona inscrita en dos grupos cuenta una vez en cada grupo.
+  // Una persona en dos grupos cuenta una vez en cada grupo.
   const usersByGroup: Record<string, Set<string>> = {}
+  const genderByPersonGroup = new Map<string, "MUJER" | "HOMBRE" | "OTRO">()
   attendanceRecords.forEach((record) => {
+    const person = `${record.nombres}|${record.numeroDocumento}`
     if (!usersByGroup[record.grupoCultural]) {
       usersByGroup[record.grupoCultural] = new Set()
     }
-    usersByGroup[record.grupoCultural].add(`${record.nombres}|${record.numeroDocumento}`)
+    usersByGroup[record.grupoCultural].add(person)
+    const personGroup = `${record.grupoCultural}||${person}`
+    if (!genderByPersonGroup.has(personGroup)) {
+      const gender = String(record.genero || "OTRO").toUpperCase()
+      genderByPersonGroup.set(personGroup, gender === "MUJER" || gender === "HOMBRE" ? gender : "OTRO")
+    }
   })
   const totalParticipantesUnicosGrupos = Object.values(usersByGroup).reduce((sum, users) => sum + users.size, 0)
+  const unicosPorGenero = { MUJER: 0, HOMBRE: 0, OTRO: 0 }
+  genderByPersonGroup.forEach((gender) => {
+    unicosPorGenero[gender]++
+  })
 
   // Total de usuarios registrados en la plataforma (sin filtro de fechas — dato fijo)
   const totalUsuariosRegistrados = totalUsuariosPlataforma ?? new Set([
@@ -172,7 +183,7 @@ export async function generatePDFReport(
     [`Asistencias en ${gruposLabel}`, totalGruposCulturales.toString()],
     [`Participantes únicos en ${gruposLabel}`, totalParticipantesUnicosGrupos.toString()],
     ["Inscripciones en Convocatorias", totalConvocatorias.toString()],
-    ["Inscripciones en Eventos", totalRealEventos.toString()],
+    ["Asistencias en Eventos", totalRealEventos.toString()],
     ["Asistencias en Cineclú", totalCineclu.toString()],
     ["Participaciones en Representaciones", totalRepresentaciones.toString()],
     ["TOTAL PARTICIPACIONES", totalGeneral.toString()],
@@ -199,23 +210,66 @@ export async function generatePDFReport(
     ? "Cada fila cuenta una vez a cada persona con asistencia en ese grupo durante el período. La columna Total Participaciones suma todas las asistencias del grupo."
     : "Cada fila cuenta una vez a cada persona con asistencia en ese grupo. La columna Total Participaciones suma todas las asistencias del grupo.")
 
-  const uniqueUsersByGroup = Object.entries(usersByGroup)
+  const uniqueUsersRows = Object.entries(usersByGroup)
     .map(([group, users]) => {
       const uniqueCount = users.size
       const totalParticipations = stats.byCulturalGroup[group] || 0
-      return [group, uniqueCount, totalParticipations]
+      return [group, uniqueCount, totalParticipations] as [string, number, number]
     })
-    .sort((a, b) => (b[2] as number) - (a[2] as number))
-    .map(([group, uniqueCount, totalParticipations]) => [group, uniqueCount.toString(), totalParticipations.toString()])
+    .sort((a, b) => b[2] - a[2])
+  const totalParticipacionesTabla = uniqueUsersRows.reduce((sum, row) => sum + row[2], 0)
+  const uniqueUsersByGroup = uniqueUsersRows.map(([group, uniqueCount, totalParticipations]) => [
+    group,
+    uniqueCount.toLocaleString("es-CO"),
+    totalParticipations.toLocaleString("es-CO"),
+  ])
 
   autoTable(doc, {
     startY: currentY,
     head: [[grupoLabel, "Usuarios Únicos", "Total Participaciones"]],
     body: uniqueUsersByGroup,
+    foot: [[
+      "TOTAL",
+      totalParticipantesUnicosGrupos.toLocaleString("es-CO"),
+      totalParticipacionesTabla.toLocaleString("es-CO"),
+    ]],
+    showFoot: "lastPage",
     theme: "grid",
     headStyles: { fillColor: [99, 102, 241], fontStyle: "bold" },
+    footStyles: { fillColor: [253, 224, 71], textColor: [0, 0, 0], fontStyle: "bold", fontSize: 9 },
     margin: { left: 14, right: 14 },
     styles: { fontSize: 8 },
+  })
+
+  currentY = (doc as any).lastAutoTable.finalY + 10
+
+  if (currentY > pageHeight - 70) {
+    doc.addPage()
+    currentY = 20
+  }
+
+  doc.setFontSize(12)
+  doc.setFont("helvetica", "bold")
+  doc.text(`TOTAL USUARIOS ÚNICOS POR ${grupoLabel.toUpperCase()} POR GÉNERO`, 14, currentY)
+  currentY += 5
+  writeNote("Cada persona cuenta una vez por grupo, con el género de su asistencia. El total es el mismo de Participantes únicos del resumen general.")
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [["Género", "Usuarios únicos"]],
+    body: [
+      ["Mujer", unicosPorGenero.MUJER.toLocaleString("es-CO")],
+      ["Hombre", unicosPorGenero.HOMBRE.toLocaleString("es-CO")],
+      ["Otro", unicosPorGenero.OTRO.toLocaleString("es-CO")],
+    ],
+    foot: [["TOTAL", totalParticipantesUnicosGrupos.toLocaleString("es-CO")]],
+    showFoot: "lastPage",
+    theme: "grid",
+    headStyles: { fillColor: [99, 102, 241], fontStyle: "bold", halign: "center" },
+    bodyStyles: { fontSize: 11, halign: "center" },
+    footStyles: { fillColor: [253, 224, 71], textColor: [0, 0, 0], fontStyle: "bold", fontSize: 11, halign: "center" },
+    margin: { left: 14, right: 14 },
+    tableWidth: 120,
   })
 
   currentY = (doc as any).lastAutoTable.finalY + 20
