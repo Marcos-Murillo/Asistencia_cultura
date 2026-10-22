@@ -1203,26 +1203,22 @@ export function CulturaUserProfile({
                             </p>
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          className="mt-3 w-full sm:w-auto bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
-                          disabled={enrollingEventId === item.id}
-                          onClick={() => handleEnrollEvent(item)}
-                        >
-                          {enrollingEventId === item.id
-                            ? uploadStatus || "Guardando..."
-                            : formItem?.id === item.id
-                              ? item.alreadyEnrolled
-                                ? "Guardar cambios"
-                                : "Enviar inscripción"
-                              : item.alreadyEnrolled
-                                ? "Editar formulario"
-                                : getEventQuestions({ inscriptionForm: item.inscriptionForm }).length
-                                  ? "Completar formulario"
-                                  : "Inscribirme"}
-                        </Button>
+                        {formItem?.id !== item.id && (
+                          <Button
+                            size="sm"
+                            className="mt-3 w-full sm:w-auto bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
+                            disabled={enrollingEventId === item.id}
+                            onClick={() => handleEnrollEvent(item)}
+                          >
+                            {item.alreadyEnrolled
+                              ? "Editar formulario"
+                              : getEventQuestions({ inscriptionForm: item.inscriptionForm }).length
+                                ? "Completar formulario"
+                                : "Inscribirme"}
+                          </Button>
+                        )}
                         {formItem?.id === item.id && (
-                          <div className="mt-3 rounded-lg border border-white/10 bg-zinc-950/50 p-3">
+                          <div className="mt-3 space-y-3 rounded-lg border border-white/10 bg-zinc-950/50 p-3">
                             <InscriptionFormFields
                               tone="dark"
                               questions={getEventQuestions({ inscriptionForm: item.inscriptionForm })}
@@ -1230,6 +1226,18 @@ export function CulturaUserProfile({
                               onChange={setInscriptionDraft}
                               disabled={enrollingEventId === item.id}
                             />
+                            <Button
+                              size="sm"
+                              className="w-full bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
+                              disabled={enrollingEventId === item.id}
+                              onClick={() => handleEnrollEvent(item)}
+                            >
+                              {enrollingEventId === item.id
+                                ? uploadStatus || "Guardando..."
+                                : item.alreadyEnrolled
+                                  ? "Guardar cambios"
+                                  : "Enviar inscripción"}
+                            </Button>
                           </div>
                         )}
                       </div>
