@@ -12,6 +12,25 @@ export type FileQuestionType = "pdf" | "photo" | "video" | "audio"
 
 export const FILE_QUESTION_TYPES: FileQuestionType[] = ["pdf", "photo", "video", "audio"]
 
+export function parseMultipleChoiceList(text: string): string[] {
+  const items = text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^\s*[-*•·]+\s*/, "")
+        .replace(/^\s*\d+[.)]\s*/, "")
+        .trim(),
+    )
+    .filter(Boolean)
+  const unique: string[] = []
+  for (const item of items) {
+    if (!unique.some((existing) => existing.toLowerCase() === item.toLowerCase())) {
+      unique.push(item)
+    }
+  }
+  return unique
+}
+
 export function isFileQuestionType(type: InscriptionQuestionType): type is FileQuestionType {
   return type === "pdf" || type === "photo" || type === "video" || type === "audio"
 }
@@ -101,7 +120,7 @@ function sanitizeQuestion(question: Partial<InscriptionQuestion>): InscriptionQu
   if (visibleIf) base.visibleIf = visibleIf
 
   if (type === "multiple_choice") {
-    const options = (question.options ?? []).map((option) => option.trim()).filter(Boolean).slice(0, 20)
+    const options = (question.options ?? []).map((option) => option.trim()).filter(Boolean)
     if (options.length < 2) return null
     return { ...base, options, allowMultiple: Boolean(question.allowMultiple) }
   }

@@ -3,9 +3,10 @@
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { createQuestionId, emptyInscriptionForm } from "@/lib/inscription-form"
+import { createQuestionId, emptyInscriptionForm, parseMultipleChoiceList } from "@/lib/inscription-form"
 import type { EventInscriptionForm, InscriptionQuestion, InscriptionQuestionType } from "@/lib/types"
 import { Plus, Trash2 } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 
 const TYPE_LABELS: Record<InscriptionQuestionType, string> = {
   text: "Respuesta abierta",
@@ -92,6 +93,27 @@ export function InscriptionFormBuilder({ value, onChange }: InscriptionFormBuild
             />
             {question.type === "multiple_choice" && (
               <div className="space-y-2">
+                <Textarea
+                  className="bg-white text-slate-900 min-h-[88px]"
+                  placeholder={"Pega aquí una lista, un ítem por línea.\nEjemplo:\nOpción A\nOpción B\nOpción C"}
+                  onPaste={(event) => {
+                    const parsed = parseMultipleChoiceList(event.clipboardData.getData("text"))
+                    if (parsed.length < 2) return
+                    event.preventDefault()
+                    updateQuestion(question.id, { options: parsed })
+                    event.currentTarget.value = ""
+                  }}
+                  onBlur={(event) => {
+                    const parsed = parseMultipleChoiceList(event.target.value)
+                    if (parsed.length < 2) return
+                    updateQuestion(question.id, { options: parsed })
+                    event.target.value = ""
+                  }}
+                />
+                <p className="text-xs text-slate-500">
+                  {(question.options ?? []).filter((option) => option.trim()).length} opciones.
+                  Pega una lista o escribe cada opción abajo.
+                </p>
                 {(question.options ?? []).map((option, optionIndex) => (
                   <Input
                     key={`${question.id}-opt-${optionIndex}`}
@@ -101,6 +123,17 @@ export function InscriptionFormBuilder({ value, onChange }: InscriptionFormBuild
                       const options = [...(question.options ?? [])]
                       options[optionIndex] = event.target.value
                       updateQuestion(question.id, { options })
+                    }}
+                    onPaste={(event) => {
+                      const parsed = parseMultipleChoiceList(event.clipboardData.getData("text"))
+                      if (parsed.length < 2) return
+                      event.preventDefault()
+                      const current = [...(question.options ?? [])]
+                      const before = current.slice(0, optionIndex).filter((item) => item.trim())
+                      const after = current.slice(optionIndex + 1).filter((item) => item.trim())
+                      updateQuestion(question.id, {
+                        options: parseMultipleChoiceList([...before, ...parsed, ...after].join("\n")),
+                      })
                     }}
                   />
                 ))}
