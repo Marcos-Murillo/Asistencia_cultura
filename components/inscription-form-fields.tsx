@@ -13,6 +13,7 @@ interface InscriptionFormFieldsProps {
   value: Record<string, InscriptionAnswerDraft>
   onChange: (next: Record<string, InscriptionAnswerDraft>) => void
   disabled?: boolean
+  tone?: "light" | "dark"
 }
 
 const FILE_ICONS = {
@@ -22,7 +23,9 @@ const FILE_ICONS = {
   audio: FileAudio,
 }
 
-export function InscriptionFormFields({ questions, value, onChange, disabled }: InscriptionFormFieldsProps) {
+export function InscriptionFormFields({ questions, value, onChange, disabled, tone = "light" }: InscriptionFormFieldsProps) {
+  const dark = tone === "dark"
+
   function patch(questionId: string, update: Partial<InscriptionAnswerDraft>) {
     onChange({
       ...value,
@@ -31,12 +34,19 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {getVisibleQuestions(questions, value).map((question) => {
         const current = value[question.id] || {}
         return (
-          <div key={question.id} className="space-y-2">
-            <Label className="text-slate-800">
+          <div
+            key={question.id}
+            className={
+              dark
+                ? "space-y-3 rounded-xl border border-white/15 bg-zinc-950/70 p-3"
+                : "space-y-3 rounded-xl border border-violet-100 bg-violet-50/80 p-3"
+            }
+          >
+            <Label className={dark ? "block text-base font-semibold text-lime-300" : "block text-base font-semibold text-violet-950"}>
               {question.label}
               {question.required ? " *" : ""}
             </Label>
@@ -46,7 +56,11 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
                 disabled={disabled}
                 onChange={(event) => patch(question.id, { text: event.target.value })}
                 placeholder="Escribe tu respuesta"
-                className="bg-white text-slate-900"
+                className={
+                  dark
+                    ? "border-white/20 bg-zinc-800 text-white placeholder:text-zinc-400"
+                    : "border-violet-200 bg-white text-slate-900"
+                }
               />
             )}
             {question.type === "multiple_choice" && (
@@ -60,6 +74,13 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
                       selected={isSelected}
                       multiple={Boolean(question.allowMultiple)}
                       disabled={disabled}
+                      className={
+                        dark
+                          ? isSelected
+                            ? "border-lime-400 bg-lime-400 text-zinc-950 hover:bg-lime-300 hover:border-lime-300"
+                            : "border-white/20 bg-zinc-800 text-white hover:border-lime-400/60 hover:bg-zinc-700"
+                          : undefined
+                      }
                       onClick={() => {
                         if (disabled) return
                         if (question.allowMultiple) {
@@ -79,6 +100,7 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
             {isFileQuestionType(question.type) && (
               <FilePickerField
                 type={question.type}
+                tone={tone}
                 disabled={disabled}
                 file={current.file || null}
                 existingName={current.existingFiles?.[0]?.name}
@@ -94,12 +116,14 @@ export function InscriptionFormFields({ questions, value, onChange, disabled }: 
 
 function FilePickerField({
   type,
+  tone = "light",
   disabled,
   file,
   existingName,
   onChange,
 }: {
   type: keyof typeof FILE_ICONS
+  tone?: "light" | "dark"
   disabled?: boolean
   file: File | null
   existingName?: string
@@ -109,6 +133,7 @@ function FilePickerField({
   const limits = QUESTION_UPLOAD_LIMITS[type]
   const Icon = FILE_ICONS[type]
   const displayName = file?.name || existingName
+  const dark = tone === "dark"
 
   return (
     <div className="space-y-2">
@@ -124,21 +149,27 @@ function FilePickerField({
         type="button"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className="flex w-full items-center gap-3 rounded-xl border-2 border-dashed border-violet-200 bg-violet-50 px-4 py-4 text-left text-slate-800 transition hover:border-violet-400 hover:bg-violet-100 disabled:opacity-60"
+        className={
+          dark
+            ? "flex w-full items-center gap-3 rounded-xl border-2 border-dashed border-lime-400/40 bg-zinc-800 px-4 py-4 text-left text-white transition hover:border-lime-400 disabled:opacity-60"
+            : "flex w-full items-center gap-3 rounded-xl border-2 border-dashed border-violet-200 bg-white px-4 py-4 text-left text-slate-800 transition hover:border-violet-400 hover:bg-violet-50 disabled:opacity-60"
+        }
       >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${dark ? "bg-lime-400 text-zinc-950" : "bg-violet-600 text-white"}`}>
           <Icon className="h-5 w-5" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-medium text-slate-900">
+          <span className={`block font-medium ${dark ? "text-white" : "text-slate-900"}`}>
             {displayName || "Seleccionar archivo"}
           </span>
-          <span className="block text-xs text-slate-600">{limits.label}</span>
+          <span className={`block text-xs ${dark ? "text-zinc-400" : "text-slate-600"}`}>{limits.label}</span>
         </span>
-        <Upload className="h-4 w-4 shrink-0 text-violet-600" />
+        <Upload className={`h-4 w-4 shrink-0 ${dark ? "text-lime-400" : "text-violet-600"}`} />
       </button>
       {existingName && !file && (
-        <p className="text-xs text-violet-700">Archivo actual: {existingName}. Puedes dejarlo o reemplazarlo.</p>
+        <p className={`text-xs ${dark ? "text-lime-300" : "text-violet-700"}`}>
+          Archivo actual: {existingName}. Puedes dejarlo o reemplazarlo.
+        </p>
       )}
     </div>
   )

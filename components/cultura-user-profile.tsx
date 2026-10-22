@@ -1222,8 +1222,9 @@ export function CulturaUserProfile({
                                   : "Inscribirme"}
                         </Button>
                         {formItem?.id === item.id && (
-                          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                          <div className="mt-3 rounded-lg border border-white/10 bg-zinc-950/50 p-3">
                             <InscriptionFormFields
+                              tone="dark"
                               questions={getEventQuestions({ inscriptionForm: item.inscriptionForm })}
                               value={inscriptionDraft}
                               onChange={setInscriptionDraft}
