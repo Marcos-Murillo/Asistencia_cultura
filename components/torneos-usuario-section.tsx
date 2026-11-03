@@ -18,7 +18,7 @@ import {
   getUserNamesByIds,
 } from "@/lib/db-router"
 import type { Torneo, TorneoEquipo, TorneoGrupo, TorneoInscripcion, TorneoPartido } from "@/lib/types"
-import { calcularPosiciones, FASE_TORNEO_LABEL, labelDeporte } from "@/lib/torneo-utils"
+import { calcularPosiciones, columnasPosiciones, FASE_TORNEO_LABEL, labelDeporte, reglaTablaTexto, textoPosicion } from "@/lib/torneo-utils"
 
 type ResumenTorneo = {
   inscripcion: TorneoInscripcion
@@ -212,7 +212,8 @@ function SeguimientoTorneo({
       ) : (
         <div className="space-y-6">
           <div>
-            <h3 className="mb-2 text-sm font-semibold text-orange-200">Tabla de puntos</h3>
+            <h3 className="mb-1 text-sm font-semibold text-orange-200">Tabla de puntos</h3>
+            <p className="mb-2 text-xs text-zinc-500">{reglaTablaTexto(torneo.deporte)}</p>
             {grupos.length === 0 ? (
               <p className="text-sm text-zinc-400">Todavía no hay grupos publicados.</p>
             ) : (
@@ -222,18 +223,20 @@ function SeguimientoTorneo({
                     partidos.filter((partido) => partido.grupoId === grupo.id && partido.fase === "grupos"),
                     grupo.equipos,
                     nombres,
+                    torneo.deporte,
                   )
+                  const columnas = columnasPosiciones(torneo.deporte)
                   return (
                     <div key={grupo.id} className="overflow-hidden rounded-2xl border border-white/10">
                       <p className="bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-300">{grupo.nombre}</p>
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[280px] text-left text-xs sm:text-sm">
+                        <table className="w-full min-w-[520px] text-left text-xs sm:text-sm">
                           <thead className="text-zinc-500">
                             <tr>
                               <th className="px-3 py-2 font-medium">Equipo</th>
-                              <th className="px-2 py-2 text-center font-medium">PTS</th>
-                              <th className="px-2 py-2 text-center font-medium">PJ</th>
-                              <th className="px-2 py-2 text-center font-medium">DG</th>
+                              {columnas.map((columna) => (
+                                <th key={columna.key} className="px-2 py-2 text-center font-medium" title={columna.title}>{columna.label}</th>
+                              ))}
                             </tr>
                           </thead>
                           <tbody>
@@ -246,9 +249,11 @@ function SeguimientoTorneo({
                                     {fila.nombre}
                                     {mio && <span className="ml-2 text-[10px] uppercase text-orange-300">Tú</span>}
                                   </td>
-                                  <td className="px-2 py-2 text-center font-semibold">{fila.pts}</td>
-                                  <td className="px-2 py-2 text-center">{fila.pj}</td>
-                                  <td className="px-2 py-2 text-center">{fila.dg > 0 ? `+${fila.dg}` : fila.dg}</td>
+                                  {columnas.map((columna) => (
+                                    <td key={columna.key} className={`px-2 py-2 text-center ${columna.key === "pts" ? "font-semibold" : ""}`}>
+                                      {textoPosicion(fila, columna)}
+                                    </td>
+                                  ))}
                                 </tr>
                               )
                             })}
@@ -286,6 +291,9 @@ function SeguimientoTorneo({
                           {partido.jugado && partido.golesLocal != null && partido.golesVisitante != null
                             ? `${partido.golesLocal} - ${partido.golesVisitante}`
                             : "vs"}
+                          {torneo.deporte === "voleibol" && partido.jugado && partido.puntosLocal != null && partido.puntosVisitante != null && (
+                            <span className="mt-0.5 block text-[10px] font-normal text-zinc-400">Puntos {partido.puntosLocal}-{partido.puntosVisitante}</span>
+                          )}
                         </p>
                         <p className={`truncate ${partido.visitante === miId ? "font-semibold text-orange-100" : ""}`}>{nombreDe(partido.visitante)}</p>
                       </div>

@@ -28,8 +28,8 @@ import {
   generarBracketEliminatorias, updateTorneo, getUserNamesByIds, getUserBriefsByIds,
   deletePartido,
 } from "@/lib/db-router"
-import type { Torneo, TorneoEquipo, TorneoInscripcion, TorneoGrupo, TorneoPartido, PosicionGrupo, EstadisticasJugador } from "@/lib/types"
-import { finInscripcion, inicioInscripcion, inscripcionAbierta, inscripcionCerrada, labelDeporte } from "@/lib/torneo-utils"
+import type { Torneo, TorneoEquipo, TorneoInscripcion, TorneoGrupo, TorneoPartido, EstadisticasJugador } from "@/lib/types"
+import { calcularPosiciones, columnasPosiciones, etiquetaMarcador, finInscripcion, inicioInscripcion, inscripcionAbierta, inscripcionCerrada, labelDeporte, reglaTablaTexto, textoPosicion } from "@/lib/torneo-utils"
 import { isSuperAdmin as checkSuperAdmin, isAdmin as checkAdmin } from "@/lib/auth-helpers"
 
 const STATS_FIELDS: Record<string, { key: keyof EstadisticasJugador; label: string }[]> = {
@@ -51,21 +51,6 @@ const STATS_FIELDS: Record<string, { key: keyof EstadisticasJugador; label: stri
   natacion: [{ key: "tiempoSegundos", label: "Tiempo (seg)" }, { key: "posicion", label: "Posición" }],
   atletismo: [{ key: "tiempoSegundos", label: "Tiempo (seg)" }, { key: "posicion", label: "Posición" }],
   otro: [{ key: "puntosIndividuales", label: "Puntos" }],
-}
-
-function calcPosiciones(partidos: TorneoPartido[], equipos: string[]): PosicionGrupo[] {
-  const map = new Map<string, PosicionGrupo>()
-  equipos.forEach(e => map.set(e, { equipoId: e, nombre: e, pj: 0, pg: 0, pe: 0, pp: 0, gf: 0, gc: 0, dg: 0, pts: 0 }))
-  partidos.filter(p => p.jugado && p.golesLocal != null && p.golesVisitante != null).forEach(p => {
-    const l = map.get(p.local); const v = map.get(p.visitante)
-    if (!l || !v) return
-    l.pj++; v.pj++; l.gf += p.golesLocal!; l.gc += p.golesVisitante!; v.gf += p.golesVisitante!; v.gc += p.golesLocal!
-    if (p.golesLocal! > p.golesVisitante!) { l.pg++; l.pts += 3; v.pp++ }
-    else if (p.golesLocal! < p.golesVisitante!) { v.pg++; v.pts += 3; l.pp++ }
-    else { l.pe++; v.pe++; l.pts++; v.pts++ }
-    l.dg = l.gf - l.gc; v.dg = v.gf - v.gc
-  })
-  return Array.from(map.values()).sort((a, b) => b.pts - a.pts || b.dg - a.dg || b.gf - a.gf)
 }
 
 // Orden de fases para saber cuáles ya pasaron
@@ -122,6 +107,8 @@ export default function TorneoAdminPage() {
   const [pLugar, setPLugar] = useState("")
   const [pGolesLocal, setPGolesLocal] = useState("")
   const [pGolesVisitante, setPGolesVisitante] = useState("")
+  const [pPuntosLocal, setPPuntosLocal] = useState("")
+  const [pPuntosVisitante, setPPuntosVisitante] = useState("")
   const [pJugado, setPJugado] = useState(false)
   const [pStats, setPStats] = useState<EstadisticasJugador[]>([])
   const [pStatsFilter, setPStatsFilter] = useState("")
@@ -291,11 +278,15 @@ export default function TorneoAdminPage() {
       setEditingPartido(p); setPLocal(p.local); setPVisitante(p.visitante)
       setPFecha(p.fecha ? p.fecha.toISOString().split("T")[0] : "")
       setPLugar(p.lugar || ""); setPGolesLocal(p.golesLocal?.toString() || "")
-      setPGolesVisitante(p.golesVisitante?.toString() || ""); setPJugado(p.jugado)
+      setPGolesVisitante(p.golesVisitante?.toString() || "")
+      setPPuntosLocal(p.puntosLocal != null ? String(p.puntosLocal) : "")
+      setPPuntosVisitante(p.puntosVisitante != null ? String(p.puntosVisitante) : "")
+      setPJugado(p.jugado)
       setPStats(p.estadisticas || [])
     } else {
       setEditingPartido(null); setPLocal(local || ""); setPVisitante(visitante || "")
-      setPFecha(""); setPLugar(""); setPGolesLocal(""); setPGolesVisitante(""); setPJugado(false); setPStats([])
+      setPFecha(""); setPLugar(""); setPGolesLocal(""); setPGolesVisitante("")
+      setPPuntosLocal(""); setPPuntosVisitante(""); setPJugado(false); setPStats([])
     }
     setPartidoDialogOpen(true)
   }
@@ -309,6 +300,10 @@ export default function TorneoAdminPage() {
         ...(pLugar ? { lugar: pLugar } : {}),
         ...(pJugado && pGolesLocal !== "" ? { golesLocal: parseInt(pGolesLocal) } : {}),
         ...(pJugado && pGolesVisitante !== "" ? { golesVisitante: parseInt(pGolesVisitante) } : {}),
+        ...(torneo?.deporte === "voleibol" && pJugado ? {
+          puntosLocal: pPuntosLocal === "" ? null : parseInt(pPuntosLocal, 10),
+          puntosVisitante: pPuntosVisitante === "" ? null : parseInt(pPuntosVisitante, 10),
+        } : {}),
         ...(pStats.length > 0 ? { estadisticas: pStats } : {}),
       }
       if (editingPartido) { await updatePartido(editingPartido.id, data); setSuccess("Partido actualizado") }
@@ -329,7 +324,7 @@ export default function TorneoAdminPage() {
       if (nextFase === "eliminatorias") {
         const clasificados: string[] = []
         for (const g of grupos) {
-          const pts = calcPosiciones(partidos.filter(p => p.grupoId === g.id), g.equipos)
+          const pts = calcularPosiciones(partidos.filter(p => p.grupoId === g.id), g.equipos, {}, torneo.deporte)
           clasificados.push(...pts.slice(0, 2).map(p => p.equipoId))
         }
         const fase = clasificados.length <= 4 ? "semifinal" : clasificados.length <= 8 ? "cuartos" : "octavos"
@@ -568,8 +563,14 @@ export default function TorneoAdminPage() {
                                 <div key={p.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
                                   <span className="font-medium">{getNombre(p.local)}</span>
                                   <div className="flex items-center gap-2">
-                                    {p.jugado ? <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span>
-                                      : <span className="text-gray-400 text-xs">{p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Sin fecha"}</span>}
+                                    {p.jugado ? (
+                                      <span className="text-center">
+                                        <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span>
+                                        {torneo.deporte === "voleibol" && p.puntosLocal != null && p.puntosVisitante != null && (
+                                          <span className="block text-[10px] font-normal text-gray-500">Pts {p.puntosLocal}-{p.puntosVisitante}</span>
+                                        )}
+                                      </span>
+                                    ) : <span className="text-gray-400 text-xs">{p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Sin fecha"}</span>}
                                     {!gruposPasados && <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}><Pencil className="h-3 w-3" /></Button>}
                                   </div>
                                   <span className="font-medium">{getNombre(p.visitante)}</span>
@@ -606,7 +607,14 @@ export default function TorneoAdminPage() {
                                 <div key={p.id} className="flex items-center justify-between border rounded px-3 py-2 bg-white text-sm">
                                   <span className="font-medium">{getNombre(p.local)}</span>
                                   <div className="flex items-center gap-2">
-                                    {p.jugado ? <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span> : <span className="text-gray-400 text-xs">vs</span>}
+                                    {p.jugado ? (
+                                      <span className="text-center">
+                                        <span className="font-bold text-orange-600">{p.golesLocal} - {p.golesVisitante}</span>
+                                        {torneo.deporte === "voleibol" && p.puntosLocal != null && p.puntosVisitante != null && (
+                                          <span className="block text-[10px] font-normal text-gray-500">Pts {p.puntosLocal}-{p.puntosVisitante}</span>
+                                        )}
+                                      </span>
+                                    ) : <span className="text-gray-400 text-xs">vs</span>}
                                     {!elimPasados && <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => openPartidoDialog(p)}><Pencil className="h-3 w-3" /></Button>}
                                   </div>
                                   <span className="font-medium">{getNombre(p.visitante)}</span>
@@ -631,19 +639,22 @@ export default function TorneoAdminPage() {
                 {gruposPasados && <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Fase de grupos (anterior)</p>}
                 {grupos.map(g => {
                   const gPartidos = partidosGrupos.filter(p => p.grupoId === g.id)
-                  const posiciones = calcPosiciones(gPartidos, g.equipos)
+                  const posiciones = calcularPosiciones(gPartidos, g.equipos, {}, torneo.deporte)
+                  const columnas = columnasPosiciones(torneo.deporte)
                   return (
                     <Card key={g.id} className={gruposPasados ? "opacity-75" : ""}>
-                      <CardHeader><CardTitle>{g.nombre}</CardTitle></CardHeader>
+                      <CardHeader>
+                        <CardTitle>{g.nombre}</CardTitle>
+                        <CardDescription>{reglaTablaTexto(torneo.deporte)}</CardDescription>
+                      </CardHeader>
                       <CardContent className="space-y-4">
                         <Table>
                           <TableHeader>
                             <TableRow>
                               <TableHead>#</TableHead><TableHead>Equipo</TableHead>
-                              <TableHead className="text-center">PJ</TableHead><TableHead className="text-center">PG</TableHead>
-                              <TableHead className="text-center">PE</TableHead><TableHead className="text-center">PP</TableHead>
-                              <TableHead className="text-center">GF</TableHead><TableHead className="text-center">GC</TableHead>
-                              <TableHead className="text-center">DG</TableHead><TableHead className="text-center font-bold">PTS</TableHead>
+                              {columnas.map(col => (
+                                <TableHead key={col.key} className="text-center" title={col.title}>{col.label}</TableHead>
+                              ))}
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -651,11 +662,11 @@ export default function TorneoAdminPage() {
                               <TableRow key={p.equipoId} className={i < 2 ? "bg-green-50" : ""}>
                                 <TableCell className="font-bold text-gray-500">{i + 1}</TableCell>
                                 <TableCell className="font-medium">{getNombre(p.equipoId)}</TableCell>
-                                <TableCell className="text-center">{p.pj}</TableCell><TableCell className="text-center">{p.pg}</TableCell>
-                                <TableCell className="text-center">{p.pe}</TableCell><TableCell className="text-center">{p.pp}</TableCell>
-                                <TableCell className="text-center">{p.gf}</TableCell><TableCell className="text-center">{p.gc}</TableCell>
-                                <TableCell className="text-center">{p.dg > 0 ? `+${p.dg}` : p.dg}</TableCell>
-                                <TableCell className="text-center font-bold text-orange-600">{p.pts}</TableCell>
+                                {columnas.map(col => (
+                                  <TableCell key={col.key} className={`text-center ${col.key === "pts" ? "font-bold text-orange-600" : ""}`}>
+                                    {textoPosicion(p, col)}
+                                  </TableCell>
+                                ))}
                               </TableRow>
                             ))}
                           </TableBody>
@@ -668,6 +679,9 @@ export default function TorneoAdminPage() {
                                 <span className={`font-bold ${p.jugado ? "text-orange-600" : "text-gray-400"}`}>
                                   {p.jugado ? `${p.golesLocal} - ${p.golesVisitante}` : p.fecha ? p.fecha.toLocaleDateString("es-CO") : "Por jugar"}
                                 </span>
+                                {p.jugado && torneo.deporte === "voleibol" && p.puntosLocal != null && p.puntosVisitante != null && (
+                                  <div className="text-[11px] font-normal text-gray-500">Puntos {p.puntosLocal}-{p.puntosVisitante}</div>
+                                )}
                                 {(p.fecha || p.lugar) && !p.jugado && (
                                   <div className="flex items-center justify-center gap-2 mt-0.5 text-xs text-gray-400">
                                     {p.lugar && <span className="flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{p.lugar}</span>}
@@ -718,6 +732,9 @@ export default function TorneoAdminPage() {
                                   <div className="text-center flex-1">
                                     <p className="font-semibold text-sm">{getNombre(p.local)}</p>
                                     {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesLocal}</p>}
+                                    {p.jugado && torneo.deporte === "voleibol" && p.puntosLocal != null && (
+                                      <p className="text-[11px] text-gray-500">{p.puntosLocal} pts</p>
+                                    )}
                                   </div>
                                   <div className="text-center px-2">
                                     <span className="text-gray-400 font-bold text-sm">VS</span>
@@ -731,6 +748,9 @@ export default function TorneoAdminPage() {
                                   <div className="text-center flex-1">
                                     <p className="font-semibold text-sm">{getNombre(p.visitante)}</p>
                                     {p.jugado && <p className="text-2xl font-bold text-orange-600">{p.golesVisitante}</p>}
+                                    {p.jugado && torneo.deporte === "voleibol" && p.puntosVisitante != null && (
+                                      <p className="text-[11px] text-gray-500">{p.puntosVisitante} pts</p>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -857,15 +877,30 @@ export default function TorneoAdminPage() {
                 <Label htmlFor="jugado">Partido jugado</Label>
               </div>
               {pJugado && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>{getNombre(pLocal)} (local)</Label>
-                    <Input type="number" min={0} value={pGolesLocal} onChange={e => setPGolesLocal(e.target.value)} placeholder="0" />
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>{getNombre(pLocal)} · {etiquetaMarcador(torneo.deporte).principal}</Label>
+                      <Input type="number" min={0} value={pGolesLocal} onChange={e => setPGolesLocal(e.target.value)} placeholder="0" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{getNombre(pVisitante)} · {etiquetaMarcador(torneo.deporte).principal}</Label>
+                      <Input type="number" min={0} value={pGolesVisitante} onChange={e => setPGolesVisitante(e.target.value)} placeholder="0" />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label>{getNombre(pVisitante)} (visitante)</Label>
-                    <Input type="number" min={0} value={pGolesVisitante} onChange={e => setPGolesVisitante(e.target.value)} placeholder="0" />
-                  </div>
+                  {torneo.deporte === "voleibol" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label>{getNombre(pLocal)} · Puntos</Label>
+                        <Input type="number" min={0} value={pPuntosLocal} onChange={e => setPPuntosLocal(e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{getNombre(pVisitante)} · Puntos</Label>
+                        <Input type="number" min={0} value={pPuntosVisitante} onChange={e => setPPuntosVisitante(e.target.value)} placeholder="0" />
+                      </div>
+                      <p className="col-span-2 text-xs text-gray-500">Los sets arman SF, SC y DS. Los puntos arman PF, PC y DP.</p>
+                    </div>
+                  )}
                 </div>
               )}
               {pJugado && statsFields.length > 0 && (

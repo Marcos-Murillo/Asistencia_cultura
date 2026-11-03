@@ -393,9 +393,12 @@ export interface TorneoPartido {
   // Participantes (equipoId o userId según tipo)
   local: string
   visitante: string
-  // Resultados
+  // Resultados. En fútbol son goles, en baloncesto puntos y en voleibol sets.
   golesLocal?: number
   golesVisitante?: number
+  // Voleibol: puntos totales del partido (PF / PC). El marcador principal son los sets.
+  puntosLocal?: number | null
+  puntosVisitante?: number | null
   jugado: boolean
   fecha?: Date
   lugar?: string
@@ -403,7 +406,7 @@ export interface TorneoPartido {
   estadisticas?: EstadisticasJugador[]
 }
 
-// Tabla de posiciones (calculada)
+// Tabla de posiciones (calculada). Las columnas visibles dependen del deporte.
 export interface PosicionGrupo {
   equipoId: string
   nombre: string
@@ -414,7 +417,13 @@ export interface PosicionGrupo {
   gf: number // goles a favor
   gc: number // goles en contra
   dg: number // diferencia de goles
-  pts: number // puntos
+  pts: number // puntos de tabla
+  sf: number // sets a favor
+  sc: number // sets en contra
+  ds: number // diferencia de sets
+  pf: number // puntos a favor
+  pc: number // puntos en contra
+  dp: number // diferencia de puntos (DIF en baloncesto, DP en voleibol)
 }
 
 // ============================================================================
