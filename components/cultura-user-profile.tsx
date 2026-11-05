@@ -1287,7 +1287,6 @@ export function CulturaUserProfile({
                             ) : (
                               <CallChip
                                 className="call-chip--block"
-                                style={{}}
                                 icon={item.alreadyEnrolled ? "edit" : "file"}
                                 name={item.alreadyEnrolled ? "Guardar" : "Enviar"}
                                 argument={
