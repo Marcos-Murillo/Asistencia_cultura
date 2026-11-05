@@ -74,7 +74,11 @@ export function getStoredRefreshToken() {
 }
 
 export function saveRefreshToken(refreshToken: string) {
-  writeFileSync(OAUTH_TOKEN_FILE, JSON.stringify({ refresh_token: refreshToken }, null, 2), "utf8")
+  try {
+    writeFileSync(OAUTH_TOKEN_FILE, JSON.stringify({ refresh_token: refreshToken }, null, 2), "utf8")
+  } catch {
+    // Vercel / serverless: el disco es de solo lectura. El token se muestra para pegarlo en env.
+  }
 }
 
 export function isDriveOAuthReady() {
