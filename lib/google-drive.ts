@@ -23,15 +23,32 @@ function getOAuthRedirectUri() {
   return process.env.GOOGLE_OAUTH_REDIRECT_URI || "http://localhost:3000/api/drive/oauth/callback"
 }
 
-export function oauthCallbackUri(request: Request) {
-  const configured = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim()
-  if (configured) return configured.replace(/\/$/, "")
-
+function requestPublicOrigin(request: Request) {
   const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
   const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
-  if (host) return `${proto || "https"}://${host}/api/drive/oauth/callback`
+  if (host) return `${proto || "https"}://${host}`
+  return new URL(request.url).origin
+}
 
-  return `${new URL(request.url).origin}/api/drive/oauth/callback`
+export function oauthCallbackUri(request: Request) {
+  const fromRequest = `${requestPublicOrigin(request)}/api/drive/oauth/callback`.replace(/\/$/, "")
+  const configured = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim().replace(/\/$/, "")
+  if (!configured) return fromRequest
+  try {
+    if (new URL(configured).origin === new URL(fromRequest).origin) return configured
+  } catch {
+    /* ignore invalid env */
+  }
+  return fromRequest
+}
+
+export function oauthDebugInfo(request: Request) {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID || ""
+  return {
+    callbackUri: oauthCallbackUri(request),
+    clientId,
+    envRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI || "",
+  }
 }
 
 export function getOAuth2Client(redirectUri?: string) {
