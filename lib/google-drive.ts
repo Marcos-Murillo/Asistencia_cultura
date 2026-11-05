@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "fs"
 import path from "path"
+import { Readable } from "stream"
 import { google } from "googleapis"
 
 const DRIVE_UPLOAD_PREFIX = "https://www.googleapis.com/upload/drive/"
@@ -22,13 +23,13 @@ function getOAuthRedirectUri() {
   return process.env.GOOGLE_OAUTH_REDIRECT_URI || "http://localhost:3000/api/drive/oauth/callback"
 }
 
-export function getOAuth2Client() {
+export function getOAuth2Client(redirectUri?: string) {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
   if (!clientId || !clientSecret) {
     throw new Error("Faltan GOOGLE_OAUTH_CLIENT_ID o GOOGLE_OAUTH_CLIENT_SECRET")
   }
-  return new google.auth.OAuth2(clientId, clientSecret, getOAuthRedirectUri())
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri || getOAuthRedirectUri())
 }
 
 export function getStoredRefreshToken() {
@@ -52,13 +53,49 @@ export function isDriveOAuthReady() {
   return Boolean(getStoredRefreshToken())
 }
 
-export function createDriveAuthUrl() {
-  const oauth = getOAuth2Client()
+export function createDriveAuthUrl(redirectUri?: string) {
+  const oauth = getOAuth2Client(redirectUri)
   return oauth.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: DRIVE_SCOPES,
   })
+}
+
+export type DriveAuthState = "ok" | "missing" | "invalid"
+
+function driveErrorText(error: unknown) {
+  if (!error || typeof error !== "object") return String(error ?? "")
+  const value = error as {
+    message?: string
+    response?: { data?: { error?: string; error_description?: string } }
+  }
+  return [value.message, value.response?.data?.error, value.response?.data?.error_description]
+    .filter(Boolean)
+    .join(" ")
+}
+
+export function driveAuthMessage(error: unknown) {
+  const text = driveErrorText(error)
+  if (/invalid_grant|invalid_rapt|expired|revoked/i.test(text)) {
+    return "El permiso de Google Drive venció o fue revocado. Entra a /conectar-drive con la cuenta dueña de la carpeta y vuelve a autorizar."
+  }
+  return quotaErrorMessage(text)
+}
+
+export async function probeDriveAuth(): Promise<DriveAuthState> {
+  const hasUser = Boolean(getStoredRefreshToken())
+  const hasService = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
+  if (!hasUser && !hasService) return "missing"
+  if (!hasUser) return "invalid"
+  try {
+    await getAccessToken()
+    return "ok"
+  } catch (error) {
+    const text = driveErrorText(error)
+    if (/invalid_grant|invalid_rapt|unauthorized|expired|revoked/i.test(text)) return "invalid"
+    return "invalid"
+  }
 }
 
 function getAuthClient() {
@@ -69,17 +106,9 @@ function getAuthClient() {
     return oauth
   }
 
-  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
-  if (clientEmail && privateKey) {
-    return new google.auth.JWT({
-      email: clientEmail,
-      key: privateKey,
-      scopes: ["https://www.googleapis.com/auth/drive"],
-    })
-  }
-
-  throw new Error("Google Drive no está conectado. Abre /conectar-drive con la cuenta dueña de la carpeta.")
+  throw new Error(
+    "Google Drive no está conectado con una cuenta de Gmail. En Vercel hace falta GOOGLE_DRIVE_REFRESH_TOKEN (después de autorizar en /conectar-drive). La cuenta de servicio no sirve: no tiene cuota en Drive personal.",
+  )
 }
 
 async function getAccessToken() {
@@ -93,8 +122,8 @@ async function getAccessToken() {
 }
 
 function quotaErrorMessage(detail: string) {
-  if (/storageQuotaExceeded|Service Accounts do not have storage quota|403/i.test(detail)) {
-    return "Google Drive rechazó la subida por cuota (403). La cuenta de servicio no tiene espacio en Drive personal. Conecta tu Gmail en /conectar-drive y vuelve a intentar."
+  if (/storageQuotaExceeded|Service Accounts do not have storage quota/i.test(detail)) {
+    return "La subida no usa tu Gmail, sino una cuenta de servicio (cuota 0, da igual si Drive está vacío). En Vercel configura GOOGLE_DRIVE_REFRESH_TOKEN tras autorizar en /conectar-drive y vuelve a intentar."
   }
   return detail
 }
@@ -157,6 +186,50 @@ export async function proxyDriveChunk(params: {
     },
     body: new Uint8Array(params.body),
   })
+}
+
+export async function uploadPublicDriveFile(params: {
+  name: string
+  mimeType: string
+  body: Buffer
+  parentFolderId?: string
+}) {
+  const drive = google.drive({ version: "v3", auth: getAuthClient() })
+  const uploaded = await drive.files.create({
+    requestBody: {
+      name: params.name,
+      parents: [params.parentFolderId || getFolderId()],
+      mimeType: params.mimeType,
+    },
+    media: {
+      mimeType: params.mimeType,
+      body: Readable.from(params.body),
+    },
+    fields: "id, webViewLink",
+    supportsAllDrives: true,
+  })
+  const fileId = uploaded.data.id
+  if (!fileId) {
+    throw new Error("Drive no devolvió el archivo")
+  }
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: { role: "reader", type: "anyone" },
+      supportsAllDrives: true,
+    })
+  } catch (error) {
+    console.warn("[google-drive] No se pudo hacer el archivo público con enlace:", error)
+  }
+  const published = await drive.files.get({
+    fileId,
+    fields: "webViewLink",
+    supportsAllDrives: true,
+  })
+  return {
+    fileId,
+    url: published.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+  }
 }
 
 export async function publishDriveFile(fileId: string) {

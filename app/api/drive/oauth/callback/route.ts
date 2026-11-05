@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const oauth = getOAuth2Client()
+    const oauth = getOAuth2Client(`${url.origin}/api/drive/oauth/callback`)
     const { tokens } = await oauth.getToken(code)
     if (!tokens.refresh_token) {
       return htmlResponse(
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 
     saveRefreshToken(tokens.refresh_token)
     return htmlResponse(
-      "Drive quedó conectado con tu Gmail. Ya puedes cerrar esta pestaña, reiniciar no es obligatorio, e intentar de nuevo la inscripción con archivo.",
+      `Drive quedó conectado con tu Gmail.<br/><br/>En el servidor local el token se guardó en el disco. En Vercel se pierde al reiniciar: copia esto en las variables de entorno como <code>GOOGLE_DRIVE_REFRESH_TOKEN</code> y vuelve a desplegar:<br/><textarea readonly style="width:100%;height:6rem;margin-top:0.75rem">${tokens.refresh_token}</textarea>`,
       true,
     )
   } catch (error) {
