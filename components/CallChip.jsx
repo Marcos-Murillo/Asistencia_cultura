@@ -41,7 +41,7 @@ export default function CallChip({
   showTimer = true,
   onRetry,
   className = '',
-  style
+  style = undefined
 }) {
   const rootRef = useRef(null);
   const fillRef = useRef(null);
