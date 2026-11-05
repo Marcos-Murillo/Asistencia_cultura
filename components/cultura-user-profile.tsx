@@ -63,6 +63,7 @@ import {
 import type { Area } from "@/lib/firebase-config"
 import { draftFromAnswers, emptyDraft, getEventQuestions, validateInscriptionAnswers, type InscriptionAnswerDraft } from "@/lib/inscription-form"
 import { InscriptionFormFields } from "@/components/inscription-form-fields"
+import CallChip from "@/components/CallChip"
 import { buildInscriptionAnswers } from "@/lib/submit-inscription-answers"
 import {
   ensureUserInArea,
@@ -183,6 +184,7 @@ export function CulturaUserProfile({
   const [formItem, setFormItem] = useState<AvailableEnrollment | null>(null)
   const [inscriptionDraft, setInscriptionDraft] = useState<Record<string, InscriptionAnswerDraft>>({})
   const [uploadStatus, setUploadStatus] = useState("")
+  const [submitChip, setSubmitChip] = useState<"idle" | "running" | "done" | "error">("idle")
   const [panel, setPanel] = useState<"cultura" | "deporte" | "fisioterapia">(initialArea)
   const [fisioLoading, setFisioLoading] = useState(false)
   const [fisioLoaded, setFisioLoaded] = useState(false)
@@ -476,6 +478,7 @@ export function CulturaUserProfile({
     const questions = item.tipo === "convocatoria" ? getEventQuestions({ inscriptionForm: item.inscriptionForm }) : []
     if (questions.length > 0 && formItem?.id !== item.id) {
       setFormItem(item)
+      setSubmitChip("idle")
       try {
         const targetUser = await resolveAreaUser()
         const existing = await getEventFormResponseForUser(areaActiva, item.id, targetUser.id)
@@ -488,12 +491,14 @@ export function CulturaUserProfile({
     if (questions.length > 0) {
       const formError = validateInscriptionAnswers(questions, inscriptionDraft)
       if (formError) {
+        setSubmitChip("error")
         toast({ title: "Formulario incompleto", description: formError, variant: "destructive" })
         return
       }
     }
 
     setEnrollingEventId(item.id)
+    setSubmitChip("running")
     setUploadStatus("")
     try {
       const targetUser = await resolveAreaUser()
@@ -523,11 +528,15 @@ export function CulturaUserProfile({
           ? `Se actualizaron tus respuestas de ${item.nombre}`
           : `Te inscribiste a ${item.nombre}`,
       })
+      setSubmitChip("done")
+      await new Promise((resolve) => setTimeout(resolve, 700))
       setFormItem(null)
+      setSubmitChip("idle")
       await loadProfileData()
       await loadAvailableEnrollments()
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "No se pudo completar la inscripción"
+      setSubmitChip("error")
       toast({ title: "Error", description: message, variant: "destructive" })
     } finally {
       setEnrollingEventId(null)
@@ -1226,18 +1235,41 @@ export function CulturaUserProfile({
                               onChange={setInscriptionDraft}
                               disabled={enrollingEventId === item.id}
                             />
-                            <Button
-                              size="sm"
-                              className="w-full bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
-                              disabled={enrollingEventId === item.id}
-                              onClick={() => handleEnrollEvent(item)}
-                            >
-                              {enrollingEventId === item.id
-                                ? uploadStatus || "Guardando..."
-                                : item.alreadyEnrolled
-                                  ? "Guardar cambios"
-                                  : "Enviar inscripción"}
-                            </Button>
+                            {submitChip === "idle" ? (
+                              <Button
+                                size="sm"
+                                className="w-full bg-lime-400 font-semibold text-zinc-950 hover:bg-lime-300"
+                                disabled={enrollingEventId === item.id}
+                                onClick={() => handleEnrollEvent(item)}
+                              >
+                                {item.alreadyEnrolled ? "Guardar cambios" : "Enviar inscripción"}
+                              </Button>
+                            ) : (
+                              <CallChip
+                                className="call-chip--block"
+                                icon={item.alreadyEnrolled ? "edit" : "file"}
+                                name={item.alreadyEnrolled ? "Guardar" : "Enviar"}
+                                argument={
+                                  submitChip === "running"
+                                    ? uploadStatus || "archivo"
+                                    : item.alreadyEnrolled
+                                      ? "cambios"
+                                      : "inscripción"
+                                }
+                                status={submitChip}
+                                expectedMs={8000}
+                                size={40}
+                                radius={8}
+                                color="#ecfccb"
+                                surfaceColor="#18181b"
+                                progressColor="#a3e635"
+                                progressOpacity={0.22}
+                                doneColor="#a3e635"
+                                errorColor="#f87171"
+                                washOpacity={0.22}
+                                onRetry={submitChip === "error" ? () => handleEnrollEvent(item) : undefined}
+                              />
+                            )}
                           </div>
                         )}
                       </div>
