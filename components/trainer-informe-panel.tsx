@@ -581,6 +581,7 @@ export function TrainerInformePanel({
               <div className="space-y-3">
                 {SECTIONS.map((item) => {
                   const ready = sectionReady(item.id, files, form, evidencias)
+                  const stored = item.id === "informe" ? undefined : files[item.id]
                   return (
                     <div key={item.id} className="rounded-2xl border p-3">
                       <div className="flex items-start justify-between gap-3">
@@ -601,8 +602,8 @@ export function TrainerInformePanel({
                           <Eye className="mr-1.5 h-3.5 w-3.5" />
                           Ver
                         </Button>
-                        {item.id !== "informe" && files[item.id] && (
-                          <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={() => downloadStored(files[item.id] as StoredReportFile)}>
+                        {stored && (
+                          <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={() => downloadStored(stored)}>
                             <Download className="mr-1.5 h-3.5 w-3.5" />
                             Descargar
                           </Button>
