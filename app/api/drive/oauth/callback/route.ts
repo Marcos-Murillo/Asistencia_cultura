@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getOAuth2Client, saveRefreshToken } from "@/lib/google-drive"
+import { getOAuth2Client, oauthCallbackUri, saveRefreshToken } from "@/lib/google-drive"
 
 export const runtime = "nodejs"
 
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const oauth = getOAuth2Client(`${url.origin}/api/drive/oauth/callback`)
+    const oauth = getOAuth2Client(oauthCallbackUri(request))
     const { tokens } = await oauth.getToken(code)
     if (!tokens.refresh_token) {
       return htmlResponse(

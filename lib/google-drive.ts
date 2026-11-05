@@ -23,6 +23,17 @@ function getOAuthRedirectUri() {
   return process.env.GOOGLE_OAUTH_REDIRECT_URI || "http://localhost:3000/api/drive/oauth/callback"
 }
 
+export function oauthCallbackUri(request: Request) {
+  const configured = process.env.GOOGLE_OAUTH_REDIRECT_URI?.trim()
+  if (configured) return configured.replace(/\/$/, "")
+
+  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+  if (host) return `${proto || "https"}://${host}/api/drive/oauth/callback`
+
+  return `${new URL(request.url).origin}/api/drive/oauth/callback`
+}
+
 export function getOAuth2Client(redirectUri?: string) {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET

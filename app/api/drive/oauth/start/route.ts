@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import { createDriveAuthUrl } from "@/lib/google-drive"
+import { createDriveAuthUrl, oauthCallbackUri } from "@/lib/google-drive"
 
 export const runtime = "nodejs"
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const url = createDriveAuthUrl()
+    const url = createDriveAuthUrl(oauthCallbackUri(request))
     return NextResponse.redirect(url)
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo iniciar OAuth"
