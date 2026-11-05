@@ -37,6 +37,7 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
+  FileText,
   Copy,
   Download,
   GitCompareArrows,
@@ -50,9 +51,11 @@ import {
 } from "@/lib/group-categories"
 import { SEDES, ESTAMENTOS } from "@/lib/data"
 import { saveAttendanceEntry as saveAttendanceEntryRouter, getGroupAttendanceStats, getGroupAttendanceUserIdsForDate, getGroupEnrolledUsersRouter } from "@/lib/db-router"
+import { resolveManagerSession } from "@/lib/auth"
 import type { UserProfile, GroupCategory } from "@/lib/types"
 import type { Area } from "@/lib/firebase-config"
 import { formatNombre, sortUsersByNombres, toLocalDateKey, parseLocalDateKey, isSameLocalDay } from "@/lib/utils"
+import { TrainerInformePanel } from "@/components/trainer-informe-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { GroupAttendanceReport } from "@/components/group-attendance-report"
 import { TrainerRequestDialog } from "@/components/fisioterapia/trainer-request-dialog"
@@ -112,46 +115,66 @@ export default function ManagerGroupPage() {
   const [misSolicitudes, setMisSolicitudes] = useState<FisioterapiaSolicitud[]>([])
   const [fisioContact, setFisioContact] = useState<FisioterapiaSolicitud | null>(null)
   const [managerTab, setManagerTab] = useState("gestion")
+  const [userRole, setUserRole] = useState("")
+  const [managerUserId, setManagerUserId] = useState("")
 
   useEffect(() => {
-    const userType = sessionStorage.getItem("userType")
-    const userRole = sessionStorage.getItem("userRole")
-    const assignedGroup = sessionStorage.getItem("grupoCultural")
-    const userArea = sessionStorage.getItem("userArea") as Area
-    const storedGroups = sessionStorage.getItem("allGroups")
+    let cancelled = false
 
-    console.log("[Manager] Checking authentication...")
-    console.log("[Manager] User type:", userType)
-    console.log("[Manager] User role:", userRole)
-    console.log("[Manager] Assigned group:", assignedGroup)
-    console.log("[Manager] User area:", userArea)
-    console.log("[Manager] Current group:", groupName)
+    const openPanel = async () => {
+      const userType = sessionStorage.getItem("userType")
+      const storedRole = sessionStorage.getItem("userRole")
+      const storedArea = sessionStorage.getItem("userArea")
+      const userId = sessionStorage.getItem("userId") || ""
+      const assignedGroup = sessionStorage.getItem("grupoCultural")
+      const storedGroups = sessionStorage.getItem("allGroups")
 
-    if (userType !== "manager" || (userRole !== "DIRECTOR" && userRole !== "MONITOR" && userRole !== "ENTRENADOR")) {
-      console.log("[Manager] Invalid user type or role, redirecting to login")
-      router.push("/login-manager")
-      return
-    }
-
-    // Cargar todos los grupos del entrenador
-    const groups: string[] = storedGroups ? JSON.parse(storedGroups) : (assignedGroup ? [assignedGroup] : [])
-    setAllGroups(groups)
-
-    // Verificar que el grupo actual sea uno de los asignados
-    if (!groups.includes(groupName)) {
-      console.log("[Manager] Group not in assigned list, redirecting to first group")
-      if (groups.length > 0) {
-        router.push(`/manager/${encodeURIComponent(groups[0])}`)
-      } else {
+      if (userType !== "manager" || !userId) {
         router.push("/login-manager")
+        return
       }
-      return
+
+      const resolved = await resolveManagerSession(userId, storedArea, storedRole)
+      if (cancelled) return
+
+      const userRole = resolved.role
+      console.log("[Manager] Perfil conectado:", resolved.area, userRole)
+
+      if (userRole !== "DIRECTOR" && userRole !== "MONITOR" && userRole !== "ENTRENADOR") {
+        router.push("/login-manager")
+        return
+      }
+
+      sessionStorage.setItem("userRole", userRole)
+      sessionStorage.setItem("userArea", resolved.area)
+
+      const groups: string[] = storedGroups ? JSON.parse(storedGroups) : (assignedGroup ? [assignedGroup] : [])
+      setAllGroups(groups)
+
+      if (!groups.includes(groupName)) {
+        if (groups.length > 0) {
+          router.push(`/manager/${encodeURIComponent(groups[0])}`)
+        } else {
+          router.push("/login-manager")
+        }
+        return
+      }
+
+      setArea(resolved.area)
+      setUserRole(userRole)
+      setManagerUserId(userId)
+      setManagerDisplayName(sessionStorage.getItem("userName") || "")
+      loadGroupData(resolved.area)
     }
 
-    const currentArea = userArea || "cultura"
-    setArea(currentArea)
-    setManagerDisplayName(sessionStorage.getItem("userName") || "")
-    loadGroupData(currentArea)
+    openPanel().catch((error) => {
+      console.error("[Manager] No se pudo conectar el perfil del encargado:", error)
+      if (!cancelled) router.push("/login-manager")
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [groupName, router])
 
   useEffect(() => {
@@ -530,12 +553,11 @@ export default function ManagerGroupPage() {
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{groupName}</h1>
             <p className="text-sm md:text-base text-gray-600 mt-1">
               {(() => {
-                const role = sessionStorage.getItem("userRole")
                 const name = sessionStorage.getItem("userName")
                 const roleLabel =
-                  role === "ENTRENADOR" ? "Entrenador" :
-                  role === "DIRECTOR" ? "Director" :
-                  role === "MONITOR" ? "Monitor" : role
+                  userRole === "ENTRENADOR" ? "Entrenador" :
+                  userRole === "DIRECTOR" ? "Director" :
+                  userRole === "MONITOR" ? "Monitor" : userRole
                 return `Bienvenido ${roleLabel} ${name}`
               })()}
             </p>
@@ -576,7 +598,13 @@ export default function ManagerGroupPage() {
           )}
 
           <Tabs value={managerTab} onValueChange={setManagerTab} className="w-full">
-            <TabsList className={`grid w-full h-auto p-1 ${area === "deporte" ? "max-w-2xl grid-cols-3" : "max-w-lg grid-cols-2"}`}>
+            <TabsList className={`grid w-full h-auto p-1 ${
+              userRole === "ENTRENADOR" && area === "deporte"
+                ? "max-w-4xl grid-cols-2 lg:grid-cols-4"
+                : userRole === "ENTRENADOR" || area === "deporte"
+                  ? "max-w-3xl grid-cols-2 lg:grid-cols-3"
+                  : "max-w-lg grid-cols-2"
+            }`}>
               <TabsTrigger value="gestion" className="py-2.5">
                 Gestión del grupo
               </TabsTrigger>
@@ -587,6 +615,12 @@ export default function ManagerGroupPage() {
               {area === "deporte" && (
                 <TabsTrigger value="fisioterapia" className="py-2.5">
                   Fisioterapia
+                </TabsTrigger>
+              )}
+              {userRole === "ENTRENADOR" && (
+                <TabsTrigger value="informe" className="gap-2 py-2.5">
+                  <FileText className="h-4 w-4 shrink-0" />
+                  Informe
                 </TabsTrigger>
               )}
             </TabsList>
@@ -1089,6 +1123,16 @@ export default function ManagerGroupPage() {
                   userId={fisioContact?.fisioterapeutaId}
                   fallbackName={fisioContact?.fisioterapeutaNombre}
                   roleLabel="fisioterapeuta"
+                />
+              </TabsContent>
+            )}
+            {userRole === "ENTRENADOR" && (
+              <TabsContent value="informe" className="mt-4 outline-none">
+                <TrainerInformePanel
+                  area={area}
+                  groupName={groupName}
+                  managerName={managerDisplayName}
+                  userId={managerUserId}
                 />
               </TabsContent>
             )}

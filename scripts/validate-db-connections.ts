@@ -20,7 +20,9 @@ import {
   validateEnvironmentVariables,
   getFirestoreForArea,
   initializeFirebaseApps,
+  getImagesFirestore,
 } from '../lib/firebase-config'
+import { pingImagesDatabase } from '../lib/image-links'
 import {
   getAllUsers,
   getAttendanceRecords,
@@ -67,6 +69,7 @@ async function validateEnvironment(): Promise<boolean> {
     logSuccess('All required environment variables are present')
     logInfo('  ✓ Cultura: 7 variables configured')
     logInfo('  ✓ Deporte: 7 variables configured')
+    logInfo('  ✓ Imágenes: 7 variables configured')
     return true
   } else {
     logError('Missing required environment variables:')
@@ -106,6 +109,23 @@ async function validateFirebaseInitialization(): Promise<boolean> {
       return false
     }
     logSuccess('Cultura and Deporte databases are separate instances')
+
+    const imagesDb = getImagesFirestore()
+    if (!imagesDb || imagesDb === culturaDb || imagesDb === deporteDb) {
+      logError('La base de imágenes no quedó separada de Cultura y Deporte')
+      return false
+    }
+    logSuccess('Base de imágenes inicializada en un proyecto aparte')
+    logInfo(`  Project ID: ${process.env.NEXT_PUBLIC_FIREBASE_IMAGENES_PROJECT_ID}`)
+    logInfo(`  App: ${imagesDb.app.name}`)
+
+    const imagesPing = await pingImagesDatabase()
+    const expectedImagesProject = process.env.NEXT_PUBLIC_FIREBASE_IMAGENES_PROJECT_ID
+    if (!imagesPing.reachable || imagesPing.projectId !== expectedImagesProject) {
+      logError(`No se pudo leer la base de imágenes (project: ${imagesPing.projectId || 'desconocido'})`)
+      return false
+    }
+    logSuccess('Lectura de la base de imágenes correcta')
     
     return true
   } catch (error) {

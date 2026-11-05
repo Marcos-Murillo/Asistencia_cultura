@@ -2,6 +2,7 @@ import { collection, doc, getDoc, getDocs, setDoc, query, where, updateDoc, dele
 import { db } from "./firebase"
 import { getFirestoreForArea, type Area } from './firebase-config'
 import type { AdminUser, GroupManager, UserProfile, UserRole } from "./types"
+import { canonicalManagerRole } from "./role-manager"
 
 const ADMIN_USERS_COLLECTION = "admin_users"
 const GROUP_MANAGERS_COLLECTION = "group_managers"
@@ -445,9 +446,12 @@ export async function verifyGroupManager(
     let sawManagerRole = false
 
     for (const profile of ranked) {
-      const rol = normalizeRole(profile.data.rol)
+      const rol = canonicalManagerRole(area, normalizeRole(profile.data.rol))
       if (!MANAGER_ROLES.has(rol)) continue
       sawManagerRole = true
+      if (rol !== normalizeRole(profile.data.rol)) {
+        await updateDoc(doc(db, USERS_COLLECTION, profile.id), { rol })
+      }
 
       const allGroups = await getAssignedGroupsForUser(
         db,
@@ -484,6 +488,50 @@ export async function verifyGroupManager(
 export type GroupManagerAnyAreaResult =
   | GroupManagerAuthResult
   | { error: string; reason: GroupManagerAuthFailureReason }
+
+function asArea(value: string | null): Area | null {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "deporte" || normalized === "cultura") return normalized
+  return null
+}
+
+/**
+ * El panel del encargado debe seguir la base donde vive el perfil.
+ * Un director guardado en deporte es entrenador, aunque la sesión diga otra cosa.
+ */
+export async function resolveManagerSession(
+  userId: string,
+  sessionAreaValue: string | null,
+  sessionRole: string | null,
+): Promise<{ area: Area; role: string }> {
+  const hinted = asArea(sessionAreaValue)
+  const order: Area[] = hinted ? [hinted, hinted === "deporte" ? "cultura" : "deporte"] : ["deporte", "cultura"]
+
+  for (const area of order) {
+    try {
+      const db = getFirestoreForArea(area)
+      const snap = await getDoc(doc(db, USERS_COLLECTION, userId))
+      if (!snap.exists()) continue
+
+      const stored = normalizeRole(snap.data().rol)
+      const role = canonicalManagerRole(area, stored || sessionRole || "")
+      if (!MANAGER_ROLES.has(role)) continue
+
+      if (stored !== role) {
+        await updateDoc(doc(db, USERS_COLLECTION, userId), { rol: role })
+      }
+      return { area, role }
+    } catch (error) {
+      console.error("[auth] No se pudo leer el perfil del encargado en", area, error)
+    }
+  }
+
+  const fallbackArea = hinted || "cultura"
+  return {
+    area: fallbackArea,
+    role: canonicalManagerRole(fallbackArea, sessionRole),
+  }
+}
 
 export async function verifyGroupManagerAnyArea(
   numeroDocumento: string,

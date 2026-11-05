@@ -44,6 +44,7 @@ import {
 } from "lucide-react"
 import { TorneoInscripcionDialog } from "@/components/torneo-inscripcion-dialog"
 import { TorneosUsuarioSection } from "@/components/torneos-usuario-section"
+import { ReservarEscenarioForm, ReservasEscenarioHistorial } from "@/components/reservar-escenario-panel"
 import {
   enrollUserToGroup,
   getActiveEvents,
@@ -186,6 +187,8 @@ export function CulturaUserProfile({
   const [uploadStatus, setUploadStatus] = useState("")
   const [submitChip, setSubmitChip] = useState<"idle" | "running" | "done" | "error">("idle")
   const [panel, setPanel] = useState<"cultura" | "deporte" | "fisioterapia">(initialArea)
+  const [showReservaForm, setShowReservaForm] = useState(false)
+  const [reservaRefresh, setReservaRefresh] = useState(0)
   const [fisioLoading, setFisioLoading] = useState(false)
   const [fisioLoaded, setFisioLoaded] = useState(false)
   const [fisioBitacora, setFisioBitacora] = useState<FisioterapiaBitacora[]>([])
@@ -603,6 +606,7 @@ export function CulturaUserProfile({
                     onClick={() => {
                       setAreaActiva("cultura")
                       setPanel("cultura")
+                      setShowReservaForm(false)
                     }}
                   >
                     Cultura
@@ -630,7 +634,10 @@ export function CulturaUserProfile({
                         ? "bg-sky-500 text-white"
                         : "text-zinc-400 hover:text-white",
                     )}
-                    onClick={() => setPanel("fisioterapia")}
+                    onClick={() => {
+                      setPanel("fisioterapia")
+                      setShowReservaForm(false)
+                    }}
                   >
                     Fisio
                   </button>
@@ -726,6 +733,15 @@ export function CulturaUserProfile({
                   <Megaphone className="mr-2 h-4 w-4" />
                   Inscribirme a convocatoria o evento
                 </DropdownMenuItem>
+                {panel === "deporte" && (
+                  <DropdownMenuItem
+                    className="focus:bg-zinc-800 focus:text-white"
+                    onClick={() => handleTutorialMenuAction(() => setShowReservaForm(true))}
+                  >
+                    <MapPin className="mr-2 h-4 w-4" />
+                    Reservar escenario
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator className="bg-zinc-800" />
                 <DropdownMenuItem
                   className="text-red-400 focus:bg-zinc-800 focus:text-red-300"
@@ -863,7 +879,30 @@ export function CulturaUserProfile({
           <div className="flex h-32 sm:h-40 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-lime-400 border-t-transparent" />
           </div>
+        ) : showReservaForm && panel === "deporte" ? (
+          <ReservarEscenarioForm
+            solicitante={{
+              id: (identity.deporte ?? user).id,
+              nombres: user.nombres,
+              correo: user.correo,
+              numeroDocumento: user.numeroDocumento,
+              codigoEstudiantil: (identity.deporte ?? user).codigoEstudiantil,
+              estamento: user.estamento,
+              facultad: user.facultad,
+              programaAcademico: user.programaAcademico,
+              telefono: user.telefono,
+            }}
+            onCancel={() => setShowReservaForm(false)}
+            onCreated={() => {
+              setReservaRefresh((n) => n + 1)
+              setShowReservaForm(false)
+            }}
+          />
         ) : (
+          <>
+          {panel === "deporte" && (
+            <ReservasEscenarioHistorial documento={user.numeroDocumento} refreshKey={reservaRefresh} />
+          )}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8 lg:items-start">
             {/* Groups section */}
             <section>
@@ -1009,6 +1048,7 @@ export function CulturaUserProfile({
               )}
             </div>
           </div>
+          </>
         )}
       </div>
 
@@ -1247,6 +1287,7 @@ export function CulturaUserProfile({
                             ) : (
                               <CallChip
                                 className="call-chip--block"
+                                style={{}}
                                 icon={item.alreadyEnrolled ? "edit" : "file"}
                                 name={item.alreadyEnrolled ? "Guardar" : "Enviar"}
                                 argument={

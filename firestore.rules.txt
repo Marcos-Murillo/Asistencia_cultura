@@ -102,6 +102,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /informes_entrenador/{id} {
+      allow read, write: if true;
+    }
+
     // Cualquier otra colección (incluye formularios y las que se creen después)
     match /{document=**} {
       allow read, write: if true;

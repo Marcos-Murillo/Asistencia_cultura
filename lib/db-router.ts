@@ -16,6 +16,7 @@ import type {
 } from "./types"
 import { sanitizeInscriptionForm } from "./inscription-form"
 import { sortUsersByNombres, toLocalDateKey, isSameLocalDay } from "./utils"
+import { canonicalManagerRole } from "./role-manager"
 
 // CulturalGroup interface (from firestore.ts)
 export interface CulturalGroup {
@@ -1330,16 +1331,33 @@ export async function updateUserRole(
     const db = getFirestoreForArea(area)
     const userRef = doc(db, USERS_COLLECTION, userId)
     
-    console.log("[db-router] Updating user role in area:", area, "User:", userId, "New role:", role)
+    const storedRole = canonicalManagerRole(area, role)
+    console.log("[db-router] Updating user role in area:", area, "User:", userId, "New role:", storedRole)
     await updateDoc(userRef, {
-      rol: role,
-      esFisioterapeutaEncargado: role === "FISIOTERAPEUTA" ? Boolean(extras?.esFisioterapeutaEncargado) : false,
+      rol: storedRole,
+      esFisioterapeutaEncargado: storedRole === "FISIOTERAPEUTA" ? Boolean(extras?.esFisioterapeutaEncargado) : false,
     })
     console.log("[db-router] User role updated successfully")
   } catch (error) {
     console.error("[db-router] Error updating user role:", error)
     throw error
   }
+}
+
+/** Corrige directores guardados en deporte y entrenadores guardados en cultura. */
+export async function repairManagerRoles(area: Area): Promise<number> {
+  validateAreaSpecified(area)
+  const wrongRole = area === "deporte" ? "DIRECTOR" : "ENTRENADOR"
+  const rightRole = canonicalManagerRole(area, wrongRole)
+  if (rightRole === wrongRole) return 0
+
+  const db = getFirestoreForArea(area)
+  const snapshot = await getDocs(query(collection(db, USERS_COLLECTION), where("rol", "==", wrongRole)))
+  await Promise.all(snapshot.docs.map((userDoc) => updateDoc(userDoc.ref, { rol: rightRole })))
+  if (snapshot.size > 0) {
+    console.log(`[db-router] ${snapshot.size} roles ${wrongRole} corregidos a ${rightRole} en ${area}`)
+  }
+  return snapshot.size
 }
 
 // Delete user (area-aware)

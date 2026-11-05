@@ -517,6 +517,31 @@ export interface FisioterapiaBitacora {
   updatedAt: Date
 }
 
+/** Enlace entre una imagen guardada como texto o URL y un usuario o grupo de otra base. */
+export type ImagePurpose = "avatar" | "asistencia"
+export type ImageStorageKind = "texto" | "enlace"
+
+export interface ImageLink {
+  id: string
+  purpose: ImagePurpose
+  area: "cultura" | "deporte"
+  userId: string
+  grupoCultural: string | null
+  attendanceId: string | null
+  /** `${area}__${userId}` para localizar imágenes de un usuario sin cruzar bases. */
+  userKey: string
+  /** `${area}__${grupoCultural}` cuando la imagen pertenece a un grupo. */
+  groupKey: string | null
+  /** `texto` es una imagen reducida en el documento. `enlace` es solo una URL. */
+  imageKind: ImageStorageKind
+  image: string
+  contentType: string
+  size: number
+  fileName: string
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface FisioterapiaSeguimiento {
   id: string
   bitacoraId: string

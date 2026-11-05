@@ -33,7 +33,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Users, Eye, Music, MoreVertical, UserPlus, CheckCircle, AlertTriangle, X, Search, Edit, Trash, Plus } from "lucide-react"
 import Link from "next/link"
 import { getAllGroupsWithEnrollments, getAllCulturalGroups, migrateExistingGroupsToCollection, cleanDuplicateEnrollments, migrateEnrollmentsToCompositeIds } from "@/lib/firestore"
-import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllGroupEnrollments, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, type CulturalGroup } from "@/lib/db-router"
+import { getAllCulturalGroups as getAllCulturalGroupsRouter, getGroupsWithEnrollmentCounts, getAllGroupEnrollments, getAllUsers as getAllUsersRouter, assignGroupManager, getGroupManagers, removeGroupManager, createCulturalGroup, updateCulturalGroupName, deleteCulturalGroup, repairManagerRoles, type CulturalGroup } from "@/lib/db-router"
 
 import type { GroupWithEnrollments, UserProfile, GroupManager, UserRole } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
@@ -215,10 +215,11 @@ export default function GruposPage() {
     // En deporte: ENTRENADOR y MONITOR pueden tener múltiples grupos
     // En cultura: DIRECTOR y MONITOR (un grupo cada uno)
     try {
+      await repairManagerRoles(area)
       const allUsers = await getAllUsersRouter(area)
       const managers = allUsers.filter(u =>
-        area === 'deporte'
-          ? u.rol === "ENTRENADOR" || u.rol === "MONITOR"
+        area === "deporte"
+          ? u.rol === "ENTRENADOR" || u.rol === "DIRECTOR" || u.rol === "MONITOR"
           : u.rol === "DIRECTOR" || u.rol === "MONITOR"
       )
       setAvailableManagers(sortUsersByNombres(managers))

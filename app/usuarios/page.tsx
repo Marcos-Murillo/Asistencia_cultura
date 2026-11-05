@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import DeleteUserDialog from "@/components/delete-user-dialog"
-import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager, updateUserProfile as updateUserProfileRouter, getUserEventEnrollments as getUserEventEnrollmentsRouter, getUserRealEventEnrollments, getEventByIdRouter, getRealEventByIdRouter, getAttendanceRecords as getAttendanceRecordsRouter, removeUserFromGroup as removeUserFromGroupRouter } from "@/lib/db-router"
+import { getAllUsers as getAllUsersRouter, deleteUser as deleteUserRouter, updateUserRole as updateUserRoleRouter, getUserEnrollments as getUserEnrollmentsRouter, assignGroupManager, removeGroupManager, updateUserProfile as updateUserProfileRouter, getUserEventEnrollments as getUserEventEnrollmentsRouter, getUserRealEventEnrollments, getEventByIdRouter, getRealEventByIdRouter, getAttendanceRecords as getAttendanceRecordsRouter, removeUserFromGroup as removeUserFromGroupRouter, repairManagerRoles } from "@/lib/db-router"
 import { getCurrentUserRole, isSuperAdmin as checkIsSuperAdmin, isAdmin as checkIsAdmin, getAssignedGroups } from "@/lib/auth-helpers"
 import { getAllCulturalGroups as getAllCulturalGroupsRouter } from "@/lib/db-router"
 import { db } from "@/lib/firebase"
@@ -38,7 +38,7 @@ import { getFirestoreForArea } from "@/lib/firebase-config"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import type { UserProfile, GroupEnrollment, AttendanceRecord, UserRole, GroupManager } from "@/lib/types"
 import { useArea } from "@/contexts/area-context"
-import { getRolePermissions, filterStudentsByAssignment, type RolePermissions } from "@/lib/role-manager"
+import { getRolePermissions, filterStudentsByAssignment, canonicalManagerRole, type RolePermissions } from "@/lib/role-manager"
 import { formatNombre, sortUsersByNombres } from "@/lib/utils"
 import { 
   Users, 
@@ -135,6 +135,7 @@ export default function UsuariosPage() {
       console.log("[Usuarios] Current area:", area)
       console.log("[Usuarios] Timestamp:", new Date().toISOString())
       
+      await repairManagerRoles(area)
       const usersList = await getAllUsersRouter(area)
       console.log("[Usuarios] ✓ Loaded", usersList.length, "users from database")
       console.log("[Usuarios] Users with area field:", usersList.filter(u => u.area).length)
@@ -353,7 +354,7 @@ export default function UsuariosPage() {
       return
     }
     setUserToAssignRole(user)
-    setSelectedRole(user.rol || "ESTUDIANTE")
+    setSelectedRole((canonicalManagerRole(area, user.rol) || "ESTUDIANTE") as UserRole)
     setEsFisioEncargado(Boolean(user.esFisioterapeutaEncargado))
     setRoleDialogOpen(true)
   }
@@ -366,7 +367,7 @@ export default function UsuariosPage() {
       await updateUserRoleRouter(area, userToAssignRole.id, selectedRole, {
         esFisioterapeutaEncargado: selectedRole === "FISIOTERAPEUTA" && esFisioEncargado,
       })
-      setSuccess(`Rol actualizado a ${selectedRole}${selectedRole === "FISIOTERAPEUTA" && esFisioEncargado ? " (encargado)" : ""} exitosamente`)
+      setSuccess(`Rol actualizado a ${roleLabel(selectedRole as UserProfile["rol"])}${selectedRole === "FISIOTERAPEUTA" && esFisioEncargado ? " (encargado)" : ""} exitosamente`)
       await loadUsers()
       setRoleDialogOpen(false)
       setTimeout(() => setSuccess(null), 3000)
@@ -1398,7 +1399,11 @@ export default function UsuariosPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ESTUDIANTE">Estudiante</SelectItem>
-                      <SelectItem value="DIRECTOR">{area === 'deporte' ? 'Entrenador' : 'Director'}</SelectItem>
+                      {area === "deporte" ? (
+                        <SelectItem value="ENTRENADOR">Entrenador</SelectItem>
+                      ) : (
+                        <SelectItem value="DIRECTOR">Director</SelectItem>
+                      )}
                       <SelectItem value="MONITOR">Monitor</SelectItem>
                       {area === "deporte" && (
                         <SelectItem value="FISIOTERAPEUTA">Fisioterapeuta</SelectItem>

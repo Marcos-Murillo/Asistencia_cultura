@@ -35,12 +35,20 @@ export interface RolePermissions {
  * const permissions = getRolePermissions('SUPER_ADMIN', 'cultura')
  * ```
  */
+/** Entrenador solo existe en deporte. Director solo existe en cultura. */
+export function canonicalManagerRole(area: Area, rol: string | undefined | null): string {
+  const normalized = String(rol ?? "").trim().toUpperCase()
+  if (area === "deporte" && normalized === "DIRECTOR") return "ENTRENADOR"
+  if (area === "cultura" && normalized === "ENTRENADOR") return "DIRECTOR"
+  return normalized
+}
+
 export function getRolePermissions(
   userRole: UserRole,
   area: Area,
   assignedGroups: string[] = []
 ): RolePermissions {
-  switch (userRole) {
+  switch (canonicalManagerRole(area, userRole) as UserRole) {
     case 'SUPER_ADMIN':
       return {
         canViewAllGroups: true,
