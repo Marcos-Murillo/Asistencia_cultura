@@ -1,0 +1,222 @@
+import type { Sede } from "./sede"
+
+export type { Sede } from "./sede"
+
+export type UserRole = "superadmin" | "admin" | "monitor" | "encargado"
+export type Espacio = "gimnasio" | "guardarropas" | "piscina" | "tenis_mesa"
+
+export interface SystemUser {
+  id: string
+  nombre: string
+  cedula: string
+  passwordHash: string
+  rol: UserRole
+  espacio?: Espacio
+  /** Sede del staff; define a qué campus pertenecen sus registros. */
+  sede?: Sede
+  creadoPor: string
+  fechaCreacion: string
+  activo: boolean
+}
+
+export interface UserProfile {
+  id: string
+  nombres: string
+  correo: string
+  genero: string
+  tipoDocumento: string
+  numeroDocumento: string
+  edad: number
+  telefono: string
+  estamento: string
+  facultad: string
+  programaAcademico: string
+  codigoEstudiantil?: string
+  fechaRegistro: string
+  activo: boolean
+}
+
+export interface BiometricData {
+  id: string
+  usuarioId: string
+  sede?: Sede
+  fecha: string
+  altura: number // en cm
+  peso: number // en kg
+  grasaCorporal: number // porcentaje
+  masaMuscular: number // porcentaje
+  imc: number // índice de masa corporal
+  circunferenciaCintura: number // en cm
+  circunferenciaCadera: number // en cm
+  frecuenciaCardiacaReposo: number // bpm
+  notas: string
+}
+
+export interface EntryRecord {
+  id: string
+  usuarioId: string
+  fecha: string
+  hora: string
+  instalacion: "gimnasio" | "piscina"
+  sede?: Sede
+}
+
+export interface FormData {
+  nombres: string
+  correo: string
+  genero: string
+  tipoDocumento: string
+  numeroDocumento: string
+  edad: string
+  telefono: string
+  estamento: string
+  facultad: string
+  programaAcademico: string
+  codigoEstudiantil: string
+}
+
+export interface LockerRecord {
+  id: string
+  casillero: string
+  token: string
+  usuarioId: string
+  fechaIngreso: string
+  horaIngreso: string
+  estado: "ocupado" | "libre"
+  sede?: Sede
+  motivoLiberacion?: string
+  fechaLiberacion?: string
+}
+
+export interface AttendanceRecord {
+  id: string
+  monitorId: string
+  monitorNombre: string
+  espacio: string
+  sede?: Sede
+  fecha: string
+  horaEntrada: string
+  horaSalida?: string
+  duracionMinutos?: number
+  latitud?: number
+  longitud?: number
+  precisionMetros?: number
+  latitudSalida?: number
+  longitudSalida?: number
+  precisionSalidaMetros?: number
+}
+
+/** Registro público de control de acceso (cédula/código + mesa). */
+export interface TableTennisAccess {
+  id: string
+  usuarioId: string
+  usuarioNombre: string
+  usuarioDocumento: string
+  mesa: number
+  sede?: Sede
+  fecha: string
+  hora: string
+}
+
+export type TableTennisInventoryMode = "fixed" | "dynamic"
+
+export type SfPaddleStatus = "disponible" | "prestada" | "danada"
+
+export interface SfTableTennisTable {
+  id: string
+  sede: Sede
+  numero: number
+  activo: boolean
+}
+
+export interface SfTableTennisPaddle {
+  id: string
+  sede: Sede
+  tableId: string
+  mesaNumero: number
+  serial: string
+  estado: SfPaddleStatus
+}
+
+export interface TableTennisLoan {
+  id: string
+  mesa: number
+  raqueta1: number
+  raqueta2: number
+  usuarioId: string
+  usuarioNombre: string
+  usuarioDocumento: string
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  estado: "activo" | "devuelto" | "vencido"
+  sede?: Sede
+  monitorId?: string
+  monitorNombre?: string
+  devueltoAt?: string
+  /** Meléndez: fijo. San Fernando: inventario dinámico. */
+  inventoryMode?: TableTennisInventoryMode
+  /** SF: IDs y series de raquetas prestadas (1–4). */
+  paddleIds?: string[]
+  paddleSerials?: string[]
+  /** SF: raquetas ya devueltas en préstamo parcial. */
+  returnedPaddleIds?: string[]
+  /** Campos legacy (préstamos con dos usuarios). */
+  usuario1Id?: string
+  usuario2Id?: string
+  usuario1Nombre?: string
+  usuario2Nombre?: string
+  usuario1Documento?: string
+  usuario2Documento?: string
+}
+
+export interface TableTennisReport {
+  id: string
+  loanId: string
+  sede?: Sede
+  mesa: number
+  raqueta1: number
+  raqueta2: number
+  usuarioNombre: string
+  usuarioDocumento: string
+  fecha: string
+  horaInicio: string
+  horaFin: string
+  fechaReporte: string
+  horaReporte: string
+  generadoPor?: string
+  /** SF: daño por raqueta (serie). */
+  paddleId?: string
+  paddleSerial?: string
+  damageDescription?: string
+  usuario1Nombre?: string
+  usuario2Nombre?: string
+  usuario1Documento?: string
+  usuario2Documento?: string
+}
+
+export type TableTennisHistoryEntry =
+  | ({ tipo: "acceso" } & TableTennisAccess)
+  | ({ tipo: "prestamo" } & TableTennisLoan)
+
+export interface AttendanceStats {
+  totalUsuarios: number
+  totalEntradas: number
+  totalGimnasio: number
+  totalPiscina: number
+  totalTenisMesa?: number
+  reportesTenisMesa?: number
+  prestamosActivosTenis?: number
+  usuariosUnicos?: number
+  usuariosUnicosGimnasio?: number
+  usuariosUnicosPiscina?: number
+  usuariosUnicosTenisMesa?: number
+  mesaMasUsada?: number
+  usosMesaMasUsada?: number
+  porGenero: Record<string, number>
+  porEstamento: Record<string, number>
+  porFacultad: Record<string, number>
+  porPrograma: Record<string, number>
+  entradasPorDia: { fecha: string; cantidad: number }[]
+  entradasPorHora: { hora: string; cantidad: number }[]
+}

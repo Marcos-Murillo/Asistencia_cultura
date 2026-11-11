@@ -41,3 +41,7 @@ grand-aileron-*.json
 next-env.d.ts
 
 scripts/audit-participant-documents.report.json
+
+# gym_cdu local deps / build
+gym_cdu/node_modules/
+gym_cdu/.next/
